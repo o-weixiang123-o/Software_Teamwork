@@ -94,6 +94,18 @@ type MCPToolCallResult struct {
 	Warnings       []string                  `json:"warnings,omitempty"`
 }
 
+func (r MCPToolCallResult) IsFailed() bool {
+	return r.Status == documentMCPToolResultFailed
+}
+
+func (r MCPToolCallResult) IsAccepted() bool {
+	return r.Status == documentMCPToolResultAccepted
+}
+
+func (r MCPToolCallResult) IsSucceeded() bool {
+	return r.Status == documentMCPToolResultSucceeded
+}
+
 type MCPToolError struct {
 	Code    string            `json:"code"`
 	Message string            `json:"message"`

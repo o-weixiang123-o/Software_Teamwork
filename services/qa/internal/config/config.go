@@ -53,6 +53,11 @@ type Config struct {
 	MCPServerTokenHeader string
 	MCPToolTimeout       time.Duration
 
+	DocumentMCPEnabled        bool
+	DocumentMCPServerURL      string
+	DocumentMCPServerToken    string
+	DocumentMCPTokenHeader    string
+
 	SystemPrompt             string
 	MaxIterations            int
 	MaxToolResultBytes       int
@@ -167,6 +172,12 @@ func Load() (Config, error) {
 	if cfg.AIGatewayStream, err = boolEnv("AI_GATEWAY_STREAM", false); err != nil {
 		return Config{}, err
 	}
+	if cfg.DocumentMCPEnabled, err = boolEnv("QA_DOCUMENT_MCP_ENABLED", false); err != nil {
+		return Config{}, err
+	}
+	cfg.DocumentMCPServerURL = envOr("DOCUMENT_MCP_SERVER_URL", "http://localhost:8085/mcp/v1")
+	cfg.DocumentMCPServerToken = os.Getenv("DOCUMENT_MCP_SERVER_TOKEN")
+	cfg.DocumentMCPTokenHeader = envOr("DOCUMENT_MCP_SERVER_TOKEN_HEADER", "Authorization")
 
 	if raw := strings.TrimSpace(os.Getenv("MCP_SERVER_ARGS_JSON")); raw != "" {
 		if err := json.Unmarshal([]byte(raw), &cfg.MCPServerArgs); err != nil {

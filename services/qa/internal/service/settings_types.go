@@ -259,9 +259,10 @@ type RuntimeConfiguration struct {
 }
 
 type BootstrapSettings struct {
-	LLM          RuntimeLLMConfig
-	SystemPrompt string
-	MCPServer    *RuntimeMCPConfig
+	LLM            RuntimeLLMConfig
+	SystemPrompt   string
+	MCPServer      *RuntimeMCPConfig
+	DocumentMCPServer *RuntimeMCPConfig
 }
 
 type AuditLog struct {

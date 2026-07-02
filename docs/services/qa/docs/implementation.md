@@ -27,11 +27,11 @@
 | 项目 | 状态 | 说明 |
 | --- | --- | --- |
 | 文档状态 | active | README、数据模型、公开设计 OpenAPI 和服务内部 OpenAPI 存在。 |
-| 代码状态 | partial | Go service、PostgreSQL repository、QA sessions/messages/SSE heartbeat/replay、资源查询、settings、MCP/model tooling、ResponseRun Agent Loop、function-calling adapter 和 QA -> AI Gateway env-gated smoke 已实现。 |
-| 契约对齐 | partial | Gateway 25 个 QA active operations 均有 proxy route；QA 内部 routes 也注册，模型调用通过 AI Gateway chat completions；Knowledge `knowledge-queries` 已落地，且已有 env-gated Gateway -> Knowledge -> QA RAG 最小 smoke；完整 #125/MCP/前端跨服务闭环仍未证明。 |
+| 代码状态 | partial | Go service、PostgreSQL repository、QA sessions/messages/SSE heartbeat/replay、资源查询、settings、MCP/model tooling、ResponseRun Agent Loop、function-calling adapter 和 QA -> AI Gateway env-gated smoke 已实现。Document MCP server 端点已在 Document 服务中添加，QA 侧已支持 env bootstrap 注册 alias=document 的 MCP server。 |
+| 契约对齐 | partial | Gateway 25 个 QA active operations 均有 proxy route；QA 内部 routes 也注册，模型调用通过 AI Gateway chat completions；Knowledge `knowledge-queries` 已落地，Document MCP 工具已注册；完整 #125/MCP/前端跨服务闭环仍未证明。 |
 | 数据持久化 | postgres | runtime 使用 PostgreSQL；配置 secret 使用本地加密 key。 |
-| 测试状态 | covered / partial | 单元测试覆盖 service、repository mapping、HTTP、MCP/model/local tools、SSE/tool/citation 安全边界；QA -> AI Gateway chat 已有 env-gated smoke，Gateway -> Knowledge -> QA RAG smoke 已覆盖最小 answer/citation 链路；真实 provider 运行证据和完整 #125 E2E 仍需显式环境。 |
-| 建议动作 | 补联调 / 回写文档 | 将 #304 opt-in RAG smoke 作为 Knowledge/QA 契约约束保留；继续在受控或真实 provider 环境补 QA + Knowledge 与 Gateway/Auth 完整联调。 |
+| 测试状态 | covered / partial | 单元测试覆盖 service、repository mapping、HTTP、MCP/model/local tools、SSE/tool/citation 安全边界；QA -> AI Gateway chat 和 QA -> Document MCP 已有 env-gated smoke，Gateway -> Knowledge -> QA RAG smoke 已覆盖最小 answer/citation 链路；真实 provider 运行证据和完整 #125 E2E 仍需显式环境。 |
+| 建议动作 | 补联调 / 回写文档 | 将 #304 opt-in RAG smoke 作为 Knowledge/QA 契约约束保留；在受控或真实 provider 环境按需运行 QA -> AI Gateway 和 QA -> Document MCP smoke；继续补 QA + Knowledge + Document 与 Gateway/Auth 完整联调。 |
 
 ## 3. 已实现
 
@@ -126,9 +126,11 @@
 | 任务 | 类型 | 优先级 | 依据 | 说明 |
 | --- | --- | --- | --- | --- |
 | 将 QA -> AI Gateway smoke 接入受控集成环境 | 后续任务 | P1 | #288 env-gated smoke | 当前入口默认 skip；待共享 provider fixture/CI secret 策略稳定后再升级为受控集成 job。 |
+| 将 QA -> Document MCP smoke 接入受控集成环境 | 后续任务 | P1 | B-017 env-gated smoke | 当前入口默认 skip；待 Document MCP server 与 Gateway/Auth 联调环境稳定后再升级为受控集成 job。 |
 | 扩展 QA + Knowledge + AI Gateway retrieval 联调 | 后续任务 | P0 | #304 已补最小 smoke；仍缺更完整场景 | 覆盖 no result、dependency_error、真实 provider/rerank trace、citation snapshot/detail/batch query 和 SSE replay。 |
+| 补 QA -> Document MCP 端到端 smoke | 新任务 | P0 | B-017 | 覆盖最小报告生成闭环：创建/接受 outline 或 content job -> `document__get_generation_status` ->（可选）`document__export_report_docx` -> SSE `tool.completed` 携带 `reportArtifact`。 |
 | 补 citation snapshot/detail/batch query | 新任务 | P0 | #93 / #325 | 不把现有 tool-call/resource 摘要误写成完整 citation API。 |
-| 补完整 QA + Knowledge + Gateway E2E smoke | 新任务 | P0 | 单服务 fake-backed 测试不能替代跨服务验收 | 覆盖 Auth/Gateway/Knowledge/AI Gateway provider fixture 和 QA SSE replay。 |
+| 补完整 QA + Knowledge + Document + Gateway E2E smoke | 新任务 | P0 | 单服务 fake-backed 测试不能替代跨服务验收 | 覆盖 Auth/Gateway/Knowledge/Document/AI Gateway provider fixture 和 QA SSE replay。 |
 
 ## 11. 最近检查记录
 

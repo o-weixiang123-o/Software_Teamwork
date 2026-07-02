@@ -60,6 +60,16 @@ func main() {
 			TokenHeader: cfg.MCPServerTokenHeader, ToolTimeout: cfg.MCPToolTimeout,
 		}
 	}
+	if cfg.DocumentMCPEnabled {
+		bootstrap.DocumentMCPServer = &service.RuntimeMCPConfig{
+			Alias:       "document",
+			Transport:   config.TransportStreamableHTTP,
+			EndpointURL: cfg.DocumentMCPServerURL,
+			Token:       cfg.DocumentMCPServerToken,
+			TokenHeader: cfg.DocumentMCPTokenHeader,
+			ToolTimeout: cfg.MCPToolTimeout,
+		}
+	}
 	tester := connectiontest.Tester{}
 	settingsService, err := service.NewConfigService(repo, cipher, bootstrap, tester, tester)
 	if err != nil {

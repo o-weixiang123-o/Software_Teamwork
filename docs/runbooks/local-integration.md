@@ -282,6 +282,70 @@ go test ./internal/integration -run '^TestGatewayKnowledgeOwnerRouteSmoke$' -cou
 - Gateway Knowledge route 返回 `502`：Knowledge owner route 或 service token 配置异常；
   查 `docker compose logs gateway knowledge` 并用相同 `X-Request-Id` 搜索。
 
+### QA -> Document MCP smoke
+
+该 smoke 是 Issue B-017 的最小 Document MCP 验收样例。它验证 QA 服务能够通过
+`streamable_http` transport 连接到 Document MCP server，并成功执行 `tools/list`。
+它不替代 #125 的完整跨服务/MCP smoke。
+
+样例固定在测试代码中：
+
+| 项目 | 值 |
+| --- | --- |
+| 预期工具前缀 | `document__` |
+| 预期工具数量 | 9（generate_report_outline、regenerate_report_outline、generate_report_text、regenerate_report_text、regenerate_report_section、get_generation_status、get_template_schema、export_report_docx、get_report_result） |
+
+前置要求：
+
+- 需要启动 Document 服务及其依赖（PostgreSQL、Redis、File Service）。
+- `QA_DOCUMENT_MCP_ENABLED=true` 必须设置，用于启用 Document MCP server 注册。
+- `DOCUMENT_MCP_SERVER_URL` 必须指向 Document MCP endpoint。
+- `DOCUMENT_MCP_SERVER_TOKEN` 必须与 Document 服务的 `DOCUMENT_MCP_AUTH_TOKEN` 一致。
+
+启动本地栈：
+
+```bash
+cd deploy
+cp .env.example .env
+# 可选：中国大陆 Docker 构建 overlay
+# cat .env.china.example >> .env
+QA_DOCUMENT_MCP_ENABLED=true DOCKER_BUILDKIT=1 docker compose --env-file .env up -d --build document
+```
+
+运行 smoke：
+
+```bash
+cd ../services/qa
+QA_DOCUMENT_MCP_SMOKE=1 \
+QA_DOCUMENT_MCP_ENABLED=true \
+DOCUMENT_MCP_SERVER_URL='http://127.0.0.1:8085/mcp/v1' \
+DOCUMENT_MCP_SERVER_TOKEN='local-dev-document-mcp-token-change-me' \
+DOCUMENT_MCP_SERVER_TOKEN_HEADER='Authorization' \
+go test ./internal/platform/mcpclient -run '^TestDocumentMCPSmoke$' -count=1 -v
+```
+
+预期结果：
+
+```text
+=== RUN   TestDocumentMCPSmoke
+--- PASS: TestDocumentMCPSmoke (...s)
+PASS
+```
+
+测试会：
+
+- 验证 `tools/list` 返回所有 9 个 Document MCP 工具。
+- 验证无效 token 场景返回错误。
+- 验证 MCP server 不可用时返回错误。
+
+常见失败和定位：
+
+| 阶段 | 典型失败 | 排查 |
+| --- | --- | --- |
+| Document MCP | `tools/list failed` | 查 `docker compose logs document`；确认 Document MCP endpoint 就绪、token 一致。 |
+| Document MCP | `invalid token` | 确认 `DOCUMENT_MCP_SERVER_TOKEN` 与 Document 服务的 `DOCUMENT_MCP_AUTH_TOKEN` 一致。 |
+| Document MCP | `connection refused` | 确认 Document 服务已启动且端口正确。 |
+
 ### Gateway -> Knowledge -> QA RAG 端到端 smoke
 
 该 smoke 是 Issue #304 的最小 RAG 验收样例。它通过 Gateway public
@@ -470,6 +534,7 @@ go run ./cmd/server
 | Knowledge/QA RAG smoke 仍为显式 opt-in | File 自身 PostgreSQL + MinIO smoke 已有；Knowledge ingestion 真实依赖 smoke 已覆盖 File/Parser/PostgreSQL/Qdrant 写入和状态更新；Gateway -> Knowledge -> QA RAG smoke 已提供最小验收样例，但依赖可用 AI Gateway chat profile/provider，且不覆盖 MCP、前端或 #125 完整一键 E2E。 | #125、#152、#154、#304 |
 | 生产部署基线缺失 | 当前 `deploy/docker-compose.yml` 是本地/演示基线，不能直接当生产部署。 | #150 |
 | Document 真实 AI 生成和富 DOCX 工具链未落地 | 报告 job 状态机和基础 DOCX 导出可用；真实大纲/正文生成、Pandoc/LibreOffice 富 DOCX 转换和跨服务内容读取 smoke 仍需补齐。 | #160、#223 |
+| Document MCP smoke 已提供 | QA -> Document MCP env-gated smoke 已提供，但依赖运行中的 Document MCP server 和正确的 token 配置；普通 CI 默认 skip。 | B-017 |
 | Document 跨服务 smoke 仍缺失 | settings/statistics/logs 已在服务端落地，但管理端、Gateway、File Service、Document worker 串联 smoke 仍未一键化。 | #159、#221 |
 | QA Agent Run MVP 和权限一致性仍在推进 | QA 会话/消息基础可用，完整 Agent 编排和 403 一致性仍需收口。 | #157、#217 |
 | 前端业务 E2E 覆盖不足 | 已有 Playwright 基础 smoke；Knowledge、QA、Document 等完整业务流程仍需随页面能力扩展。 | #117、#163 |

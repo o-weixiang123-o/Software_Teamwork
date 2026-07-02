@@ -36,6 +36,8 @@ type Config struct {
 	PandocPath            string
 	LibreOfficePath       string
 	ShutdownTimeout       time.Duration
+	MCPAuthToken          string
+	MCPAuthHeader         string
 }
 
 func Load() (Config, error) {
@@ -56,6 +58,8 @@ func Load() (Config, error) {
 		PandocPath:            envOr("DOCUMENT_PANDOC_PATH", DefaultPandocPath),
 		LibreOfficePath:       envOr("DOCUMENT_LIBREOFFICE_PATH", DefaultLibreOfficePath),
 		ShutdownTimeout:       DefaultShutdownTimeout,
+		MCPAuthToken:          strings.TrimSpace(os.Getenv("DOCUMENT_MCP_AUTH_TOKEN")),
+		MCPAuthHeader:         envOr("DOCUMENT_MCP_AUTH_HEADER", "Authorization"),
 	}
 
 	if raw := strings.TrimSpace(os.Getenv("DOCUMENT_SHUTDOWN_TIMEOUT")); raw != "" {

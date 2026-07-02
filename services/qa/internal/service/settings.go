@@ -368,7 +368,7 @@ func (s *ConfigService) LoadRuntimeConfiguration(ctx context.Context) (RuntimeCo
 	if err != nil {
 		return RuntimeConfiguration{}, err
 	}
-	servers := make([]RuntimeMCPConfig, 0, len(records))
+	servers := make([]RuntimeMCPConfig, 0, len(records)+2)
 	for _, record := range records {
 		if !record.Enabled {
 			continue
@@ -381,6 +381,18 @@ func (s *ConfigService) LoadRuntimeConfiguration(ctx context.Context) (RuntimeCo
 	}
 	if len(records) == 0 && s.bootstrap.MCPServer != nil {
 		servers = append(servers, *s.bootstrap.MCPServer)
+	}
+	if s.bootstrap.DocumentMCPServer != nil {
+		documentMCPAlreadyExists := false
+		for _, server := range servers {
+			if server.Alias == "document" {
+				documentMCPAlreadyExists = true
+				break
+			}
+		}
+		if !documentMCPAlreadyExists {
+			servers = append(servers, *s.bootstrap.DocumentMCPServer)
+		}
 	}
 	agentConfig := NormalizeAgentConfig(qaConfig.Agent)
 	if qaConfig.ID == "" {
