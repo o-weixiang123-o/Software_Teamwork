@@ -14,7 +14,8 @@ func TestStreamEventSeqInt32RejectsInvalidValues(t *testing.T) {
 	if _, err := streamEventSeqInt32(-1); err == nil {
 		t.Fatal("expected negative cursor to fail")
 	}
-	if _, err := streamEventSeqInt32(math.MaxInt32 + 1); err == nil {
+	overflowValue := int64(math.MaxInt32) + 1
+	if _, err := streamEventSeqInt32(int(overflowValue)); err == nil {
 		t.Fatal("expected overflow cursor to fail")
 	}
 	if got, err := streamEventSeqInt32(math.MaxInt32); err != nil || got != math.MaxInt32 {
