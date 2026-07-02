@@ -175,7 +175,7 @@ func Load() (Config, error) {
 	if cfg.DocumentMCPEnabled, err = boolEnv("QA_DOCUMENT_MCP_ENABLED", false); err != nil {
 		return Config{}, err
 	}
-	cfg.DocumentMCPServerURL = envOr("DOCUMENT_MCP_SERVER_URL", "http://localhost:8085/mcp/v1")
+	cfg.DocumentMCPServerURL = envOr("DOCUMENT_MCP_SERVER_URL", "http://localhost:8085/mcp")
 	cfg.DocumentMCPServerToken = os.Getenv("DOCUMENT_MCP_SERVER_TOKEN")
 	cfg.DocumentMCPTokenHeader = envOr("DOCUMENT_MCP_SERVER_TOKEN_HEADER", "Authorization")
 

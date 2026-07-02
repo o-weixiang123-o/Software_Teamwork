@@ -43,15 +43,15 @@ func TestDocumentMCPSmoke(t *testing.T) {
 		}
 
 		expectedTools := []string{
-			"document__generate_report_outline",
-			"document__regenerate_report_outline",
-			"document__generate_report_text",
-			"document__regenerate_report_text",
-			"document__regenerate_report_section",
-			"document__get_generation_status",
-			"document__get_template_schema",
-			"document__export_report_docx",
-			"document__get_report_result",
+			"generate_report_outline",
+			"regenerate_report_outline",
+			"generate_report_text",
+			"regenerate_report_text",
+			"regenerate_report_section",
+			"get_generation_status",
+			"get_template_schema",
+			"export_report_docx",
+			"get_report_result",
 		}
 
 		toolNames := make(map[string]bool)

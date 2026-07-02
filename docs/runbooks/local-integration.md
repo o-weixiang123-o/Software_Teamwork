@@ -318,7 +318,7 @@ QA_DOCUMENT_MCP_ENABLED=true DOCKER_BUILDKIT=1 docker compose --env-file .env up
 cd ../services/qa
 QA_DOCUMENT_MCP_SMOKE=1 \
 QA_DOCUMENT_MCP_ENABLED=true \
-DOCUMENT_MCP_SERVER_URL='http://127.0.0.1:8085/mcp/v1' \
+DOCUMENT_MCP_SERVER_URL='http://127.0.0.1:8085/mcp' \
 DOCUMENT_MCP_SERVER_TOKEN='local-dev-document-mcp-token-change-me' \
 DOCUMENT_MCP_SERVER_TOKEN_HEADER='Authorization' \
 go test ./internal/platform/mcpclient -run '^TestDocumentMCPSmoke$' -count=1 -v

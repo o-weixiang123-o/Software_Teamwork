@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -20,6 +21,15 @@ import (
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/document/internal/service"
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/document/internal/worker"
 )
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
@@ -94,8 +104,8 @@ func main() {
 		ReportFileSvc:   reportFileService,
 		MCPHandler: mcpserver.NewHandler(mcpserver.Config{
 			ToolService:  documentMCPTools,
-			ServiceToken: cfg.MCPServiceToken,
-			TokenHeader:  cfg.MCPTokenHeader,
+			ServiceToken: firstNonEmpty(cfg.MCPAuthToken, cfg.MCPServiceToken),
+			TokenHeader:  firstNonEmpty(cfg.MCPAuthHeader, cfg.MCPTokenHeader),
 			Logger:       logger,
 		}),
 		MCPPath: cfg.MCPPath,
