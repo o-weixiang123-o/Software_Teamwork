@@ -549,9 +549,6 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 	var lastContent string
 	var lastReasoning string
 	reasoningBuf := newReasoningBuffer(4096)
-	isReasoningSafe := func(content string) bool {
-		return sanitizeReasoningContent(content) == content
-	}
 	var streamCallback func(agent.Completion)
 	if runtime.Stream {
 		streamCallback = func(completion agent.Completion) {
@@ -572,15 +569,19 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 				reasoningBuf.append(newContent)
 				fullRaw := string(reasoningBuf.buffer)
 				fullSanitized := sanitizeReasoningContent(fullRaw)
+				rawRunes := reasoningBuf.buffer
+				sanitizedRunes := []rune(fullSanitized)
 				maxSafeEnd := 0
-				for i := min(len(fullRaw), len(fullSanitized)); i > 0; i-- {
-					if fullRaw[:i] == fullSanitized[:i] {
-						maxSafeEnd = i
-						break
+				for i := min(len(rawRunes), len(sanitizedRunes)); i > 0; i-- {
+					if string(rawRunes[:i]) == string(sanitizedRunes[:i]) {
+						if len(rawRunes)-i >= reasoningBuf.holdbackSize {
+							maxSafeEnd = i
+							break
+						}
 					}
 				}
 				if maxSafeEnd > reasoningBuf.emittedLength {
-					sanitizedDelta := fullSanitized[reasoningBuf.emittedLength:maxSafeEnd]
+					sanitizedDelta := string(sanitizedRunes[reasoningBuf.emittedLength:maxSafeEnd])
 					if sanitizedDelta != "" {
 						emit("reasoning.delta", map[string]any{"messageId": assistantMessage.ID, "text": sanitizedDelta})
 					}
@@ -712,14 +713,14 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 			}
 		}
 	} else {
-		reasoningBuf.flushAll(isReasoningSafe)
-		delta := reasoningBuf.delta()
-		if delta != "" {
-			sanitizedDelta := sanitizeReasoningContent(delta)
+		fullRaw := string(reasoningBuf.buffer)
+		fullSanitized := sanitizeReasoningContent(fullRaw)
+		sanitizedRunes := []rune(fullSanitized)
+		if reasoningBuf.emittedLength < len(sanitizedRunes) {
+			sanitizedDelta := string(sanitizedRunes[reasoningBuf.emittedLength:])
 			if sanitizedDelta != "" {
 				emit("reasoning.delta", map[string]any{"messageId": assistantMessage.ID, "text": sanitizedDelta})
 			}
-			reasoningBuf.markEmitted(len([]rune(delta)))
 		}
 	}
 	finalCitations := citations
