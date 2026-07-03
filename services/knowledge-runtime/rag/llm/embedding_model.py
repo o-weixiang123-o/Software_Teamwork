@@ -982,7 +982,7 @@ class AIGatewayEmbed(Base):
 
     def __init__(self, key, model_name, base_url="http://127.0.0.1:8086/internal/v1", **kwargs):
         self.base_url = normalize_ai_gateway_endpoint(base_url, "embeddings")
-        self.service_token = resolve_ai_gateway_service_token(key)
+        self.service_token = resolve_ai_gateway_service_token()
         self.caller_service = ai_gateway_caller_service()
         self.profile_id = ai_gateway_profile_id("KNOWLEDGE_RUNTIME_AI_GATEWAY_EMBEDDING_PROFILE_ID", "default-embedding")
         self.timeout = ai_gateway_timeout_seconds()

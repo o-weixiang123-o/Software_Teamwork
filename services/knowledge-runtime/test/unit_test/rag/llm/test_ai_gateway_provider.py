@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from common.exceptions import ModelException
-from rag.llm.ai_gateway_utils import normalize_ai_gateway_endpoint
+from rag.llm.ai_gateway_utils import ai_gateway_profile_id, normalize_ai_gateway_endpoint, resolve_ai_gateway_service_token
 from rag.llm.embedding_model import AIGatewayEmbed
 from rag.llm.rerank_model import AIGatewayRerank
 
@@ -43,6 +43,23 @@ def test_normalize_ai_gateway_endpoint_accepts_base_or_endpoint():
     assert normalize_ai_gateway_endpoint("http://gateway/internal/v1", "embeddings") == "http://gateway/internal/v1/embeddings"
     assert normalize_ai_gateway_endpoint("http://gateway/internal/v1/embeddings", "embeddings") == "http://gateway/internal/v1/embeddings"
     assert normalize_ai_gateway_endpoint("gateway:8086/internal/v1", "embeddings") == "http://gateway:8086/internal/v1/embeddings"
+
+
+def test_ai_gateway_service_token_uses_env(monkeypatch):
+    monkeypatch.setenv("KNOWLEDGE_RUNTIME_AI_GATEWAY_SERVICE_TOKEN", "env-token")
+
+    assert resolve_ai_gateway_service_token() == "env-token"
+
+
+def test_ai_gateway_service_token_requires_env():
+    with pytest.raises(ValueError, match="AI Gateway provider requires"):
+        resolve_ai_gateway_service_token()
+
+
+def test_ai_gateway_profile_id_uses_default_when_env_is_blank(monkeypatch):
+    monkeypatch.setenv("KNOWLEDGE_RUNTIME_AI_GATEWAY_EMBEDDING_PROFILE_ID", "   ")
+
+    assert ai_gateway_profile_id("KNOWLEDGE_RUNTIME_AI_GATEWAY_EMBEDDING_PROFILE_ID", "default-embedding") == "default-embedding"
 
 
 def test_ai_gateway_embedding_sends_internal_headers_and_preserves_batch_order(monkeypatch):
@@ -188,6 +205,17 @@ def test_ai_gateway_rerank_raises_model_exception_on_bad_index(monkeypatch):
 
     with patch("rag.llm.rerank_model.requests.post", return_value=response):
         with pytest.raises(ModelException, match="unexpected reranking response index"):
+            provider.similarity("query", ["doc"])
+
+
+def test_ai_gateway_rerank_raises_model_exception_on_malformed_response(monkeypatch):
+    monkeypatch.setenv("INTERNAL_SERVICE_TOKEN", "svc-token")
+    response = _response({}, text="not-json")
+    response.json.side_effect = ValueError("not json")
+    provider = AIGatewayRerank("", "BAAI/bge-reranker-v2-m3", base_url="http://gateway/internal/v1")
+
+    with patch("rag.llm.rerank_model.requests.post", return_value=response):
+        with pytest.raises(ModelException, match="unexpected reranking response"):
             provider.similarity("query", ["doc"])
 
 

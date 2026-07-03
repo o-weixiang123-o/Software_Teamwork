@@ -40,9 +40,8 @@ def normalize_ai_gateway_endpoint(base_url: str | None, endpoint: str) -> str:
     return urljoin(f"{base}/", suffix).rstrip("/")
 
 
-def resolve_ai_gateway_service_token(configured_key: str | None = None) -> str:
+def resolve_ai_gateway_service_token() -> str:
     for value in (
-        configured_key,
         os.getenv("KNOWLEDGE_RUNTIME_AI_GATEWAY_SERVICE_TOKEN"),
         os.getenv("AI_GATEWAY_SERVICE_TOKEN"),
         os.getenv("INTERNAL_SERVICE_TOKEN"),
@@ -61,7 +60,8 @@ def ai_gateway_caller_service() -> str:
 
 
 def ai_gateway_profile_id(env_name: str, default_value: str) -> str:
-    return (os.getenv(env_name) or default_value).strip()
+    configured = (os.getenv(env_name) or "").strip()
+    return configured or default_value
 
 
 def ai_gateway_timeout_seconds() -> float:

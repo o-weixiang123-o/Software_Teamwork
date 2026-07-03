@@ -87,14 +87,6 @@ def _init_env_default_models_for_tenants(tenant_ids):
 
 def _env_model_key_for_factory(provider_name):
     if provider_name == "AI_GATEWAY":
-        for key in (
-            "KNOWLEDGE_RUNTIME_AI_GATEWAY_SERVICE_TOKEN",
-            "AI_GATEWAY_SERVICE_TOKEN",
-            "INTERNAL_SERVICE_TOKEN",
-        ):
-            value = os.getenv(key, "").strip()
-            if value:
-                return value
         return ""
     return os.getenv("KNOWLEDGE_RUNTIME_MODEL_API_KEY", "").strip()
 

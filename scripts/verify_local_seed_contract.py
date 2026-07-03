@@ -245,8 +245,12 @@ REQUIRED_RUN_KNOWLEDGE_PARSE_STACK_TOKENS = [
     "start_service \"knowledge-runtime-worker\"",
     "For local Elasticsearch, rerun ./scripts/local/dev-up.sh",
     ".local/knowledge-runtime/service_conf.yaml",
-    "KNOWLEDGE_RUNTIME_MODEL_API_KEY=<your SiliconFlow key>",
-    "KNOWLEDGE_VENDOR_EMBEDDING_ID=BAAI/bge-m3@default@SILICONFLOW",
+    "Preferred AI Gateway local parsing uses default-embedding/default-rerank profiles",
+    "KNOWLEDGE_RUNTIME_AI_GATEWAY_SERVICE_TOKEN=local-dev-internal-service-token-change-me",
+    "KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY=AI_GATEWAY",
+    "KNOWLEDGE_RUNTIME_RERANK_FACTORY=AI_GATEWAY",
+    "KNOWLEDGE_VENDOR_EMBEDDING_ID=BAAI/bge-m3@default@AI_GATEWAY",
+    "KNOWLEDGE_VENDOR_RERANK_ID=BAAI/bge-reranker-v2-m3@default@AI_GATEWAY",
     "KNOWLEDGE_AUTO_START_INGESTION=true",
 ]
 
@@ -343,7 +347,8 @@ REQUIRED_ENV_TOKENS = [
     "# AI_GATEWAY_LOCAL_RERANK_MODEL=BAAI/bge-reranker-v2-m3",
     "# AI_GATEWAY_LOCAL_RERANK_TOP_N=5",
     "DOCUMENT_AI_GATEWAY_MODEL=local-placeholder-chat",
-    "KNOWLEDGE_VENDOR_EMBEDDING_ID=BAAI/bge-m3@default@SILICONFLOW",
+    "KNOWLEDGE_VENDOR_EMBEDDING_ID=BAAI/bge-m3@default@AI_GATEWAY",
+    "KNOWLEDGE_VENDOR_RERANK_ID=BAAI/bge-reranker-v2-m3@default@AI_GATEWAY",
 ]
 
 FORBIDDEN_STARTUP_DOC_TOKENS = [
