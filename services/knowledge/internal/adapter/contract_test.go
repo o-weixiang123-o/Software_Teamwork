@@ -2,9 +2,7 @@ package adapter
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -48,41 +46,6 @@ type fakeVendorState struct {
 type deleteCall struct {
 	datasetID  string
 	documentID string
-}
-
-type fakeRuntimeWorkerStarter struct {
-	mu      sync.Mutex
-	calls   int
-	err     error
-	onStart func()
-}
-
-func (s *fakeRuntimeWorkerStarter) Start(context.Context) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.calls++
-	if s.onStart != nil {
-		s.onStart()
-	}
-	return s.err
-}
-
-func (s *fakeRuntimeWorkerStarter) callCount() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.calls
-}
-
-func waitForRuntimeWorkerStarterCalls(t *testing.T, starter *fakeRuntimeWorkerStarter, want int) {
-	t.Helper()
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		if starter.callCount() == want {
-			return
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	t.Fatalf("worker starter calls=%d, want %d", starter.callCount(), want)
 }
 
 func newFakeVendorState() *fakeVendorState {
@@ -564,138 +527,6 @@ func TestAdapterDocumentUploadQueuesIngestionWithoutRuntimeWorkerHeartbeat(t *te
 	if uploadRec.Code != http.StatusCreated {
 		t.Fatalf("upload status=%d body=%s", uploadRec.Code, uploadRec.Body.String())
 	}
-
-	state.mu.Lock()
-	defer state.mu.Unlock()
-	if len(state.parseCalls) != 1 || state.parseCalls[0] != "doc_fake_1" {
-		t.Fatalf("parseCalls=%v", state.parseCalls)
-	}
-	if len(state.deleteCalls) != 0 {
-		t.Fatalf("deleteCalls=%v want none", state.deleteCalls)
-	}
-}
-
-func TestAdapterDocumentUploadStartsConfiguredRuntimeWorkerWhenHeartbeatMissing(t *testing.T) {
-	state := newFakeVendorState()
-	state.taskExecutorReady = false
-	vendor := startFakeVendor(t, state)
-	defer vendor.Close()
-	starter := &fakeRuntimeWorkerStarter{onStart: func() {
-		state.mu.Lock()
-		defer state.mu.Unlock()
-		state.taskExecutorReady = true
-	}}
-
-	server := NewServer(adapterconfig.Config{
-		ServiceVersion:            "test",
-		VendorRuntimeURL:          vendor.URL,
-		ServiceToken:              testServiceToken,
-		AutoStartIngestion:        true,
-		RuntimeWorkerStartTimeout: time.Second,
-	}, nil, WithRuntimeWorkerStarter(starter))
-
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
-	part, _ := writer.CreateFormFile("file", "notes.txt")
-	_, _ = io.WriteString(part, "hello")
-	_ = writer.Close()
-
-	uploadReq := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-bases/kb_fake_1/documents", body)
-	uploadReq.Header.Set("Content-Type", writer.FormDataContentType())
-	uploadReq.Header.Set("X-User-Id", "usr_test")
-	uploadReq.Header.Set("X-Service-Token", testServiceToken)
-	uploadReq.Header.Set("X-User-Permissions", "knowledge:write")
-	uploadRec := httptest.NewRecorder()
-	server.Handler().ServeHTTP(uploadRec, uploadReq)
-	if uploadRec.Code != http.StatusCreated {
-		t.Fatalf("upload status=%d body=%s", uploadRec.Code, uploadRec.Body.String())
-	}
-	waitForRuntimeWorkerStarterCalls(t, starter, 1)
-
-	state.mu.Lock()
-	defer state.mu.Unlock()
-	if len(state.parseCalls) != 1 || state.parseCalls[0] != "doc_fake_1" {
-		t.Fatalf("parseCalls=%v", state.parseCalls)
-	}
-	if len(state.deleteCalls) != 0 {
-		t.Fatalf("deleteCalls=%v want none", state.deleteCalls)
-	}
-}
-
-func TestAdapterDocumentUploadDoesNotRollbackWhenRuntimeWorkerStartFailsAfterParseEnqueue(t *testing.T) {
-	state := newFakeVendorState()
-	state.taskExecutorReady = false
-	vendor := startFakeVendor(t, state)
-	defer vendor.Close()
-	starter := &fakeRuntimeWorkerStarter{err: errors.New("boom")}
-
-	server := NewServer(adapterconfig.Config{
-		ServiceVersion:     "test",
-		VendorRuntimeURL:   vendor.URL,
-		ServiceToken:       testServiceToken,
-		AutoStartIngestion: true,
-	}, nil, WithRuntimeWorkerStarter(starter))
-
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
-	part, _ := writer.CreateFormFile("file", "notes.txt")
-	_, _ = io.WriteString(part, "hello")
-	_ = writer.Close()
-
-	uploadReq := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-bases/kb_fake_1/documents", body)
-	uploadReq.Header.Set("Content-Type", writer.FormDataContentType())
-	uploadReq.Header.Set("X-User-Id", "usr_test")
-	uploadReq.Header.Set("X-Service-Token", testServiceToken)
-	uploadReq.Header.Set("X-User-Permissions", "knowledge:write")
-	uploadRec := httptest.NewRecorder()
-	server.Handler().ServeHTTP(uploadRec, uploadReq)
-	if uploadRec.Code != http.StatusCreated {
-		t.Fatalf("upload status=%d body=%s", uploadRec.Code, uploadRec.Body.String())
-	}
-	waitForRuntimeWorkerStarterCalls(t, starter, 1)
-
-	state.mu.Lock()
-	defer state.mu.Unlock()
-	if len(state.parseCalls) != 1 || state.parseCalls[0] != "doc_fake_1" {
-		t.Fatalf("parseCalls=%v", state.parseCalls)
-	}
-	if len(state.deleteCalls) != 0 {
-		t.Fatalf("deleteCalls=%v want none", state.deleteCalls)
-	}
-}
-
-func TestAdapterDocumentUploadDoesNotWaitForRuntimeWorkerHeartbeatAfterParseEnqueue(t *testing.T) {
-	state := newFakeVendorState()
-	state.taskExecutorReady = false
-	vendor := startFakeVendor(t, state)
-	defer vendor.Close()
-	starter := &fakeRuntimeWorkerStarter{}
-
-	server := NewServer(adapterconfig.Config{
-		ServiceVersion:            "test",
-		VendorRuntimeURL:          vendor.URL,
-		ServiceToken:              testServiceToken,
-		AutoStartIngestion:        true,
-		RuntimeWorkerStartTimeout: 25 * time.Millisecond,
-	}, nil, WithRuntimeWorkerStarter(starter))
-
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
-	part, _ := writer.CreateFormFile("file", "notes.txt")
-	_, _ = io.WriteString(part, "hello")
-	_ = writer.Close()
-
-	uploadReq := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-bases/kb_fake_1/documents", body)
-	uploadReq.Header.Set("Content-Type", writer.FormDataContentType())
-	uploadReq.Header.Set("X-User-Id", "usr_test")
-	uploadReq.Header.Set("X-Service-Token", testServiceToken)
-	uploadReq.Header.Set("X-User-Permissions", "knowledge:write")
-	uploadRec := httptest.NewRecorder()
-	server.Handler().ServeHTTP(uploadRec, uploadReq)
-	if uploadRec.Code != http.StatusCreated {
-		t.Fatalf("upload status=%d body=%s", uploadRec.Code, uploadRec.Body.String())
-	}
-	waitForRuntimeWorkerStarterCalls(t, starter, 1)
 
 	state.mu.Lock()
 	defer state.mu.Unlock()

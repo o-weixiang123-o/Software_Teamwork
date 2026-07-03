@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/adapterconfig"
@@ -16,16 +15,14 @@ import (
 const runtimeTaskExecutorHeartbeatFreshness = 2 * time.Minute
 
 type Server struct {
-	cfg             adapterconfig.Config
-	logger          *slog.Logger
-	vendor          *vendorclient.Client
-	parserConfigs   *service.Service
-	knowledgeBases  service.RuntimeKnowledgeBaseCatalog
-	runtimeDocs     service.RuntimeDocumentCatalog
-	runtimeWorker   runtimeWorkerStarter
-	runtimeWorkerMu sync.Mutex
-	maxUploadBytes  int64
-	mux             *http.ServeMux
+	cfg            adapterconfig.Config
+	logger         *slog.Logger
+	vendor         *vendorclient.Client
+	parserConfigs  *service.Service
+	knowledgeBases service.RuntimeKnowledgeBaseCatalog
+	runtimeDocs    service.RuntimeDocumentCatalog
+	maxUploadBytes int64
+	mux            *http.ServeMux
 }
 
 type Option func(*Server)
@@ -51,12 +48,6 @@ func WithRuntimeDocumentCatalog(catalog service.RuntimeDocumentCatalog) Option {
 	}
 }
 
-func WithRuntimeWorkerStarter(starter runtimeWorkerStarter) Option {
-	return func(s *Server) {
-		s.runtimeWorker = starter
-	}
-}
-
 func NewServer(cfg adapterconfig.Config, logger *slog.Logger, opts ...Option) *Server {
 	if logger == nil {
 		logger = slog.Default()
@@ -64,18 +55,12 @@ func NewServer(cfg adapterconfig.Config, logger *slog.Logger, opts ...Option) *S
 	if cfg.RuntimeReadinessMode == "" {
 		cfg.RuntimeReadinessMode = adapterconfig.RuntimeReadinessModeIngestion
 	}
-	if cfg.RuntimeWorkerStartTimeout <= 0 {
-		cfg.RuntimeWorkerStartTimeout = adapterconfig.DefaultWorkerStartTimeout
-	}
 	s := &Server{
 		cfg:            cfg,
 		logger:         logger,
 		vendor:         vendorclient.New(cfg.VendorRuntimeURL, 60*time.Second, cfg.VendorRuntimeToken),
 		maxUploadBytes: defaultMaxUploadBytes,
 		mux:            http.NewServeMux(),
-	}
-	if strings.TrimSpace(cfg.RuntimeWorkerStartCommand) != "" {
-		s.runtimeWorker = newCommandRuntimeWorkerStarter(cfg.RuntimeWorkerStartCommand, cfg.RuntimeWorkerStartTimeout, logger)
 	}
 	for _, opt := range opts {
 		if opt != nil {

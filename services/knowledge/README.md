@@ -207,14 +207,13 @@ cleans up the created resources unless `KNOWLEDGE_PDF_E2E_KEEP_RESOURCES=1`.
 For query-first deployments over an already-built knowledge base, set
 `KNOWLEDGE_RUNTIME_READINESS_MODE=query` so `/readyz` does not require the
 runtime task executor heartbeat. When uploads should parse documents, keep
-`KNOWLEDGE_AUTO_START_INGESTION=true`; the adapter can invoke the configured
-`KNOWLEDGE_RUNTIME_WORKER_START_COMMAND` when no worker heartbeat is present,
-waits for that heartbeat, then calls `/documents/parse` to enqueue work.
-The local helper stops the worker after the queue stays idle for
+`KNOWLEDGE_AUTO_START_INGESTION=true`; the adapter calls `/documents/parse` to
+enqueue work without starting or supervising the worker. Worker lifecycle belongs
+to deployment infrastructure or explicit local helpers. The local worker helper
+stops the worker after the queue stays idle for
 `KNOWLEDGE_RUNTIME_WORKER_IDLE_SHUTDOWN_SECONDS` (default 300 seconds).
-Production should point that command at deployment infrastructure such as KEDA,
-systemd, supervisor, or an equivalent lifecycle controller. The
-Kubernetes/KEDA example lives at
+Production should use deployment infrastructure such as KEDA, systemd,
+supervisor, or an equivalent lifecycle controller. The Kubernetes/KEDA example lives at
 [`../../deploy/k8s/knowledge-runtime-worker-keda.example.yaml`](../../deploy/k8s/knowledge-runtime-worker-keda.example.yaml).
 Set `KNOWLEDGE_AUTO_START_INGESTION=false` only for deployments that should
 upload without queuing `/documents/parse`.
@@ -246,16 +245,16 @@ servers or in-memory MCP transports. Live vendor tests require
 For end-to-end ingestion diagnostics, start the Knowledge runtime API
 (`services/knowledge-runtime/deploy/api/run-local.sh`) before the adapter. Start
 the runtime worker separately with
-`services/knowledge-runtime/deploy/worker/run-local.sh` when no controlled worker
-starter is configured. The adapter `/readyz` checks the runtime API and, in the
+`services/knowledge-runtime/deploy/worker/run-local.sh` or
+`./scripts/local/start-knowledge-runtime-worker.sh` when queued ingestion needs
+a worker. The adapter `/readyz` checks the runtime API and, in the
 default `KNOWLEDGE_RUNTIME_READINESS_MODE=ingestion` mode, the task executor
 heartbeat. In `query` mode, readiness can pass without the worker. Upload
-ingestion still queues `/documents/parse` when `KNOWLEDGE_AUTO_START_INGESTION`
-is true; if `KNOWLEDGE_RUNTIME_WORKER_START_COMMAND` is set and no worker
-heartbeat is present, the adapter runs that command and waits for the heartbeat
-before queueing parse work. The local worker helper also stops the worker after
-the queue stays idle; set `KNOWLEDGE_RUNTIME_WORKER_IDLE_SHUTDOWN_SECONDS=0` to
-disable that local scale-down behavior.
+ingestion queues `/documents/parse` when `KNOWLEDGE_AUTO_START_INGESTION` is
+true and does not start, stop, or wait for the worker. The local worker helper
+can stop the worker after the queue stays idle; set
+`KNOWLEDGE_RUNTIME_WORKER_IDLE_SHUTDOWN_SECONDS=0` to disable that local
+scale-down behavior.
 If uploads stay in `parsing`, inspect `/internal/v1/runtime/status` and the
 runtime worker logs. Start or restart the adapter with
 `KNOWLEDGE_AUTO_START_INGESTION=true`; the smoke will fail fast with an
@@ -266,8 +265,6 @@ dependencies available, run:
 # Set before starting the adapter process:
 # export KNOWLEDGE_AUTO_START_INGESTION=true
 # export KNOWLEDGE_RUNTIME_READINESS_MODE=query
-# export KNOWLEDGE_RUNTIME_WORKER_START_COMMAND=/path/to/controlled-worker-start
-# export KNOWLEDGE_RUNTIME_WORKER_START_TIMEOUT=10m
 
 KNOWLEDGE_INGESTION_SMOKE=1 \
 KNOWLEDGE_SERVICE_BASE_URL=http://127.0.0.1:8083 \

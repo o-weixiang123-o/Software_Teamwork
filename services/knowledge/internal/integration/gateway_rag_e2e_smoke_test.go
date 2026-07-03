@@ -117,7 +117,6 @@ func loadGatewayRAGSmokeConfig(t *testing.T) gatewayRAGSmokeConfig {
 		"GATEWAY_SMOKE_USERNAME or LOCAL_ADMIN_USERNAME": firstNonEmptyEnv("GATEWAY_SMOKE_USERNAME", "LOCAL_ADMIN_USERNAME"),
 		"GATEWAY_SMOKE_PASSWORD or LOCAL_ADMIN_PASSWORD": firstNonEmptyEnv("GATEWAY_SMOKE_PASSWORD", "LOCAL_ADMIN_PASSWORD"),
 		"QA_SMOKE_CHAT_PROFILE_ID":                       os.Getenv("QA_SMOKE_CHAT_PROFILE_ID"),
-		"QA_SMOKE_CHAT_MODEL":                            os.Getenv("QA_SMOKE_CHAT_MODEL"),
 	}
 	var missing []string
 	for key, value := range required {
@@ -148,7 +147,7 @@ func loadGatewayRAGSmokeConfig(t *testing.T) gatewayRAGSmokeConfig {
 		username:                strings.TrimSpace(required["GATEWAY_SMOKE_USERNAME or LOCAL_ADMIN_USERNAME"]),
 		password:                strings.TrimSpace(required["GATEWAY_SMOKE_PASSWORD or LOCAL_ADMIN_PASSWORD"]),
 		qaChatProfileID:         strings.TrimSpace(required["QA_SMOKE_CHAT_PROFILE_ID"]),
-		qaChatModel:             strings.TrimSpace(required["QA_SMOKE_CHAT_MODEL"]),
+		qaChatModel:             strings.TrimSpace(os.Getenv("QA_SMOKE_CHAT_MODEL")),
 		timeout:                 timeout,
 	}
 }
@@ -511,8 +510,8 @@ func getGatewayQALLMConfig(t *testing.T, ctx context.Context, cfg gatewayRAGSmok
 		RequestID string                    `json:"requestId"`
 	}
 	getGatewayJSON(t, ctx, cfg, session, requestID, "/api/v1/llm-config-versions/current", &decoded, "QA stage")
-	if strings.TrimSpace(decoded.Data.Provider) == "" || strings.TrimSpace(decoded.Data.ModelName) == "" {
-		t.Fatal("QA stage: active LLM config response is missing provider or modelName")
+	if strings.TrimSpace(decoded.Data.Provider) == "" || strings.TrimSpace(decoded.Data.ProfileID) == "" {
+		t.Fatal("QA stage: active LLM config response is missing provider or profileId")
 	}
 	return decoded.Data
 }
@@ -573,14 +572,17 @@ func extractGatewayResponseRequestID(t *testing.T, target any) string {
 
 func createGatewayQALLMConfig(t *testing.T, ctx context.Context, cfg gatewayRAGSmokeConfig, session gatewaySmokeSession, requestID string) {
 	t.Helper()
-	payload, err := json.Marshal(map[string]any{
+	body := map[string]any{
 		"provider":       "ai-gateway",
 		"profileId":      cfg.qaChatProfileID,
-		"modelName":      cfg.qaChatModel,
 		"timeoutSeconds": 60,
 		"maxTokens":      512,
 		"activate":       true,
-	})
+	}
+	if strings.TrimSpace(cfg.qaChatModel) != "" {
+		body["modelName"] = cfg.qaChatModel
+	}
+	payload, err := json.Marshal(body)
 	if err != nil {
 		t.Fatalf("QA stage: encode LLM config request: %v", err)
 	}
@@ -672,7 +674,7 @@ func postGatewayJSONRequest(ctx context.Context, cfg gatewayRAGSmokeConfig, sess
 	defer res.Body.Close()
 	if res.StatusCode != wantStatus {
 		discardResponse(res.Body)
-		return fmt.Errorf("%s: gateway POST %s returned HTTP %d, want %d; check QA_SETTINGS_OPEN or qa:settings permissions and AI Gateway profile/model exact-match", stage, path, res.StatusCode, wantStatus)
+		return fmt.Errorf("%s: gateway POST %s returned HTTP %d, want %d; check QA_SETTINGS_OPEN or qa:settings permissions and AI Gateway profile configuration", stage, path, res.StatusCode, wantStatus)
 	}
 	discardResponse(res.Body)
 	return nil

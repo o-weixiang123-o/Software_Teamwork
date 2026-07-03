@@ -225,7 +225,6 @@ func (s *Server) handleUploadDocument(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		uploaded["run"] = "RUNNING"
-		s.startRuntimeWorkerForIngestionAsync(reqCtx.RequestID, docID)
 	}
 	writeJSON(w, http.StatusCreated, documentFromVendor(uploaded), reqCtx.RequestID)
 }

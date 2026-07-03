@@ -3,7 +3,6 @@ package adapterconfig
 import (
 	"strings"
 	"testing"
-	"time"
 )
 
 func setRequiredEnv(t *testing.T) {
@@ -38,9 +37,6 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.RuntimeReadinessMode != RuntimeReadinessModeIngestion {
 		t.Fatalf("RuntimeReadinessMode=%q", cfg.RuntimeReadinessMode)
-	}
-	if cfg.RuntimeWorkerStartTimeout != DefaultWorkerStartTimeout {
-		t.Fatalf("RuntimeWorkerStartTimeout=%s", cfg.RuntimeWorkerStartTimeout)
 	}
 }
 
@@ -129,33 +125,6 @@ func TestLoadRuntimeReadinessModeQuery(t *testing.T) {
 	}
 	if cfg.RuntimeReadinessMode != RuntimeReadinessModeQuery {
 		t.Fatalf("RuntimeReadinessMode=%q", cfg.RuntimeReadinessMode)
-	}
-}
-
-func TestLoadRuntimeWorkerStartCommand(t *testing.T) {
-	setRequiredEnv(t)
-	t.Setenv("KNOWLEDGE_RUNTIME_WORKER_START_COMMAND", "systemctl start knowledge-runtime-worker")
-	t.Setenv("KNOWLEDGE_RUNTIME_WORKER_START_TIMEOUT", "45s")
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if cfg.RuntimeWorkerStartCommand != "systemctl start knowledge-runtime-worker" {
-		t.Fatalf("RuntimeWorkerStartCommand=%q", cfg.RuntimeWorkerStartCommand)
-	}
-	if cfg.RuntimeWorkerStartTimeout != 45*time.Second {
-		t.Fatalf("RuntimeWorkerStartTimeout=%s", cfg.RuntimeWorkerStartTimeout)
-	}
-}
-
-func TestLoadRejectsInvalidRuntimeWorkerStartTimeout(t *testing.T) {
-	setRequiredEnv(t)
-	t.Setenv("KNOWLEDGE_RUNTIME_WORKER_START_TIMEOUT", "0s")
-
-	_, err := Load()
-	if err == nil || !strings.Contains(err.Error(), "KNOWLEDGE_RUNTIME_WORKER_START_TIMEOUT") {
-		t.Fatalf("Load() error = %v, want worker start timeout requirement", err)
 	}
 }
 
