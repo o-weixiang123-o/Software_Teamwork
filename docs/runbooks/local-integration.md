@@ -279,7 +279,7 @@ RAGFlow runtime 启动慢：
 - 需要真实 PDF 解析链路时优先使用：
 
   ```bash
-  # First set provider vars in deploy/.env.
+  # First set provider vars in deploy/.env; Elasticsearch starts with default infra.
   ./scripts/local/dev-up.sh
   ./scripts/local/run-knowledge-parse-stack.sh
   python3 scripts/local/knowledge-pdf-e2e.py DL_T_673-1999.pdf

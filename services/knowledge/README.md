@@ -132,13 +132,11 @@ as documented in
 `../knowledge-runtime/README.md`.
 
 For the real host-run Knowledge parsing stack, use the root helper scripts. The
-root Compose Elasticsearch service is opt-in through local `deploy/.env`; the
-runtime helper starts `services/knowledge-runtime` API, runtime worker, and the
-Knowledge adapter, and forces adapter auto-ingestion on for upload-to-parse
-diagnostics. First copy `deploy/.env.example` to `deploy/.env`, set
-`KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=true` if you want the local Compose
-Elasticsearch profile, and fill the runtime model provider variables documented
-in `../knowledge-runtime/README.md`.
+root Compose Elasticsearch service starts with the default local infrastructure;
+the runtime helper starts `services/knowledge-runtime` API, runtime worker, and
+the Knowledge adapter, and forces adapter auto-ingestion on for upload-to-parse
+diagnostics. First copy `deploy/.env.example` to `deploy/.env`, then fill the
+runtime model provider variables documented in `../knowledge-runtime/README.md`.
 
 ```bash
 ./scripts/local/dev-up.sh
@@ -166,9 +164,8 @@ The helper normalizes local wiring that is easy to get wrong by hand:
   intercept adapter calls to localhost or Docker bridge IPs.
 - Old local `.env` files that lack the runtime service token use the tracked
   local development token defaults for `scripts/local` only.
-- For `DOC_ENGINE=elasticsearch`, `./scripts/local/dev-up.sh` starts the
-  optional root Compose `elasticsearch` service only when
-  `KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=true`.
+- For `DOC_ENGINE=elasticsearch`, `./scripts/local/dev-up.sh` starts the root Compose
+  `elasticsearch` service with the default local infrastructure.
 - The script generates `.local/knowledge-runtime/service_conf.yaml` so runtime
   API and worker use `KNOWLEDGE_RUNTIME_ES_URL`.
 - To reuse an already running runtime API, set

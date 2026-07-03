@@ -134,7 +134,7 @@ class LocalSeedContractTests(unittest.TestCase):
                 "docker.m.daocloud.io/library/postgres:16-alpine\n"
                 "goose@v3.27.1\n"
                 "psql\n"
-                "INFRA_SERVICES=(postgres redis qdrant minio)\n"
+                "INFRA_SERVICES=(postgres redis qdrant minio elasticsearch)\n"
                 "initializing MinIO buckets\n"
                 "--exit-code-from minio-init\n"
                 "docker compose -f deploy/docker-compose.yml --env-file deploy/.env logs minio-init\n"

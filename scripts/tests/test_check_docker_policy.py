@@ -47,7 +47,6 @@ VALID_COMPOSE = textwrap.dedent(
       minio-init:
         image: ${MINIO_MC_IMAGE:-minio/mc:RELEASE.2025-08-13T08-35-41Z}
       elasticsearch:
-        profiles: ["knowledge-runtime"]
         image: ${KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE:-docker.elastic.co/elasticsearch/elasticsearch:8.15.3}
     """
 )
@@ -111,15 +110,26 @@ class DockerPolicyTests(unittest.TestCase):
 
         self.assertIssueContains(issues, "profile service `gateway` is not allowed")
 
-    def test_elasticsearch_profile_must_not_use_build(self) -> None:
+    def test_elasticsearch_default_service_must_not_use_build(self) -> None:
         compose = VALID_COMPOSE.replace(
-            "  elasticsearch:\n    profiles: [\"knowledge-runtime\"]\n    image:",
-            "  elasticsearch:\n    profiles: [\"knowledge-runtime\"]\n    build:\n      context: .\n    image:",
+            "  elasticsearch:\n    image:",
+            "  elasticsearch:\n    build:\n      context: .\n    image:",
         )
 
         issues = self.verify(files={"deploy/docker-compose.yml": compose})
 
         self.assertIssueContains(issues, "Compose must not use `build:`")
+
+    def test_elasticsearch_must_not_be_profile_service(self) -> None:
+        compose = VALID_COMPOSE.replace(
+            "  elasticsearch:\n    image:",
+            "  elasticsearch:\n    profiles: [\"knowledge-runtime\"]\n    image:",
+        )
+
+        issues = self.verify(files={"deploy/docker-compose.yml": compose})
+
+        self.assertIssueContains(issues, "local Docker default must only define infrastructure services")
+        self.assertIssueContains(issues, "profile service `elasticsearch` is not allowed")
 
     def test_compose_image_defaults_must_stay_pinned_and_overridable(self) -> None:
         compose = VALID_COMPOSE.replace(

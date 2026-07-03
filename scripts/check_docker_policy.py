@@ -20,10 +20,7 @@ EXPECTED_IMAGE_DEFAULTS = {
     "KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE": "docker.elastic.co/elasticsearch/elasticsearch:8.15.3",
 }
 LOCAL_COMPOSE_FILE = Path("deploy/docker-compose.yml")
-ALLOWED_DEFAULT_COMPOSE_SERVICES = ("postgres", "redis", "qdrant", "minio", "minio-init")
-ALLOWED_PROFILE_COMPOSE_SERVICES = {
-    "elasticsearch": ("knowledge-runtime",),
-}
+ALLOWED_DEFAULT_COMPOSE_SERVICES = ("postgres", "redis", "qdrant", "minio", "minio-init", "elasticsearch")
 DISALLOWED_DEFAULT_COMPOSE_SERVICES = (
     "migrate-auth",
     "migrate-file",
@@ -335,13 +332,7 @@ def validate_local_compose(rel: str, content: str) -> list[str]:
     for service, profiles in services.items():
         if service in default_service_set:
             continue
-        expected_profiles = ALLOWED_PROFILE_COMPOSE_SERVICES.get(service)
-        if expected_profiles is not None:
-            if tuple(profiles) != expected_profiles:
-                issues.append(
-                    f"{rel}: profile service `{service}` must use profile `{', '.join(expected_profiles)}`"
-                )
-        elif profiles:
+        if profiles:
             issues.append(f"{rel}: profile service `{service}` is not allowed by local Docker policy")
         else:
             issues.append(f"{rel}: unexpected local Docker service `{service}`")

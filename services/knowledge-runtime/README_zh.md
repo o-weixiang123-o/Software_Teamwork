@@ -45,17 +45,15 @@
 | `KNOWLEDGE_RUNTIME_RERANK_MODEL` | rerank model id |
 | `KNOWLEDGE_RUNTIME_RERANK_BASE_URL` | rerank provider base URL |
 | `KNOWLEDGE_RUNTIME_ES_URL` | Elasticsearch 地址，默认 `http://127.0.0.1:9200` |
-| `KNOWLEDGE_RUNTIME_START_ELASTICSEARCH` | `dev-up.sh` 是否通过根级 Compose `knowledge-runtime` profile 启动本地 Elasticsearch，默认 `false` |
 | `HF_ENDPOINT` | deepdoc 首次加载 OCR/vision 模型时使用的 HuggingFace endpoint；默认不设置第三方 mirror，中国大陆网络用 `run-knowledge-parse-stack.sh --china` 或本地覆盖 |
 
 `deploy/api/run-local.sh` 和 `deploy/worker/run-local.sh` 会在启动前检查 doc
 engine 与 embedding provider。推荐用仓库根目录的 `./scripts/local/dev-up.sh`
-先通过根级 Compose 可选 profile 启动本地 Elasticsearch，再用
+先通过默认根级 Compose 基础设施启动本地 Elasticsearch，再用
 `./scripts/local/run-knowledge-parse-stack.sh` 启动 host-run runtime API、worker 和
 Knowledge adapter；该脚本会生成 `.local/knowledge-runtime/service_conf.yaml` 指向
 `KNOWLEDGE_RUNTIME_ES_URL`，但不直接执行 Docker build/run。如果使用已有
-Elasticsearch，保持 `KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=false` 并修改
-`KNOWLEDGE_RUNTIME_ES_URL`。
+Elasticsearch，修改 `KNOWLEDGE_RUNTIME_ES_URL`。
 
 runtime worker 第一次导入 deepdoc OCR/vision 模块时会按需下载
 `InfiniFlow/deepdoc` 等模型。提交的默认配置不启用第三方 mirror；中国大陆网络使用
@@ -85,7 +83,6 @@ KNOWLEDGE_VENDOR_RERANK_ID=BAAI/bge-reranker-v2-m3@default@SILICONFLOW
 KNOWLEDGE_AUTO_START_INGESTION=true
 DOC_ENGINE=elasticsearch
 KNOWLEDGE_RUNTIME_ES_URL=http://127.0.0.1:9200
-KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=true
 ```
 
 默认依赖和 artifact 下载使用官方 URL。中国大陆网络显式使用镜像模式：

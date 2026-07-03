@@ -260,7 +260,8 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
 
 - The root local Compose path stays infrastructure-only. Business services and
   the RAGFlow Knowledge runtime API/worker run on the host. Local
-  Elasticsearch is the default Knowledge runtime doc-engine infrastructure.
+  Elasticsearch is part of the default Compose infrastructure for Knowledge
+  runtime doc-engine support.
 - Docs must provide host-run commands for Auth, File, Knowledge, AI Gateway,
   QA, Document, Gateway, and frontend.
 - Frontend and browser-facing documentation must route traffic through gateway;
@@ -288,7 +289,7 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
   the default local backend startup path must not depend on `services/parser`.
 - `run-knowledge-parse-stack.sh` must not run direct `docker build` or
   `docker run` for Elasticsearch. Local Elasticsearch lifecycle belongs to the
-  root Compose infrastructure started by `dev-up.sh`.
+  default root Compose infrastructure started by `dev-up.sh`.
 - `HF_ENDPOINT=https://hf-mirror.com` must not be active in committed defaults
   or forced by runtime scripts in official-default mode. Mainland China runtime
   model download mirrors are explicit through
@@ -400,10 +401,10 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
 
 ### 5. Good/Base/Bad Cases
 
-- Good: `deploy/README.md` documents infra pulls, optional Compose
-  Elasticsearch profile startup, host-run migrations, host-run services, seed
-  data, request-id troubleshooting, and common dependency failures; default
-  Compose config parses and lists only the five infra services.
+- Good: `deploy/README.md` documents infra pulls, default Compose
+  Elasticsearch startup, host-run migrations, host-run services, seed data,
+  request-id troubleshooting, and common dependency failures; default Compose
+  config parses and lists only the six infra services.
 - Base: Docker runtime smoke tests are skipped when images are missing, but the
   exact image pull commands and skipped validation are reported.
 - Bad: documentation tells new contributors to run business services through
@@ -413,9 +414,8 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
 ### 6. Tests Required
 
 - Run Compose config parsing for the infra baseline.
-- Run `docker compose ... config --services` and confirm only the five default
-  infra services are present. Run the profile config path when Elasticsearch
-  wiring changes and confirm only optional `elasticsearch` is added.
+- Run `docker compose ... config --services` and confirm only the six default
+  infra services are present, including `elasticsearch`.
 - Run `bash -n scripts/local/dev-up.sh scripts/local/run-backend.sh scripts/local/stop-backend.sh`
   when local startup scripts change.
 - Run `python3 scripts/check_docker_policy.py` and the policy/environment unit

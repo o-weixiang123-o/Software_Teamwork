@@ -3,8 +3,7 @@
 本地完整启动路径分三层：
 
 ```text
-Docker: postgres + redis + qdrant + minio + minio-init
-Docker opt-in: Elasticsearch via the root Compose `knowledge-runtime` profile
+Docker: postgres + redis + minio + minio-init + elasticsearch
 Host:   knowledge-runtime API, plus worker only for ingestion
 Host:   knowledge-adapter
 Host:   auth + file + ai-gateway + qa + document + gateway + frontend
@@ -75,17 +74,15 @@ cd apps/web && bun run dev
 ```
 
 如果要运行真实 Knowledge 解析、embedding、索引和检索链路，先在本地
-`deploy/.env` 中显式启用 Elasticsearch Compose profile 并填写 provider：
+`deploy/.env` 中填写 provider，并保持默认本地 Elasticsearch 地址：
 
 ```text
-KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=true
 DOC_ENGINE=elasticsearch
 KNOWLEDGE_RUNTIME_ES_URL=http://127.0.0.1:9200
 KNOWLEDGE_AUTO_START_INGESTION=true
 ```
 
-然后重新执行 `./scripts/local/dev-up.sh`，脚本会通过根级
-`deploy/docker-compose.yml` 的 `knowledge-runtime` profile 启动 `elasticsearch`。
+然后执行 `./scripts/local/dev-up.sh`，脚本会随默认根级 Compose 基础设施启动 `elasticsearch`。
 再启动 host-run runtime/adapter：
 
 ```bash
@@ -147,7 +144,6 @@ set +a
 docker rmi \
   "${POSTGRES_IMAGE:-postgres:16-alpine}" \
   "${REDIS_IMAGE:-redis:7-alpine}" \
-  "${QDRANT_IMAGE:-qdrant/qdrant:v1.18.2}" \
   "${MINIO_IMAGE:-minio/minio:RELEASE.2025-09-07T16-13-09Z}" \
   "${MINIO_MC_IMAGE:-minio/mc:RELEASE.2025-08-13T08-35-41Z}" \
   "${KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE:-docker.elastic.co/elasticsearch/elasticsearch:8.15.3}" \
@@ -184,7 +180,7 @@ superadmin / LocalDemoAdmin#12345
 Docker 镜像默认使用 Compose 里的 Docker Hub pinned tags。中国大陆网络可用
 `./scripts/local/dev-up.sh --china` 在本次进程切换到 DaoCloud registry rewrite；企业
 镜像仓库可在本机 `deploy/.env` 设置 `POSTGRES_IMAGE`、`REDIS_IMAGE`、
-`QDRANT_IMAGE`、`MINIO_IMAGE` 和 `MINIO_MC_IMAGE`，但不要提交为默认值。
+`MINIO_IMAGE`、`MINIO_MC_IMAGE` 和 `KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE`，但不要提交为默认值。
 
 `UV_DEFAULT_INDEX` 控制宿主机 uv 在解析或重锁依赖时使用的 Python 包索引，默认使用
 官方 PyPI。`services/parser` 已退役，默认路径不再准备 standalone Parser；解析、切块、
@@ -222,21 +218,15 @@ goose migration 以及 `run-backend.sh` 中的 Go 服务 `go run`。如果在中
 `./scripts/local/dev-up.sh`：
 
 - 校验 `deploy/docker-compose.yml`。
-- 先检查同一宿主机环境中的 Docker、Go、`psql`、`uv`（仅 `--china` runtime 准备需要）
-  和必要的 `curl`，缺失时直接
+- 先检查同一宿主机环境中的 Docker、Go、`psql`、`uv`（仅 `--china` runtime 准备需要），缺失时直接
   在命令行报错，避免跑到 migration/seed 中途才失败。
 - 传入 `--china` 时自动执行 Knowledge runtime 依赖和 artifact 下载；可用
   `--skip-knowledge-runtime-deps` 或 `LOCAL_SKIP_KNOWLEDGE_RUNTIME_DEPS=1` 跳过。
-- 拉取 infra 镜像，启动并等待 `postgres`、`redis`、`qdrant`、`minio`
+- 拉取 infra 镜像，启动并等待 `postgres`、`redis`、`minio`、`elasticsearch`
   Compose health checks 通过。
-- 如果本地 `deploy/.env` 设置 `KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=true`，
-  通过根级 Compose 的 `knowledge-runtime` profile 构建/启动 `elasticsearch`，并等待
-  其 health check。默认 `false`，普通 `cp deploy/.env.example deploy/.env` 不会启动
-  Elasticsearch。
 - 单独运行一次性 `minio-init` 创建/校验 `software-teamwork-local` 和
   `software-teamwork-knowledge` bucket；`minio-init` 正常退出不会阻断后续
   migration/seed，非零失败时会提示查看 `docker compose logs minio-init`。
-- 如果 `QDRANT_URL` 已设置，则创建或校验 `QDRANT_COLLECTION`。
 - 在宿主机执行各服务 goose migration。
 - migration 前检查有效 Go module 配置；默认使用官方 `GOPROXY` / `GOSUMDB`，
   传入 `--china` 时本次进程改用大陆镜像。旧 `deploy/.env` 仍含镜像值时，脚本会尊重
@@ -327,7 +317,6 @@ Kubernetes/KEDA 示例见
   KNOWLEDGE_AUTO_START_INGESTION=true
   DOC_ENGINE=elasticsearch
   KNOWLEDGE_RUNTIME_ES_URL=http://127.0.0.1:9200
-  KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=true
   ```
 
   真实 key 只放在本地 `deploy/.env` 或 shell 中，不要提交。
@@ -365,9 +354,8 @@ Kubernetes/KEDA 示例见
 - `./scripts/local/run-knowledge-parse-stack.sh` 启动 host-run runtime API、worker 和
   Knowledge adapter，并生成 `.local/knowledge-runtime/service_conf.yaml` 供 runtime API
   和 worker 使用。它不再直接执行 `docker build` 或 `docker run`；本地
-  Elasticsearch 由前一步 `./scripts/local/dev-up.sh` 通过根 Compose profile 管理。
-  如果你要使用已有宿主机或外部 Elasticsearch，保持
-  `KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=false`，并把 `KNOWLEDGE_RUNTIME_ES_URL`
+  Elasticsearch 由前一步 `./scripts/local/dev-up.sh` 作为默认根 Compose 基础设施管理。
+  如果你要使用已有宿主机或外部 Elasticsearch，把 `KNOWLEDGE_RUNTIME_ES_URL`
   改成实际地址。
 - runtime worker 第一次启动会按需下载 `InfiniFlow/deepdoc` 等 deepdoc 模型。中国大陆
   网络用 `./scripts/local/run-knowledge-parse-stack.sh --china` 显式启用
@@ -539,7 +527,6 @@ parse stack：
 cp deploy/.env.example deploy/.env
 # Edit deploy/.env with KNOWLEDGE_RUNTIME_MODEL_API_KEY, embedding/rerank
 # provider variables, optional AI_GATEWAY_LOCAL_PROVIDER_* seed variables,
-# KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=true,
 # KNOWLEDGE_AUTO_START_INGESTION=true, and DOC_ENGINE.
 ./scripts/local/dev-up.sh
 ./scripts/local/run-knowledge-runtime-api.sh

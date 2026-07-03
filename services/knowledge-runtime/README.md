@@ -56,16 +56,13 @@ KNOWLEDGE_VENDOR_RERANK_ID=BAAI/bge-reranker-v2-m3@default@SILICONFLOW
 KNOWLEDGE_AUTO_START_INGESTION=true
 DOC_ENGINE=elasticsearch
 KNOWLEDGE_RUNTIME_ES_URL=http://127.0.0.1:9200
-KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=true
 ```
 
-After `KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=true` is present in local
-`deploy/.env`, run `./scripts/local/dev-up.sh` again. It starts the root Compose
-`elasticsearch` service through the `knowledge-runtime` profile. The runtime
-helper writes a config overlay to `.local/knowledge-runtime/service_conf.yaml`
-so the runtime API and worker use the configured Elasticsearch URL. To use an
-existing Elasticsearch instead, keep `KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=false`
-and point `KNOWLEDGE_RUNTIME_ES_URL` at that instance.
+Run `./scripts/local/dev-up.sh` to start the default root Compose infrastructure,
+including the pinned local `elasticsearch` service. The runtime helper writes a
+config overlay to `.local/knowledge-runtime/service_conf.yaml` so the runtime API
+and worker use the configured Elasticsearch URL. To use an existing Elasticsearch
+instead, point `KNOWLEDGE_RUNTIME_ES_URL` at that instance.
 
 The runtime worker lazily downloads deepdoc OCR/vision model artifacts from
 HuggingFace the first time those modules are imported. Committed defaults use

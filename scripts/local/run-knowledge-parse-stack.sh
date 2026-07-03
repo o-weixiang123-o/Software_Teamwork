@@ -30,8 +30,8 @@ usage() {
 Usage: ./scripts/local/run-knowledge-parse-stack.sh [--china]
 
 Starts the host-run Knowledge runtime API, runtime worker, and Knowledge adapter.
-Local Elasticsearch is managed by ./scripts/local/dev-up.sh through the root
-Compose knowledge-runtime profile when KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=true.
+Local Elasticsearch starts with the default root Compose infrastructure through
+./scripts/local/dev-up.sh.
 
 Options:
   --china   Use hf-mirror for HuggingFace model downloads in this run only when
@@ -429,7 +429,7 @@ wait_for_http_ok() {
 
   echo "$name did not become ready at $url" >&2
   if [[ "$name" == "Elasticsearch" ]]; then
-    echo "For local Elasticsearch, set KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=true in deploy/.env and rerun ./scripts/local/dev-up.sh." >&2
+    echo "For local Elasticsearch, rerun ./scripts/local/dev-up.sh and inspect docker compose ps/logs for elasticsearch." >&2
     echo "For external Elasticsearch, set KNOWLEDGE_RUNTIME_ES_URL to the reachable endpoint." >&2
   fi
   if [[ -s "$response_file" ]]; then

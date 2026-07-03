@@ -75,7 +75,6 @@ services:
     restart: "no"
 
   elasticsearch:
-    profiles: ["knowledge-runtime"]
     image: ${KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE:-docker.elastic.co/elasticsearch/elasticsearch:8.15.3}
     environment:
       discovery.type: single-node

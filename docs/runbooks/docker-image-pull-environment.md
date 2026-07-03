@@ -43,7 +43,8 @@ cp deploy/.env.example deploy/.env
 ```
 
 该模式只在本次进程设置 `POSTGRES_IMAGE`、`REDIS_IMAGE`、`QDRANT_IMAGE`、
-`MINIO_IMAGE` 和 `MINIO_MC_IMAGE` 的 DaoCloud registry rewrite，不改写
+`MINIO_IMAGE`、`MINIO_MC_IMAGE` 和 `KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE`
+的 DaoCloud registry rewrite，不改写
 `deploy/.env`。
 
 脚本内部会执行 Compose config、pull、up、migration 和 seed。只想验证 Docker 配置时：
@@ -53,13 +54,15 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env config --quie
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env config --services
 ```
 
-服务清单只能包含 `postgres`、`redis`、`qdrant`、`minio`、`minio-init`。
+服务清单只能包含 `postgres`、`redis`、`qdrant`、`minio`、`minio-init`、
+`elasticsearch`。
 
 ## Docker 镜像源选择
 
 Compose 文件本身保留 Docker Hub pinned defaults。需要企业 registry 或长期本地
 override 时，可只在本机 `deploy/.env` 设置 `POSTGRES_IMAGE`、`REDIS_IMAGE`、
-`QDRANT_IMAGE`、`MINIO_IMAGE` 和 `MINIO_MC_IMAGE`，不要提交成默认值。已有旧
+`QDRANT_IMAGE`、`MINIO_IMAGE`、`MINIO_MC_IMAGE` 和
+`KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE`，不要提交成默认值。已有旧
 `deploy/.env` 如果仍保留 DaoCloud 值，脚本会尊重本地配置；不传 `--china` 时会提示
 这是本地覆盖。
 
