@@ -46,10 +46,62 @@ DOC_ENGINE=elasticsearch
 KNOWLEDGE_RUNTIME_ES_URL=http://127.0.0.1:9200
 ```
 
+`KNOWLEDGE_RUNTIME_EMBEDDING_MODEL` and `KNOWLEDGE_RUNTIME_RERANK_MODEL` are
+RAGFlow runtime model labels. Keep them aligned with the selected AI Gateway
+profiles for compatibility, or leave the provider class model name empty when
+using a profile-only integration. AI Gateway profiles remain the authority for
+the provider model, base URL, credentials, and invocation audit.
+
 Direct provider factories such as `SILICONFLOW` remain available only by
 explicit local or emergency choice. They require
 `KNOWLEDGE_RUNTIME_MODEL_API_KEY` and bypass AI Gateway invocation audit and
 usage aggregation.
+
+### Cloud OCR Parser
+
+Knowledge runtime can route PDF parsing through PaddleOCR's cloud async Job API
+without loading local PaddlePaddle/OCR model artifacts. Configure it as an OCR
+provider and select it through `parser_config.layout_recognize`:
+
+```text
+PADDLEOCR_BASE_URL=https://paddleocr.aistudio-app.com
+PADDLEOCR_ACCESS_TOKEN=<local-secret>
+PADDLEOCR_ALGORITHM=PaddleOCR-VL
+PADDLEOCR_AUTH_SCHEME=token
+PADDLEOCR_REQUEST_TIMEOUT=600
+```
+
+For API-created datasets, pass credentials in top-level
+`parser_config_credentials.paddleocr_cloud`. The runtime consumes those
+credentials into the OCR model record and persists only the model reference,
+for example `PaddleOCR-VL@PaddleOCR-VL@PaddleOCR`, in `parser_config`.
+
+The parser implementation is intentionally split into:
+
+- `deepdoc/parser/paddleocr_client.py` for submit/poll/result download.
+- `deepdoc/parser/paddleocr_adapter.py` for converting PaddleOCR response
+  variants into ordered page/block records.
+- `deepdoc/parser/paddleocr_normalizer.py` for cleaning markdown/layout blocks,
+  converting HTML tables to pipe tables, preserving formulas, and producing
+  semantic sections with page/bbox metadata.
+- `deepdoc/parser/paddleocr_parser.py` for wiring the cloud client, adapter,
+  normalizer, and legacy RAGFlow section tuple output.
+- `rag/llm/ocr_model.py` for runtime model/env configuration.
+
+The data flow is:
+
+```text
+PaddleOCR Cloud raw result
+  -> PaddleOCR result adapter
+  -> Markdown/layout normalizer
+  -> semantic sections with metadata
+  -> chunker
+  -> embedding/index
+```
+
+The chunker still receives the existing tuple shape, such as `(text, tag)` or
+`(text, block_type, tag)`, so PaddleOCR-specific response fields do not leak
+past the parser boundary.
 
 ## Dependency Preparation
 

@@ -76,7 +76,7 @@ def _load_dataset_service_module(
         monkeypatch,
         "api.db.services.task_service",
         TaskService=SimpleNamespace(),
-        GRAPH_RAPTOR_FAKE_DOC_ID="fake-doc",
+        DATASET_SCOPE_TASK_DOC_ID="dataset-scope-task-doc",
     )
     _stub(
         monkeypatch,
@@ -95,6 +95,8 @@ def _load_dataset_service_module(
         monkeypatch,
         "common.constants",
         PAGERANK_FLD="pagerank",
+        RetCode=SimpleNamespace(ARGUMENT_ERROR=101, NOT_FOUND=404),
+        LLMType=SimpleNamespace(EMBEDDING=SimpleNamespace(value="embedding")),
         FileSource=SimpleNamespace(KNOWLEDGEBASE="knowledgebase"),
         StatusEnum=SimpleNamespace(VALID=SimpleNamespace(value="1")),
     )

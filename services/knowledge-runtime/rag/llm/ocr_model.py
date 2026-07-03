@@ -134,6 +134,11 @@ class PaddleOCROcrModel(Base):
         self.paddleocr_base_url = _resolve_config("paddleocr_base_url", "PADDLEOCR_BASE_URL", "") or _resolve_config("paddleocr_api_url", "PADDLEOCR_API_URL", "")
         self.paddleocr_algorithm = _resolve_config("paddleocr_algorithm", "PADDLEOCR_ALGORITHM", "PaddleOCR-VL")
         self.paddleocr_access_token = _resolve_config("paddleocr_access_token", "PADDLEOCR_ACCESS_TOKEN", None)
+        self.paddleocr_auth_scheme = str(_resolve_config("paddleocr_auth_scheme", "PADDLEOCR_AUTH_SCHEME", "token") or "token").strip().lower()
+        try:
+            self.paddleocr_request_timeout = int(_resolve_config("paddleocr_request_timeout", "PADDLEOCR_REQUEST_TIMEOUT", "600") or "600")
+        except (TypeError, ValueError):
+            self.paddleocr_request_timeout = 600
 
         # Redact sensitive config keys before logging
         redacted_config = {}
@@ -149,6 +154,8 @@ class PaddleOCROcrModel(Base):
             base_url=self.paddleocr_base_url or None,
             access_token=self.paddleocr_access_token,
             algorithm=self.paddleocr_algorithm,
+            request_timeout=self.paddleocr_request_timeout,
+            auth_scheme=self.paddleocr_auth_scheme,
         )
 
     def check_available(self) -> tuple[bool, str]:

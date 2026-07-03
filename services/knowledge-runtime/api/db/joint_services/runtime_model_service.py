@@ -146,6 +146,8 @@ def ensure_paddleocr_from_config(scope_id: str, config: dict | None, model_name:
         "paddleocr_api_url": "PADDLEOCR_API_URL",
         "paddleocr_access_token": "PADDLEOCR_ACCESS_TOKEN",
         "paddleocr_algorithm": "PADDLEOCR_ALGORITHM",
+        "paddleocr_auth_scheme": "PADDLEOCR_AUTH_SCHEME",
+        "paddleocr_request_timeout": "PADDLEOCR_REQUEST_TIMEOUT",
     }
     for source_key, target_key in key_map.items():
         value = config.get(source_key)
