@@ -449,7 +449,7 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 	if err != nil {
 		return AskResult{}, err
 	}
-	baseCtx := WithUserID(context.WithoutCancel(ctx), userID)
+	baseCtx := WithUserID(ctx, userID)
 	baseCtx = contextutil.WithKnowledgeBaseIDs(baseCtx, input.KnowledgeBaseIDs)
 	baseCtx = contextutil.WithDefaultKnowledgeBaseIDs(baseCtx, runtime.DefaultKnowledgeBaseIDs)
 	baseCtx = contextutil.WithRetrievalSettings(baseCtx, retrievalSettingsForAsk(runtime.RetrievalSettings, input.Retrieval))
@@ -503,6 +503,8 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 	steps := make([]ReasoningStep, 0, 4)
 	citations := make([]Citation, 0, 8)
 	reasoningDeltaIndex := 0
+	answerDeltaIndex := 0
+	var streamedAnswer strings.Builder
 	iterationStartedAt := map[int]time.Time{}
 	completedIterations := map[int]struct{}{}
 	modelInvocationIDs := map[int]string{}
@@ -521,6 +523,14 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 	emitReasoningDelta := func(text string) {
 		emit("reasoning.delta", map[string]any{"messageId": assistantMessage.ID, "text": text, "index": reasoningDeltaIndex})
 		reasoningDeltaIndex++
+	}
+	emitAnswerDelta := func(text string) {
+		if text == "" {
+			return
+		}
+		emit("answer.delta", map[string]any{"messageId": assistantMessage.ID, "text": text, "index": answerDeltaIndex})
+		answerDeltaIndex++
+		streamedAnswer.WriteString(text)
 	}
 	bufferReasoningDelta := func(iteration int, raw string) {
 		if raw == "" {
@@ -632,6 +642,9 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 		case agent.EventReasoningDelta:
 			bufferReasoningDelta(event.Iteration, event.ReasoningContent)
 			return
+		case agent.EventAnswerDelta:
+			emitAnswerDelta(event.AnswerContent)
+			return
 		}
 		step, ok := stepFromAgentEvent(assistantMessage.ID, event, s.now().UTC())
 		if !ok {
@@ -699,7 +712,12 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 		finalCitations = revalidateCitationSources(ctx, userID, s.sourceChecker, finalCitations)
 	}
 	assistantMessage.Citations = finalCitations
-	emit("answer.delta", map[string]any{"messageId": assistantMessage.ID, "text": assistantMessage.Content, "index": 0})
+	streamedAnswerText := streamedAnswer.String()
+	if streamedAnswerText == "" {
+		emitAnswerDelta(assistantMessage.Content)
+	} else if strings.HasPrefix(assistantMessage.Content, streamedAnswerText) && len(streamedAnswerText) < len(assistantMessage.Content) {
+		emitAnswerDelta(assistantMessage.Content[len(streamedAnswerText):])
+	}
 	emit("answer.completed", map[string]any{
 		"responseRunId": run.ID,
 		"messageId":     assistantMessage.ID,

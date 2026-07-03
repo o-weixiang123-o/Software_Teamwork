@@ -234,9 +234,11 @@ conversations -> messages -> message_content_blocks
   `POST /internal/v1/knowledge-queries` with service/user/request context.
 - `reasoning.step` contains only displayable Agent progress. It must never
   contain prompts, tool arguments, tool results, or private chain-of-thought.
-- Model calls currently use non-streaming OpenAI-compatible completions. Agent
-  progress is sent immediately, then the completed model text is emitted as one
-  `answer.delta`. Do not describe this as provider token streaming.
+- Model calls may use OpenAI-compatible streaming completions when configured.
+  Agent progress is sent immediately. Provider `delta.content` chunks that
+  belong to the final assistant answer are projected into ordered
+  `answer.delta` events. Non-streaming responses, or streaming providers that
+  do not emit answer content chunks, fall back to one final `answer.delta`.
 - `QA_DATABASE_URL` is required by `cmd/server`; `cmd/agent` does not require
   PostgreSQL. `QA_HTTP_ADDR`, `QA_MAX_REQUEST_BYTES`, and
   `QA_SHUTDOWN_TIMEOUT` have safe local defaults.

@@ -20,6 +20,7 @@ const (
 	EventModelStarted   EventType = "model.started"
 	EventModelCompleted EventType = "model.completed"
 	EventReasoningDelta EventType = "reasoning.delta"
+	EventAnswerDelta    EventType = "answer.delta"
 	EventToolStarted    EventType = "tool.started"
 	EventToolCompleted  EventType = "tool.completed"
 	EventToolFailed     EventType = "tool.failed"
@@ -37,6 +38,7 @@ type Event struct {
 	ToolName         string
 	FinishReason     string
 	ReasoningContent string
+	AnswerContent    string
 	Usage            TokenUsage
 	Err              error
 }
@@ -165,6 +167,11 @@ func (r *Runner) run(ctx context.Context, input []Message, observer Observer, to
 		}
 		modelCtx := WithReasoningDeltaObserver(ctx, func(delta string) {
 			emitReasoningDelta(delta, false)
+		})
+		modelCtx = WithAnswerDeltaObserver(modelCtx, func(delta string) {
+			if delta != "" {
+				emit(observer, Event{Type: EventAnswerDelta, Iteration: iteration, AnswerContent: delta})
+			}
 		})
 		completion, err := r.model.Complete(modelCtx, messages, toolDefs)
 		if err != nil {

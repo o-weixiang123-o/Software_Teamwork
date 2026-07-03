@@ -412,6 +412,25 @@ type reasoningDeltaRunner struct {
 	deltas []string
 }
 
+type answerDeltaRunner struct {
+	deltas []string
+	final  string
+}
+
+func (r answerDeltaRunner) RunWithObserver(_ context.Context, input []agent.Message, observer agent.Observer) (agent.Result, error) {
+	observer(agent.Event{Type: agent.EventModelStarted, Iteration: 1})
+	for _, delta := range r.deltas {
+		observer(agent.Event{Type: agent.EventAnswerDelta, Iteration: 1, AnswerContent: delta})
+	}
+	observer(agent.Event{Type: agent.EventModelCompleted, Iteration: 1, Usage: agent.TokenUsage{PromptTokens: 2, CompletionTokens: 3, TotalTokens: 5}})
+	final := agent.Message{Role: agent.RoleAssistant, Content: r.final}
+	return agent.Result{Final: final, Messages: append(input, final), Iterations: 1}, nil
+}
+
+func (r answerDeltaRunner) RunWithToolResultCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver) (agent.Result, error) {
+	return r.RunWithObserver(ctx, input, observer)
+}
+
 func (r reasoningDeltaRunner) RunWithObserver(_ context.Context, input []agent.Message, observer agent.Observer) (agent.Result, error) {
 	observer(agent.Event{Type: agent.EventModelStarted, Iteration: 1})
 	for _, delta := range r.deltas {
@@ -804,10 +823,12 @@ func TestAskPersistsCompletedInvocationAfterRequestContextCancelled(t *testing.T
 	}
 }
 
-func TestAskDoesNotCancelModelRunWhenRequestContextIsCancelled(t *testing.T) {
+func TestAskCancelsModelRunWhenRequestContextIsCancelled(t *testing.T) {
 	now := time.Date(2026, 6, 29, 10, 0, 0, 0, time.UTC)
 	repository := &fakeRepository{
-		conversation: Conversation{ID: "conversation-id", OwnerUserID: "user-id", Status: "active", CreatedAt: now, UpdatedAt: now},
+		conversation:             Conversation{ID: "conversation-id", OwnerUserID: "user-id", Status: "active", CreatedAt: now, UpdatedAt: now},
+		failOnCanceledFinalizing: true,
+		failOnCanceledInvocation: true,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	runner := &cancelRequestDuringModelRunner{cancel: cancel}
@@ -818,17 +839,21 @@ func TestAskDoesNotCancelModelRunWhenRequestContextIsCancelled(t *testing.T) {
 	qa.now = func() time.Time { return now }
 
 	result, err := qa.Ask(ctx, "user-id", "conversation-id", AskInput{Message: "disconnect during model"}, nil)
-	if err != nil {
-		t.Fatal(err)
+	appErr, ok := Classify(err)
+	if !ok || appErr.Code != CodeDependency || appErr.Message != "answer generation cancelled" {
+		t.Fatalf("error=%v, want cancellation dependency_error", err)
 	}
-	if runner.sawCanceled {
-		t.Fatal("model runner observed request cancellation")
+	if !runner.sawCanceled {
+		t.Fatal("model runner did not observe request cancellation")
 	}
-	if result.ResponseRun.Status != "completed" || result.AssistantMessage.Status != "completed" {
+	if result.ResponseRun.Status != "cancelled" || result.AssistantMessage.Status != "cancelled" {
 		t.Fatalf("result=%+v assistant=%+v", result.ResponseRun, result.AssistantMessage)
 	}
-	if repository.finalization.Status != "completed" || repository.finalization.TerminationReason != "completed" {
+	if repository.finalization.Status != "cancelled" || repository.finalization.TerminationReason != "cancelled" {
 		t.Fatalf("finalization=%+v", repository.finalization)
+	}
+	if len(repository.invocations) != 1 || repository.invocations[0].Status != "cancelled" {
+		t.Fatalf("invocations=%+v", repository.invocations)
 	}
 }
 
@@ -1277,6 +1302,56 @@ func TestAskEmitsReasoningDeltaBeforeAnswerDelta(t *testing.T) {
 	if reasoningSeq == 0 || answerSeq == 0 || reasoningSeq > answerSeq {
 		t.Fatalf("reasoning sequence=%d answer sequence=%d events=%+v", reasoningSeq, answerSeq, repository.savedEvents)
 	}
+	assertProgressPayloadsDoNotLeakSensitiveData(t, observed)
+	assertStreamPayloadsDoNotLeakSensitiveData(t, repository.savedEvents)
+}
+
+func TestAskStreamsAnswerDeltasFromAgentEvents(t *testing.T) {
+	repository := &fakeRepository{conversation: Conversation{ID: "conversation-id", OwnerUserID: "user-id", Status: "active"}}
+	qa, err := NewQAService(repository, fakeRuntimeProvider{
+		runner: answerDeltaRunner{deltas: []string{"first ", "second"}, final: "first second"},
+		prompt: "system",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var observed []ProgressEvent
+	result, err := qa.Ask(context.Background(), "user-id", "conversation-id", AskInput{Message: "stream answer"}, func(event ProgressEvent) {
+		observed = append(observed, event)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.AssistantMessage.Content != "first second" || repository.finalization.AssistantMessage.Content != "first second" {
+		t.Fatalf("result=%+v finalization=%+v", result.AssistantMessage, repository.finalization.AssistantMessage)
+	}
+	var answerTexts []string
+	var answerIndexes []int
+	answerSeq, completedSeq := 0, 0
+	for _, event := range repository.savedEvents {
+		switch event.EventType {
+		case "answer.delta":
+			answerSeq = event.EventSeq
+			answerTexts = append(answerTexts, fmt.Sprint(event.Payload["text"]))
+			index, ok := event.Payload["index"].(int)
+			if !ok {
+				t.Fatalf("answer.delta index payload=%#v", event.Payload["index"])
+			}
+			answerIndexes = append(answerIndexes, index)
+		case "answer.completed":
+			completedSeq = event.EventSeq
+		}
+	}
+	if len(answerTexts) != 2 || strings.Join(answerTexts, "") != "first second" {
+		t.Fatalf("answer texts=%q events=%+v", answerTexts, repository.savedEvents)
+	}
+	if answerIndexes[0] != 0 || answerIndexes[1] != 1 {
+		t.Fatalf("answer indexes=%v events=%+v", answerIndexes, repository.savedEvents)
+	}
+	if answerSeq == 0 || completedSeq == 0 || answerSeq > completedSeq {
+		t.Fatalf("answer seq=%d completed seq=%d events=%+v", answerSeq, completedSeq, repository.savedEvents)
+	}
+	assertSSEEventTypesSeen(t, observed, "answer.delta", "answer.completed")
 	assertProgressPayloadsDoNotLeakSensitiveData(t, observed)
 	assertStreamPayloadsDoNotLeakSensitiveData(t, repository.savedEvents)
 }

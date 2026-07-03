@@ -25,6 +25,16 @@ func (f *fakeModel) Complete(_ context.Context, messages []Message, _ []ToolDefi
 	return response, nil
 }
 
+type answerStreamingModel struct{}
+
+func (answerStreamingModel) Complete(ctx context.Context, messages []Message, _ []ToolDefinition) (Completion, error) {
+	if observer := AnswerDeltaObserverFromContext(ctx); observer != nil {
+		observer("first ")
+		observer("second")
+	}
+	return Completion{Message: Message{Role: RoleAssistant, Content: "first second"}, FinishReason: "stop"}, nil
+}
+
 type fakeTools struct {
 	definitions []ToolDefinition
 	result      ToolResult
@@ -167,6 +177,29 @@ func TestRunnerEmitsReasoningDeltaSeparatelyFromAnswer(t *testing.T) {
 		}
 	}
 	t.Fatalf("missing reasoning delta event: %+v", events)
+}
+
+func TestRunnerEmitsAnswerDeltaFromModelStreamObserver(t *testing.T) {
+	runner := testRunner(t, answerStreamingModel{}, &fakeTools{}, 2)
+	var events []Event
+	result, err := runner.RunWithObserver(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, func(event Event) {
+		events = append(events, event)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Final.Content != "first second" {
+		t.Fatalf("final = %+v", result.Final)
+	}
+	var deltas []string
+	for _, event := range events {
+		if event.Type == EventAnswerDelta {
+			deltas = append(deltas, event.AnswerContent)
+		}
+	}
+	if strings.Join(deltas, "") != result.Final.Content {
+		t.Fatalf("answer deltas=%q events=%+v", deltas, events)
+	}
 }
 
 func TestRunnerDoesNotEmitReasoningDeltaWithoutFilter(t *testing.T) {
