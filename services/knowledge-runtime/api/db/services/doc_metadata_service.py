@@ -28,7 +28,12 @@ from typing import Any, Dict, List, Optional
 
 from api.db.db_models import DB, Document
 from common import settings
-from common.metadata_utils import MetadataFilterFallbackTooLarge, dedupe_list, metadata_filter_in_memory_fallback_limit
+from common.metadata_utils import (
+    METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT_ENV,
+    MetadataFilterFallbackTooLarge,
+    dedupe_list,
+    metadata_filter_in_memory_fallback_limit,
+)
 from api.db.db_models import Knowledgebase
 from common.doc_store.doc_store_base import OrderByExpr
 
@@ -61,6 +66,18 @@ def _es_response_total(response: Any) -> Optional[int]:
         # Legacy shape: some clients return the count directly.
         return total
     return None
+
+
+def _search_response_total(response: Any) -> Optional[int]:
+    if isinstance(response, tuple) and len(response) == 2:
+        total = response[1]
+        if isinstance(total, bool):
+            return None
+        if isinstance(total, int):
+            return total
+        if isinstance(total, float):
+            return int(total)
+    return _es_response_total(response)
 
 
 class DocMetadataService:
@@ -747,7 +764,7 @@ class DocMetadataService:
 
     @classmethod
     @DB.connection_context()
-    def get_flatted_meta_by_kbs(cls, kb_ids: List[str]) -> Dict:
+    def get_flatted_meta_by_kbs(cls, kb_ids: List[str], max_documents: Optional[int] = None) -> Dict:
         """
         Get flattened metadata for documents in knowledge bases.
 
@@ -777,11 +794,24 @@ class DocMetadataService:
             if not settings.DOC_ENGINE_INFINITY:
                 order_by.asc("id")
 
+            if max_documents is not None:
+                max_documents = max(0, int(max_documents))
+
             # Paginate to support datasets with more than 10,000 documents.
             page_size = 1000
             offset = 0
             all_results = []
             while True:
+                query_limit = page_size
+                if max_documents is not None:
+                    remaining_for_probe = max_documents + 1 - len(all_results)
+                    if remaining_for_probe <= 0:
+                        raise MetadataFilterFallbackTooLarge(
+                            f"metadata filter in-memory fallback would scan more than {max_documents} documents; "
+                            f"cap is {max_documents} from {METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT_ENV}"
+                        )
+                    query_limit = min(page_size, remaining_for_probe)
+
                 batch = settings.docStoreConn.search(
                     select_fields=["*"],
                     highlight_fields=[],
@@ -789,21 +819,33 @@ class DocMetadataService:
                     match_expressions=[],
                     order_by=order_by,
                     offset=offset,
-                    limit=page_size,
+                    limit=query_limit,
                     index_names=index_name,
                     knowledgebase_ids=kb_ids
                 )
+                if max_documents is not None:
+                    total = _search_response_total(batch)
+                    if total is not None and total > max_documents:
+                        raise MetadataFilterFallbackTooLarge(
+                            f"metadata filter in-memory fallback would scan {total} documents; "
+                            f"cap is {max_documents} from {METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT_ENV}"
+                        )
                 batch_docs = list(cls._iter_search_results(batch))
                 if not batch_docs:
                     break
+                if max_documents is not None and len(all_results) + len(batch_docs) > max_documents:
+                    raise MetadataFilterFallbackTooLarge(
+                        f"metadata filter in-memory fallback would scan more than {max_documents} documents; "
+                        f"cap is {max_documents} from {METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT_ENV}"
+                    )
                 all_results.extend(batch_docs)
                 logging.debug(
                     "[get_flatted_meta_by_kbs] offset=%d batch=%d total=%d kb_ids=%s",
                     offset, len(batch_docs), len(all_results), kb_ids,
                 )
-                if len(batch_docs) < page_size:
+                if len(batch_docs) < query_limit:
                     break
-                offset += page_size
+                offset += query_limit
 
             # Aggregate metadata over all retrieved results
             meta = {}
@@ -834,6 +876,8 @@ class DocMetadataService:
                           kb_ids, doc_count, meta)
             return meta
 
+        except MetadataFilterFallbackTooLarge:
+            raise
         except Exception as e:
             logging.error("Error getting flattened metadata for KBs %s: %s", kb_ids, e)
             return {}

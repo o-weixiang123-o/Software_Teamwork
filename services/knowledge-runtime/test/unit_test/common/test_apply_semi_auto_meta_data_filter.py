@@ -1,3 +1,6 @@
+import sys
+from types import ModuleType
+
 import pytest
 from common.metadata_utils import MetadataFilterFallbackTooLarge, apply_meta_data_filter, metadata_filter_in_memory_fallback_limit
 from unittest.mock import MagicMock, AsyncMock, patch
@@ -70,6 +73,36 @@ async def test_apply_meta_data_filter_rejects_large_in_memory_fallback(monkeypat
             question="manual",
             chat_mdl=MagicMock(),
         )
+
+
+@pytest.mark.asyncio
+async def test_apply_meta_data_filter_passes_limit_to_lazy_metadata_loader(monkeypatch):
+    monkeypatch.setenv("METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT", "1")
+    prompts_mod = ModuleType("rag.prompts")
+    generator_mod = ModuleType("rag.prompts.generator")
+
+    async def _unused_gen_meta_filter(*args, **kwargs):
+        raise AssertionError("manual metadata filters must not call gen_meta_filter")
+
+    generator_mod.gen_meta_filter = _unused_gen_meta_filter
+    prompts_mod.generator = generator_mod
+    monkeypatch.setitem(sys.modules, "rag.prompts", prompts_mod)
+    monkeypatch.setitem(sys.modules, "rag.prompts.generator", generator_mod)
+    calls = []
+
+    def _load_metas(max_documents=None):
+        calls.append(max_documents)
+        return {"source": {"manual": ["doc-1", "doc-2"]}}
+
+    with pytest.raises(MetadataFilterFallbackTooLarge, match="cap is 1"):
+        await apply_meta_data_filter(
+            {"method": "manual", "manual": [{"key": "source", "op": "=", "value": "manual"}]},
+            metas_loader=_load_metas,
+            question="manual",
+            chat_mdl=MagicMock(),
+        )
+
+    assert calls == [1]
 
 
 @pytest.mark.asyncio

@@ -92,7 +92,7 @@ def _search_not_found_error(message: str = "Dataset not found.") -> SearchBusine
 
 def _is_missing_search_index_error(exc: Exception) -> bool:
     text = f"{repr(exc)} {str(exc)}".lower()
-    return "index_not_found_exception" in text or "not_found" in text
+    return "index_not_found_exception" in text
 
 
 def _empty_search_result(labels=None):
@@ -1028,10 +1028,10 @@ async def search(dataset_id: str, tenant_id: str, req: dict):
                 chat_mdl,
                 local_doc_ids,
                 kb_ids=[dataset_id],
-                metas_loader=lambda: DocMetadataService.get_flatted_meta_by_kbs([dataset_id]),
+                metas_loader=lambda max_documents=None: DocMetadataService.get_flatted_meta_by_kbs([dataset_id], max_documents=max_documents),
             )
         except MetadataFilterFallbackTooLarge as exc:
-            return False, str(exc)
+            return False, _search_validation_error(str(exc))
 
     tenant_ids = []
     tenants = UserTenantService.query(user_id=tenant_id)
@@ -1368,7 +1368,7 @@ async def search_datasets(tenant_id: str, req: dict):
                 chat_mdl,
                 local_doc_ids,
                 kb_ids=kb_ids,
-                metas_loader=lambda: DocMetadataService.get_flatted_meta_by_kbs(kb_ids),
+                metas_loader=lambda max_documents=None: DocMetadataService.get_flatted_meta_by_kbs(kb_ids, max_documents=max_documents),
             )
         except MetadataFilterFallbackTooLarge as exc:
             return False, _search_validation_error(str(exc))

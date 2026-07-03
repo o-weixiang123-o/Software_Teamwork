@@ -14,6 +14,7 @@
 #  limitations under the License.
 #
 import ast
+import inspect
 import logging
 import os
 from typing import Any, Callable, Dict
@@ -214,7 +215,7 @@ async def apply_meta_data_filter(
         base_doc_ids: list[str] | None = None,
         manual_value_resolver: Callable[[dict], dict] | None = None,
         kb_ids: list[str] | None = None,
-        metas_loader: Callable[[], dict] | None = None,
+        metas_loader: Callable[..., dict] | None = None,
 ) -> list[str] | None:
     """
     Apply metadata filtering rules and return the filtered doc_ids.
@@ -255,15 +256,32 @@ async def apply_meta_data_filter(
     # leave the loader untouched.
     cached_metas: dict | None = metas
 
-    def _get_metas() -> dict:
+    def _load_metas(max_documents: int | None = None) -> dict:
+        if not metas_loader:
+            return {}
+        if max_documents is None:
+            return metas_loader()
+        try:
+            loader_signature = inspect.signature(metas_loader)
+        except (TypeError, ValueError):
+            return metas_loader()
+        accepts_max_documents = any(
+            param.kind == inspect.Parameter.VAR_KEYWORD or name == "max_documents"
+            for name, param in loader_signature.parameters.items()
+        )
+        if accepts_max_documents:
+            return metas_loader(max_documents=max_documents)
+        return metas_loader()
+
+    def _get_metas(max_documents: int | None = None) -> dict:
         nonlocal cached_metas
         if cached_metas is None:
-            cached_metas = metas_loader() if metas_loader else {}
+            cached_metas = _load_metas(max_documents=max_documents)
         return cached_metas
 
     def _get_metas_for_in_memory_fallback() -> dict:
-        current_metas = _get_metas()
         limit = metadata_filter_in_memory_fallback_limit()
+        current_metas = _get_metas(max_documents=limit)
         doc_count = metadata_doc_count(current_metas)
         if doc_count > limit:
             raise MetadataFilterFallbackTooLarge(
@@ -291,7 +309,7 @@ async def apply_meta_data_filter(
         return meta_filter(_get_metas_for_in_memory_fallback(), conditions, logic)
 
     if method == "auto":
-        filters: dict = await gen_meta_filter(chat_mdl, _get_metas(), question)
+        filters: dict = await gen_meta_filter(chat_mdl, _get_metas_for_in_memory_fallback(), question)
         logging.debug(f"Metadata filter(auto) generated: {filters}")
         doc_ids.extend(_run_metadata_filter(filters["conditions"], filters.get("logic", "and")))
         if not doc_ids:
@@ -310,7 +328,7 @@ async def apply_meta_data_filter(
                     constraints[key] = op
 
         if selected_keys:
-            current_metas = _get_metas()
+            current_metas = _get_metas_for_in_memory_fallback()
             filtered_metas = {key: current_metas[key] for key in selected_keys if key in current_metas}
             if filtered_metas:
                 filters: dict = await gen_meta_filter(chat_mdl, filtered_metas, question, constraints=constraints)

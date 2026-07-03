@@ -539,8 +539,6 @@ async def search_datasets(tenant_id):
             return _get_search_business_error_result(result)
     except Exception as e:
         logging.exception(e)
-        if "not_found" in str(e):
-            return get_result(data=dataset_api_service._empty_search_result())
         return _get_search_dependency_error_result()
 
 
@@ -571,8 +569,6 @@ async def search(tenant_id, dataset_id):
             return _get_search_business_error_result(result)
     except Exception as e:
         logging.exception(e)
-        if "not_found" in str(e):
-            return get_result(data=dataset_api_service._empty_search_result())
         return _get_search_dependency_error_result()
 
 

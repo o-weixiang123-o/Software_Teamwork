@@ -1201,6 +1201,13 @@ METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT=10000
 - Metadata filter pushdown failures may fall back to in-memory filtering only
   when the candidate document count is at or below
   `METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT`; over-cap cases must fail clearly.
+  Lazy metadata loaders and doc-engine pagination must receive the configured
+  cap before materializing document metadata, and may fetch at most one extra
+  record or use a stable total count to prove the fallback is over-cap.
+- Missing retrieval indexes may return an empty result only when the runtime or
+  doc engine exposes a stable missing-index signal such as
+  `index_not_found_exception`. Other `*_not_found` failures from datasets,
+  models, providers, or dependencies must keep their typed error mapping.
 - Adapter-owned parser config trace fields such as
   `software_teamwork_parser_config` must not be forwarded into strict vendor
   runtime request bodies unless the vendor schema explicitly allows them.
@@ -1237,7 +1244,9 @@ METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT=10000
 | Runtime route declares only legacy auth types | Reject as `unauthorized` even when `X-Service-Token` is valid. |
 | Missing runtime tenant while auto-provisioning is disabled | Reject auth clearly and perform no provisioning writes. |
 | Empty chunk reaches embedding/indexing | Skip it or return a validation error; never index a vector for `"None"`. |
-| Metadata fallback candidate set exceeds cap | Return a clear too-large/degraded error; do not load the full set into memory. |
+| Metadata fallback candidate set exceeds cap | Return a clear too-large/degraded error; pass the cap into the loader/doc-engine request and do not load the full set into memory. |
+| Retrieval raises `index_not_found_exception` for an uncreated index | Return an empty result payload. |
+| Retrieval raises another `not_found` dependency/model/provider error | Preserve typed error mapping; do not turn it into empty success by string matching. |
 | Dataset creation lacks `KNOWLEDGE_VENDOR_EMBEDDING_ID` in vendor mode | Startup/config error or documented fallback; do not claim external embedding E2E coverage. |
 | Rerank ID is not `<model>@<tenant>@<provider>` | Retrieval may return a sanitized `502 dependency_error`; fix env wiring instead of stripping rerank. |
 | Metadata lookup calls the binary content route and decodes JSON | Treat as an adapter bug; use dataset document-list metadata lookup. |

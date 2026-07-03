@@ -54,7 +54,41 @@ def test_dataset_search_returns_empty_payload_for_missing_index():
 
     assert "def _is_missing_search_index_error" in content
     assert "index_not_found_exception" in content
+    assert 'or "not_found" in text' not in content
+    assert 'or "not_found" in str(e)' not in content
     assert "return True, _empty_search_result(labels)" in content
+
+    route = (_runtime_root() / "api" / "apps" / "restful_apis" / "dataset_api.py").read_text(encoding="utf-8")
+    assert 'if "not_found" in str(e)' not in route
+
+
+def test_metadata_fallback_loader_enforces_limit_before_full_materialization():
+    runtime_root = _runtime_root()
+
+    metadata_utils = (runtime_root / "common" / "metadata_utils.py").read_text(encoding="utf-8")
+    assert "def _load_metas(max_documents: int | None = None)" in metadata_utils
+    assert "metas_loader(max_documents=max_documents)" in metadata_utils
+    assert "_get_metas(max_documents=limit)" in metadata_utils
+
+    metadata_service = (runtime_root / "api" / "db" / "services" / "doc_metadata_service.py").read_text(encoding="utf-8")
+    assert "max_documents: Optional[int] = None" in metadata_service
+    assert "remaining_for_probe = max_documents + 1 - len(all_results)" in metadata_service
+    assert "limit=query_limit" in metadata_service
+    assert "except MetadataFilterFallbackTooLarge:\n            raise" in metadata_service
+
+
+def test_internal_document_openapi_declares_required_dataset_query_validation():
+    repo_root = _repo_root()
+
+    for relative_path in [
+        "services/knowledge/api/openapi.yaml",
+        "docs/services/knowledge/api/internal.openapi.yaml",
+    ]:
+        content = (repo_root / relative_path).read_text(encoding="utf-8")
+        document_block = content.split("  /internal/v1/documents/{documentId}:")[1].split("    patch:")[0]
+        content_block = content.split("  /internal/v1/documents/{documentId}/content:")[1].split("  /internal/v1/knowledge-queries:")[0]
+        assert '"400": { $ref: "#/components/responses/Error" }' in document_block
+        assert '"400": { $ref: "#/components/responses/Error" }' in content_block
 
 
 def test_dataset_search_business_errors_have_stable_status_codes():
@@ -66,6 +100,8 @@ def test_dataset_search_business_errors_have_stable_status_codes():
     assert "RetCode.NOT_FOUND, 404" in service_content
     assert 'return False, _search_validation_error("Datasets use different embedding models.")' in service_content
     assert 'return False, _search_validation_error("`doc_ids` should be a list")' in service_content
+    assert "return False, str(exc)" not in service_content
+    assert service_content.count("return False, _search_validation_error(str(exc))") >= 2
     assert "return False, _search_not_found_error()" in service_content
 
     route_source = _runtime_root() / "api" / "apps" / "restful_apis" / "dataset_api.py"
