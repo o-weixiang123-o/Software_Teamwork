@@ -11,30 +11,18 @@ from pathlib import Path
 
 
 SCAN_ROOTS = ("deploy", "services", "apps")
-KNOWN_IMAGE_OVERRIDE_VARS = {
-    "POSTGRES_IMAGE": "docker.m.daocloud.io/library/postgres:16-alpine",
-    "REDIS_IMAGE": "docker.m.daocloud.io/library/redis:7-alpine",
-    "QDRANT_IMAGE": "docker.m.daocloud.io/qdrant/qdrant:v1.18.2",
-    "MINIO_IMAGE": "docker.m.daocloud.io/minio/minio:RELEASE.2025-09-07T16-13-09Z",
-    "MINIO_MC_IMAGE": "docker.m.daocloud.io/minio/mc:RELEASE.2025-08-13T08-35-41Z",
-}
 EXPECTED_IMAGE_DEFAULTS = {
     "POSTGRES_IMAGE": "postgres:16-alpine",
     "REDIS_IMAGE": "redis:7-alpine",
     "QDRANT_IMAGE": "qdrant/qdrant:v1.18.2",
     "MINIO_IMAGE": "minio/minio:RELEASE.2025-09-07T16-13-09Z",
     "MINIO_MC_IMAGE": "minio/mc:RELEASE.2025-08-13T08-35-41Z",
+    "KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE": "docker.elastic.co/elasticsearch/elasticsearch:8.15.3",
 }
 LOCAL_COMPOSE_FILE = Path("deploy/docker-compose.yml")
 ALLOWED_DEFAULT_COMPOSE_SERVICES = ("postgres", "redis", "qdrant", "minio", "minio-init")
 ALLOWED_PROFILE_COMPOSE_SERVICES = {
     "elasticsearch": ("knowledge-runtime",),
-}
-ALLOWED_ROOT_COMPOSE_BUILD_SERVICES = {
-    "elasticsearch": {
-        "context": ".",
-        "dockerfile": "Dockerfile.elasticsearch-local",
-    },
 }
 DISALLOWED_DEFAULT_COMPOSE_SERVICES = (
     "migrate-auth",
@@ -284,9 +272,7 @@ def validate_compose_file(root: Path, compose_file: Path) -> list[str]:
     if "GOSUMDB=off" in content or re.search(r"GOSUMDB\s*:\s*(?:\$\{[^}]*:-)?off\b", content):
         issues.append(f"{rel}: must not disable Go checksum verification with GOSUMDB=off")
 
-    if "build:" in content and rel == LOCAL_COMPOSE_FILE.as_posix():
-        issues.extend(validate_local_compose_builds(rel, content))
-    elif "build:" in content:
+    if "build:" in content:
         issues.append(f"{rel}: Compose must not use `build:`; local Docker is pull-only infrastructure")
     if "GOPROXY:" in content and GO_PROXY_COMPOSE not in content:
         issues.append(f"{rel}: Go build args must default to `{GO_PROXY_COMPOSE}`")
@@ -363,25 +349,6 @@ def validate_local_compose(rel: str, content: str) -> list[str]:
     return issues
 
 
-def validate_local_compose_builds(rel: str, content: str) -> list[str]:
-    issues: list[str] = []
-    builds = extract_compose_builds(content)
-    for service, attrs in builds.items():
-        expected = ALLOWED_ROOT_COMPOSE_BUILD_SERVICES.get(service)
-        if expected is None:
-            issues.append(
-                f"{rel}: service `{service}` must not use `build:`; only optional `elasticsearch` profile may build"
-            )
-            continue
-        for key, expected_value in expected.items():
-            actual = attrs.get(key, "")
-            if actual != expected_value:
-                issues.append(
-                    f"{rel}: service `{service}` build `{key}` must be `{expected_value}`, found `{actual or '(missing)'}`"
-                )
-    return issues
-
-
 def extract_compose_services(content: str) -> dict[str, tuple[str, ...]]:
     services: dict[str, tuple[str, ...]] = {}
     for service, block in extract_compose_service_blocks(content).items():
@@ -431,28 +398,6 @@ def extract_profiles_from_block(block: list[tuple[int, str]]) -> tuple[str, ...]
     return ()
 
 
-def extract_compose_builds(content: str) -> dict[str, dict[str, str]]:
-    builds: dict[str, dict[str, str]] = {}
-    for service, block in extract_compose_service_blocks(content).items():
-        for index, (_line_no, line) in enumerate(block):
-            build_match = re.match(r"^    build:\s*(.*?)\s*$", line)
-            if not build_match:
-                continue
-            attrs: dict[str, str] = {}
-            inline_value = build_match.group(1).strip().strip("'\"")
-            if inline_value:
-                attrs["context"] = inline_value
-            for _child_line_no, child in block[index + 1 :]:
-                if re.match(r"^    [A-Za-z0-9_.-]+:", child):
-                    break
-                attr_match = re.match(r"^      ([A-Za-z0-9_.-]+):\s*(.+?)\s*$", child)
-                if attr_match:
-                    attrs[attr_match.group(1)] = attr_match.group(2).strip().strip("'\"")
-            builds[service] = attrs
-            break
-    return builds
-
-
 def parse_profiles(raw: str) -> tuple[str, ...]:
     raw = raw.strip()
     inline = re.match(r"^\[(.*)\]$", raw)
@@ -474,10 +419,11 @@ def validate_env_example(root: Path) -> list[str]:
     values = parse_env_file(content)
     issues: list[str] = []
 
-    for key in KNOWN_IMAGE_OVERRIDE_VARS:
-        if key in values:
+    for key, expected_default in EXPECTED_IMAGE_DEFAULTS.items():
+        value = values.get(key)
+        if value is not None and value != expected_default:
             issues.append(
-                f"deploy/.env.example: `{key}` must not be active by default under the official-by-default source policy; use ./scripts/local/dev-up.sh --china or local deploy/.env overrides"
+                f"deploy/.env.example: `{key}` must default to official pinned `{expected_default}` under the official-by-default source policy; use ./scripts/local/dev-up.sh --china or local deploy/.env overrides"
             )
 
     for key, value in values.items():

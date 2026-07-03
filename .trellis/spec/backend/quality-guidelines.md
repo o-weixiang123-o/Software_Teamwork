@@ -247,11 +247,9 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
 - Default Compose services:
   - `postgres`
   - `redis`
-  - `qdrant`
   - `minio`
   - `minio-init`
-- Optional Compose profile services:
-  - `elasticsearch` under profile `knowledge-runtime`
+  - `elasticsearch`
 - Public browser/API entrypoint after host-run services start:
   - `http://localhost:8080` through gateway.
 - Operational routes:
@@ -262,8 +260,7 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
 
 - The root local Compose path stays infrastructure-only. Business services and
   the RAGFlow Knowledge runtime API/worker run on the host. Local
-  Elasticsearch may exist only as the optional `knowledge-runtime` profile
-  service for Knowledge runtime doc-engine infrastructure, disabled by default.
+  Elasticsearch is the default Knowledge runtime doc-engine infrastructure.
 - Docs must provide host-run commands for Auth, File, Knowledge, AI Gateway,
   QA, Document, Gateway, and frontend.
 - Frontend and browser-facing documentation must route traffic through gateway;
@@ -291,8 +288,7 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
   the default local backend startup path must not depend on `services/parser`.
 - `run-knowledge-parse-stack.sh` must not run direct `docker build` or
   `docker run` for Elasticsearch. Local Elasticsearch lifecycle belongs to the
-  root Compose `knowledge-runtime` profile started by `dev-up.sh` when
-  `KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=true`.
+  root Compose infrastructure started by `dev-up.sh`.
 - `HF_ENDPOINT=https://hf-mirror.com` must not be active in committed defaults
   or forced by runtime scripts in official-default mode. Mainland China runtime
   model download mirrors are explicit through
@@ -332,22 +328,14 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
   running host migrations or seed SQL. One-shot infrastructure jobs such as
   `minio-init` must run separately and use their own exit code so a normal
   `Exited (0)` does not skip migrations or seed.
-- `dev-up.sh` may create or verify a legacy/test-only Qdrant collection when
-  `QDRANT_URL` is configured. The collection dimension must match
-  `EMBEDDING_DIMENSION`, and the default distance is `Cosine`. Current
-  Knowledge ingestion uses RAGFlow runtime and its configured doc engine;
-  startup scripts must not make old Go Qdrant collection setup a required
-  Knowledge default. If legacy or test-only `QDRANT_URL` support remains, it
-  must be clearly documented as non-primary.
 - Compose must include practical health checks for infrastructure containers.
 - PostgreSQL health checks must probe TCP readiness, e.g.
   `pg_isready -h localhost -U postgres -d postgres`.
-- Qdrant health checks must use commands available inside `qdrant/qdrant`; do
-  not assume `curl` or `wget` exists.
 - Compose infrastructure images must keep explicit pinned defaults. If a local
   or enterprise registry is required, expose it through image variables such as
-  `POSTGRES_IMAGE`, `REDIS_IMAGE`, `QDRANT_IMAGE`, `MINIO_IMAGE`, and
-  `MINIO_MC_IMAGE`; do not replace pinned defaults with `latest`.
+  `POSTGRES_IMAGE`, `REDIS_IMAGE`, `MINIO_IMAGE`, `MINIO_MC_IMAGE`, and
+  `KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE`; do not replace pinned defaults with
+  `latest`.
 - For mainland China Docker usage, prefer explicit `dev-up.sh --china`
   registry rewrite or local untracked `*_IMAGE` overrides over daemon mirrors
   and proxies. Do not make third-party registries active defaults in
@@ -388,11 +376,10 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
 | Condition | Required handling |
 | --- | --- |
 | Compose YAML or env interpolation is invalid | `docker compose ... config --quiet` must fail before merge. |
-| Default Compose service list includes business services or profile services | Remove the service or update policy only if the team explicitly changes the Docker boundary. Optional `elasticsearch` is allowed only under profile `knowledge-runtime`. |
+| Default Compose service list includes anything other than `postgres`, `redis`, `minio`, `minio-init`, or `elasticsearch` | Remove the service or update policy only if the team explicitly changes the Docker boundary. |
 | Host migrations or seed run before PostgreSQL/init scripts are ready | Add or restore an infra health wait in `scripts/local/dev-up.sh`; do not rely on plain `docker compose up -d`. Run one-shot init jobs separately from `up --wait` and fail visibly if they exit non-zero. |
-| `QDRANT_URL` is set for a legacy/test-only path but the requested collection is not created | Add or restore guarded Qdrant collection initialization in `scripts/local/dev-up.sh`; do not document it as the default Knowledge ingestion path. |
 | Knowledge runtime/doc-engine env is configured but required runtime provisioning is missing | Fix the runtime dependency guard, startup docs, or smoke setup; do not restore the old Go adapter Qdrant bootstrap as the default Knowledge path. |
-| Compose contains `build:` | Remove it unless it is the explicit root Compose `elasticsearch` profile service using `deploy/Dockerfile.elasticsearch-local`; repository Docker must otherwise stay pull-only infra. |
+| Compose contains `build:` | Remove it; repository root Compose must stay pull-only infrastructure. |
 | Docker policy checker fails | Fix the Compose/docs/script regression or update `scripts/check_docker_policy.py` and the runbook in the same PR when the policy intentionally changes. |
 | Retired parser paths or env keys reappear in startup scripts | Remove the parser dependency and route document parsing through `services/knowledge-runtime`. |
 | Local startup script exits without a success or failure summary | Add or restore explicit command-line status output in the script and local seed contract checker. |

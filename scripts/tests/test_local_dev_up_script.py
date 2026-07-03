@@ -23,7 +23,7 @@ class LocalDevUpScriptTests(unittest.TestCase):
 
             docker_calls = (root / "docker-calls.log").read_text(encoding="utf-8")
             health_wait_call = next(line for line in docker_calls.splitlines() if " up -d --wait " in line)
-            self.assertIn(" postgres redis qdrant minio", health_wait_call)
+            self.assertIn(" postgres redis minio elasticsearch", health_wait_call)
             self.assertNotIn("minio-init", health_wait_call)
             self.assertIn(" up --no-deps --exit-code-from minio-init minio-init", docker_calls)
 
@@ -68,12 +68,29 @@ class LocalDevUpScriptTests(unittest.TestCase):
             self.assertIn("GOPROXY=https://proxy.golang.org,direct", env_text)
             docker_env = (root / "docker-env.log").read_text(encoding="utf-8")
             self.assertIn("POSTGRES_IMAGE=docker.m.daocloud.io/library/postgres:16-alpine", docker_env)
+            self.assertIn(
+                "KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE=docker.m.daocloud.io/docker.elastic.co/elasticsearch/elasticsearch:8.15.3",
+                docker_env,
+            )
             self.assertIn("GOPROXY=https://goproxy.cn,direct", docker_env)
             uv_calls = (root / "uv-calls.log").read_text(encoding="utf-8")
             self.assertIn("run --no-project", uv_calls)
             self.assertIn("--with nltk>=3.9.4", uv_calls)
             self.assertIn("--with huggingface-hub>=1.3.1", uv_calls)
             self.assertIn("ragflow_deps/download_deps.py --china", uv_calls)
+
+    def test_elasticsearch_starts_with_default_infra(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.prepare_runtime(Path(directory))
+
+            result = self.run_dev_up(root)
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            docker_calls = (root / "docker-calls.log").read_text(encoding="utf-8")
+            self.assertNotIn("--profile knowledge-runtime", docker_calls)
+            self.assertIn("pull postgres redis minio minio-init elasticsearch", docker_calls)
+            health_wait_call = next(line for line in docker_calls.splitlines() if " up -d --wait " in line)
+            self.assertIn(" elasticsearch", health_wait_call)
 
     def test_ai_gateway_local_seed_overlay_runs_when_enabled(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -134,7 +151,6 @@ class LocalDevUpScriptTests(unittest.TestCase):
                 UV_DEFAULT_INDEX=https://pypi.org/simple
                 GOPROXY=https://proxy.golang.org,direct
                 GOSUMDB=sum.golang.org
-                QDRANT_URL=
                 AUTH_DATABASE_URL=postgres://example/auth
                 FILE_DATABASE_URL=postgres://example/file
                 KNOWLEDGE_DATABASE_URL=postgres://example/knowledge
@@ -176,9 +192,9 @@ class LocalDevUpScriptTests(unittest.TestCase):
             {
               echo "POSTGRES_IMAGE=${POSTGRES_IMAGE:-}"
               echo "REDIS_IMAGE=${REDIS_IMAGE:-}"
-              echo "QDRANT_IMAGE=${QDRANT_IMAGE:-}"
               echo "MINIO_IMAGE=${MINIO_IMAGE:-}"
               echo "MINIO_MC_IMAGE=${MINIO_MC_IMAGE:-}"
+              echo "KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE=${KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE:-}"
               echo "UV_DEFAULT_INDEX=${UV_DEFAULT_INDEX:-}"
               echo "GOPROXY=${GOPROXY:-}"
               echo "GOSUMDB=${GOSUMDB:-}"
@@ -201,7 +217,8 @@ class LocalDevUpScriptTests(unittest.TestCase):
             fake_bin / "go",
             """\
             #!/usr/bin/env bash
-            echo "$*" >> "$FAKE_GO_CALLS"
+            rel="${PWD#"$FAKE_ROOT"/}"
+            echo "$rel|$*" >> "$FAKE_GO_CALLS"
             if [[ "$1" == "run" && "$2" == *"render_ai_gateway_local_seed.go" ]]; then
               echo "-- rendered AI Gateway local overlay"
               echo "SELECT '${AI_GATEWAY_LOCAL_CHAT_MODEL:-missing-chat-model}';"
@@ -240,6 +257,7 @@ class LocalDevUpScriptTests(unittest.TestCase):
         env["FAKE_DOCKER_CALLS"] = str(root / "docker-calls.log")
         env["FAKE_DOCKER_ENV"] = str(root / "docker-env.log")
         env["FAKE_GO_CALLS"] = str(root / "go-calls.log")
+        env["FAKE_ROOT"] = str(root)
         env["FAKE_PSQL_STDIN"] = str(root / "psql-stdin.sql")
         env["FAKE_UV_CALLS"] = str(root / "uv-calls.log")
         if extra_env and "PATH" in extra_env:

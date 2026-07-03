@@ -40,7 +40,8 @@ AI_GATEWAY_TEST_DATABASE_URL="postgres://postgres:postgres@localhost:5432/ai_gat
 ```
 
 For local provider credentials, `./scripts/local/dev-up.sh` runs
-`go run ./cmd/local-seed` after SQL demo seed. Set
+`go run ./cmd/local-seed` after SQL demo seed only when
+`AI_GATEWAY_LOCAL_SEED_ENABLED=true`. Set that flag plus
 `AI_GATEWAY_LOCAL_PROVIDER_BASE_URL`, `AI_GATEWAY_LOCAL_PROVIDER_API_KEY`, and at
 least one of `AI_GATEWAY_LOCAL_CHAT_MODEL`, `AI_GATEWAY_LOCAL_EMBEDDING_MODEL`,
 or `AI_GATEWAY_LOCAL_RERANK_MODEL` in `deploy/.env`; the command encrypts the

@@ -76,13 +76,7 @@ services:
 
   elasticsearch:
     profiles: ["knowledge-runtime"]
-    build:
-      context: .
-      dockerfile: Dockerfile.elasticsearch-local
-      args:
-        IMAGE_REGISTRY_PREFIX: ${IMAGE_REGISTRY_PREFIX:-}
-        ELASTICSEARCH_IMAGE: ${KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE:-docker.elastic.co/elasticsearch/elasticsearch:8.15.3}
-    image: ${KNOWLEDGE_RUNTIME_ELASTICSEARCH_LOCAL_IMAGE:-software-teamwork/knowledge-runtime-elasticsearch:8.15.3-local}
+    image: ${KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE:-docker.elastic.co/elasticsearch/elasticsearch:8.15.3}
     environment:
       discovery.type: single-node
       xpack.security.enabled: "false"

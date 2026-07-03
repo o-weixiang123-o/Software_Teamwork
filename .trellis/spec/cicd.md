@@ -855,10 +855,8 @@ Rules:
 - The only allowed root Compose profile service is `elasticsearch` under profile
   `knowledge-runtime`, used for local Knowledge runtime doc-engine
   infrastructure when `KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=true`.
-- The only allowed `build:` entry in `deploy/docker-compose.yml` is that
-  optional `elasticsearch` profile service, using
-  `deploy/Dockerfile.elasticsearch-local` with pinned upstream image defaults.
-  All other Compose `build:` entries remain forbidden.
+- Do not add `build:` entries to `deploy/docker-compose.yml`. The optional
+  `elasticsearch` profile must use a pinned image variable, not a local build.
 - Compose infrastructure images must keep pinned defaults and may expose
   full-image override variables for local or enterprise registries. Do not use
   `latest` as a default or documented normal path.

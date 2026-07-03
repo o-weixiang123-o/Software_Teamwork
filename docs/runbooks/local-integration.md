@@ -71,12 +71,11 @@ cd apps/web && bun run dev
 cd apps/web && bun run dev
 ```
 
-真实 Knowledge 解析、embedding、索引和检索链路是显式 opt-in。先在本地
-`deploy/.env` 中启用可选 Elasticsearch profile 并填写 provider，再重新运行 infra
-启动：
+真实 Knowledge 解析、embedding、索引和检索链路是显式 opt-in。`dev-up.sh`
+会启动本地 Elasticsearch；需要真实解析时先在本地 `deploy/.env` 中填写
+provider 和 doc engine 配置，再重新运行 infra 启动：
 
 ```text
-KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=true
 KNOWLEDGE_AUTO_START_INGESTION=true
 DOC_ENGINE=elasticsearch
 KNOWLEDGE_RUNTIME_ES_URL=http://127.0.0.1:9200
@@ -125,10 +124,9 @@ set +a
 docker rmi \
   "${POSTGRES_IMAGE:-postgres:16-alpine}" \
   "${REDIS_IMAGE:-redis:7-alpine}" \
-  "${QDRANT_IMAGE:-qdrant/qdrant:v1.18.2}" \
   "${MINIO_IMAGE:-minio/minio:RELEASE.2025-09-07T16-13-09Z}" \
   "${MINIO_MC_IMAGE:-minio/mc:RELEASE.2025-08-13T08-35-41Z}" \
-  "${KNOWLEDGE_RUNTIME_ELASTICSEARCH_LOCAL_IMAGE:-software-teamwork/knowledge-runtime-elasticsearch:8.15.3-local}" \
+  "${KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE:-docker.elastic.co/elasticsearch/elasticsearch:8.15.3}" \
   2>/dev/null || true
 ```
 
@@ -197,14 +195,12 @@ client 与 Document 工具，不代表完整 QA Agent + LLM 链路通过。Issue
 ## 谁负责什么
 
 - `dev-up.sh`：检查同一宿主机环境中的 Docker、Go、`psql`、`uv`（仅 `--china`
-  runtime 准备需要）和必要的 `curl`，
-  infra pull/up、等待 `postgres` / `redis` / `qdrant` / `minio` Compose
-  health checks、单独运行一次性 `minio-init`、Go module 配置检查、migration、
+  runtime 准备需要），infra pull/up、等待 `postgres` / `redis` / `minio` /
+  `elasticsearch` Compose health checks、单独运行一次性 `minio-init`、Go module 配置检查、migration、
   demo seed；传入 `--china` 时还会自动准备 Knowledge runtime 依赖和 artifact 下载，
   可用 `--skip-knowledge-runtime-deps` 或 `LOCAL_SKIP_KNOWLEDGE_RUNTIME_DEPS=1` 跳过。
-  如果 `QDRANT_URL` 明确配置，则额外执行 legacy/test-only Qdrant collection 初始化。
-  当前 Knowledge 索引准备属于宿主机 RAGFlow runtime/doc engine 路径，不通过恢复 Go
-  侧 Qdrant collection bootstrap 作为必需默认路径。
+  当前 Knowledge 索引准备属于宿主机 RAGFlow runtime/doc engine 路径，不再通过 Go
+  侧 Qdrant collection bootstrap。
   `minio-init` 正常 `Exited (0)` 不应阻断后续步骤；非零失败时看
   `docker compose logs minio-init`。
 - `run-backend.sh`：后端进程启动、日志和进程组 PID。Knowledge 使用 `cmd/adapter`
@@ -283,7 +279,7 @@ RAGFlow runtime 启动慢：
 - 需要真实 PDF 解析链路时优先使用：
 
   ```bash
-  # First set KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=true and provider vars in deploy/.env.
+  # First set provider vars in deploy/.env.
   ./scripts/local/dev-up.sh
   ./scripts/local/run-knowledge-parse-stack.sh
   python3 scripts/local/knowledge-pdf-e2e.py DL_T_673-1999.pdf
@@ -425,11 +421,10 @@ go test ./internal/integration -run '^TestGatewayKnowledgeOwnerRouteSmoke$' -cou
   `AI_GATEWAY_LOCAL_CHAT_MODEL` 由 `./scripts/local/dev-up.sh` 自动写入本地 seed。
 - 默认 Knowledge adapter 使用 query-first readiness，不要求 runtime worker 已在启动时
   运行。需要证明真实上传、解析、embedding、索引和检索时，先让
-  `./scripts/local/dev-up.sh` 通过根级 Compose 可选 profile 启动本地 Elasticsearch，
-  再用 `./scripts/local/run-knowledge-parse-stack.sh` 显式启动 host-run runtime API、
-  worker 和 Knowledge adapter。第一次启用前先执行
+  `./scripts/local/dev-up.sh` 启动本地 Elasticsearch，再用
+  `./scripts/local/run-knowledge-parse-stack.sh` 显式启动 host-run runtime API、worker
+  和 Knowledge adapter。第一次启用前先执行
   `cp deploy/.env.example deploy/.env`，并在本地 `deploy/.env` 中显式设置
-  `KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=true`、
   `KNOWLEDGE_AUTO_START_INGESTION=true`、`DOC_ENGINE=elasticsearch`、
   `KNOWLEDGE_RUNTIME_ES_URL=http://127.0.0.1:9200` 及对应
   `KNOWLEDGE_RUNTIME_EMBEDDING_*` / `KNOWLEDGE_RUNTIME_RERANK_*` / vendor model id
@@ -440,8 +435,7 @@ go test ./internal/integration -run '^TestGatewayKnowledgeOwnerRouteSmoke$' -cou
   `KNOWLEDGE_RUNTIME_WORKER_IDLE_SHUTDOWN_SECONDS=0` 禁用。
   生产环境应把该变量替换为 systemd、K8s、supervisor 或同类受控入口；未配置该变量时，
   worker 仍由手动进程或生产调度器消费任务。`run-knowledge-parse-stack.sh` 不直接执行 Docker build/run；
-  如使用外部 Elasticsearch，保持 `KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=false` 并把
-  `KNOWLEDGE_RUNTIME_ES_URL` 指向实际地址。
+  如使用外部 Elasticsearch，把 `KNOWLEDGE_RUNTIME_ES_URL` 指向实际地址。
 
 启动本地栈：
 

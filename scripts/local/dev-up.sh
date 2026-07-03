@@ -5,8 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ENV_FILE="$ROOT_DIR/deploy/.env"
 COMPOSE_FILE="$ROOT_DIR/deploy/docker-compose.yml"
 CURRENT_STEP="initializing"
-INFRA_SERVICES=(postgres redis qdrant minio)
-PULL_SERVICES=(postgres redis qdrant minio minio-init)
+INFRA_SERVICES=(postgres redis minio elasticsearch)
+PULL_SERVICES=(postgres redis minio minio-init elasticsearch)
 CHINA_MIRRORS=0
 SKIP_KNOWLEDGE_RUNTIME_DEPS=0
 
@@ -19,10 +19,9 @@ CHINA_GOSUMDB="sum.golang.google.cn"
 
 CHINA_POSTGRES_IMAGE="docker.m.daocloud.io/library/postgres:16-alpine"
 CHINA_REDIS_IMAGE="docker.m.daocloud.io/library/redis:7-alpine"
-CHINA_QDRANT_IMAGE="docker.m.daocloud.io/qdrant/qdrant:v1.18.2"
 CHINA_MINIO_IMAGE="docker.m.daocloud.io/minio/minio:RELEASE.2025-09-07T16-13-09Z"
 CHINA_MINIO_MC_IMAGE="docker.m.daocloud.io/minio/mc:RELEASE.2025-08-13T08-35-41Z"
-CHINA_IMAGE_REGISTRY_PREFIX="docker.m.daocloud.io/"
+CHINA_ELASTICSEARCH_IMAGE="docker.m.daocloud.io/docker.elastic.co/elasticsearch/elasticsearch:8.15.3"
 
 COLOR_RESET=""
 COLOR_BLUE=""
@@ -158,13 +157,9 @@ check_required_commands() {
     ! command -v uv >/dev/null 2>&1; then
     missing+=(uv)
   fi
-  if [[ -n "${QDRANT_URL:-}" ]] && ! command -v curl >/dev/null 2>&1; then
-    missing+=(curl)
-  fi
-
   if (( ${#missing[@]} > 0 )); then
     log_error "missing required local command(s): ${missing[*]}"
-    log_error "Install Docker, Go, psql, uv, and curl in the same host environment that runs ./scripts/local/dev-up.sh."
+    log_error "Install Docker, Go, psql, and uv in the same host environment that runs ./scripts/local/dev-up.sh."
     log_error "uv is only required when --china prepares Knowledge runtime dependencies; rerun with --skip-knowledge-runtime-deps to skip that step."
     return 1
   fi
@@ -221,10 +216,9 @@ ensure_go_module_settings() {
 apply_china_mirrors() {
   export POSTGRES_IMAGE="$CHINA_POSTGRES_IMAGE"
   export REDIS_IMAGE="$CHINA_REDIS_IMAGE"
-  export QDRANT_IMAGE="$CHINA_QDRANT_IMAGE"
   export MINIO_IMAGE="$CHINA_MINIO_IMAGE"
   export MINIO_MC_IMAGE="$CHINA_MINIO_MC_IMAGE"
-  export IMAGE_REGISTRY_PREFIX="${IMAGE_REGISTRY_PREFIX:-$CHINA_IMAGE_REGISTRY_PREFIX}"
+  export KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE="$CHINA_ELASTICSEARCH_IMAGE"
   export UV_DEFAULT_INDEX="$CHINA_UV_DEFAULT_INDEX"
   export GOPROXY="$CHINA_GOPROXY"
   export GOSUMDB="$CHINA_GOSUMDB"
@@ -236,7 +230,6 @@ warn_legacy_mirror_env() {
   for value in \
     "${POSTGRES_IMAGE:-}" \
     "${REDIS_IMAGE:-}" \
-    "${QDRANT_IMAGE:-}" \
     "${MINIO_IMAGE:-}" \
     "${MINIO_MC_IMAGE:-}" \
     "${UV_DEFAULT_INDEX:-}" \
@@ -314,63 +307,6 @@ else
 fi
 
 compose=(docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE")
-if is_truthy "${KNOWLEDGE_RUNTIME_START_ELASTICSEARCH:-false}"; then
-  compose+=(--profile knowledge-runtime)
-  INFRA_SERVICES+=(elasticsearch)
-  log_info "enabling optional Elasticsearch Compose profile (KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=true)"
-fi
-
-initialize_qdrant_collection() {
-  CURRENT_STEP="initializing Qdrant collection"
-  qdrant_url="${QDRANT_URL:-}"
-
-  if [[ -z "$qdrant_url" ]]; then
-    log_info "QDRANT_URL is empty; skipping Qdrant collection initialization"
-    return
-  fi
-  qdrant_collection="${QDRANT_COLLECTION:?QDRANT_COLLECTION must be set in deploy/.env}"
-  embedding_dimension="${EMBEDDING_DIMENSION:?EMBEDDING_DIMENSION must be set in deploy/.env}"
-  if [[ ! "$qdrant_collection" =~ ^[A-Za-z0-9_.-]+$ ]]; then
-    log_error "QDRANT_COLLECTION must contain only letters, numbers, dots, underscores, or hyphens"
-    return 1
-  fi
-  if [[ ! "$embedding_dimension" =~ ^[1-9][0-9]*$ ]]; then
-    log_error "EMBEDDING_DIMENSION must be a positive integer"
-    return 1
-  fi
-
-  qdrant_url="${qdrant_url%/}"
-  response_file="$(mktemp)"
-  status="$(
-    curl --noproxy '*' -sS -o "$response_file" -w '%{http_code}' \
-      "$qdrant_url/collections/$qdrant_collection" || true
-  )"
-
-  case "$status" in
-    200)
-      compact_response="$(tr -d '[:space:]' <"$response_file")"
-      rm -f "$response_file"
-      if [[ "$compact_response" != *"\"vectors\":{\"size\":$embedding_dimension"* ]] ||
-        [[ "$compact_response" != *"\"distance\":\"Cosine\""* ]]; then
-        log_error "Qdrant collection $qdrant_collection exists but does not match EMBEDDING_DIMENSION=$embedding_dimension"
-        return 1
-      fi
-      log_success "Qdrant collection $qdrant_collection is ready"
-      ;;
-    404)
-      rm -f "$response_file"
-      log_info "creating Qdrant collection $qdrant_collection"
-      curl --noproxy '*' -fsS -X PUT "$qdrant_url/collections/$qdrant_collection" \
-        -H 'Content-Type: application/json' \
-        --data "{\"vectors\":{\"size\":$embedding_dimension,\"distance\":\"Cosine\"}}" >/dev/null
-      ;;
-    *)
-      log_error "could not inspect Qdrant collection $qdrant_collection at $qdrant_url (HTTP $status)"
-      rm -f "$response_file"
-      return 1
-      ;;
-  esac
-}
 
 apply_ai_gateway_local_seed_overlay() {
   case "${AI_GATEWAY_LOCAL_SEED_ENABLED:-}" in
@@ -393,7 +329,6 @@ run_step "pulling infrastructure images" "${compose[@]}" pull "${PULL_SERVICES[@
 run_step "starting infrastructure and waiting for health" "${compose[@]}" up -d --wait --wait-timeout "${LOCAL_INFRA_WAIT_TIMEOUT_SECONDS:-180}" "${INFRA_SERVICES[@]}"
 run_minio_init
 
-initialize_qdrant_collection
 run_step "checking Go module settings" ensure_go_module_settings
 
 for item in \
