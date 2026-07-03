@@ -196,6 +196,7 @@ class LocalSeedContractTests(unittest.TestCase):
             env_example="VENDOR_RUNTIME_URL=http://127.0.0.1:9380\n",
             dev_up_script="",
             run_backend_script="",
+            run_knowledge_parse_stack_script="",
             stop_backend_script="",
         )
 
