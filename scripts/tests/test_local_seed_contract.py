@@ -249,6 +249,11 @@ class LocalSeedContractTests(unittest.TestCase):
                 'kill -KILL -- "-$pid"\n',
                 encoding="utf-8",
             )
+            (root / "services" / "ai-gateway" / "cmd" / "local-seed").mkdir(parents=True)
+            (root / "services" / "ai-gateway" / "cmd" / "local-seed" / "main.go").write_text(
+                "package main\n",
+                encoding="utf-8",
+            )
             (root / "docs" / "runbooks" / "local-integration.md").write_text(
                 "local integration local seed\n",
                 encoding="utf-8",
@@ -276,6 +281,7 @@ class LocalSeedContractTests(unittest.TestCase):
             watch_knowledge_runtime_worker_idle_script="",
             run_knowledge_parse_stack_script="",
             stop_backend_script="",
+            ai_gateway_local_seed_main="",
         )
 
         self.assertIssueContains(issues, "# DOC_ENGINE=elasticsearch")

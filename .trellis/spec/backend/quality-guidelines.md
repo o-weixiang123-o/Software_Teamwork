@@ -460,8 +460,8 @@ frontend -> http://localhost:8083/internal/v1/knowledge-bases
 deploy/.env.example -> real provider API key
 document worker -> file /internal/v1/files without X-Service-Token
 seed SQL -> inserts model_profiles before ai-gateway migrations
+AI_GATEWAY_LOCAL_* seed -> updates default-chat only; QA active LLM remains local-placeholder-chat
 root Compose -> business service or unapproved build entry
-AI_GATEWAY_LOCAL_* overlay -> updates default-chat only, QA active LLM remains local-placeholder-chat
 ```
 
 #### Correct

@@ -27,6 +27,7 @@ START_KNOWLEDGE_RUNTIME_WORKER_SCRIPT = Path("scripts/local/start-knowledge-runt
 WATCH_KNOWLEDGE_RUNTIME_WORKER_IDLE_SCRIPT = Path("scripts/local/watch-knowledge-runtime-worker-idle.sh")
 RUN_KNOWLEDGE_PARSE_STACK_SCRIPT = Path("scripts/local/run-knowledge-parse-stack.sh")
 STOP_BACKEND_SCRIPT = Path("scripts/local/stop-backend.sh")
+AI_GATEWAY_LOCAL_SEED_MAIN = Path("services/ai-gateway/cmd/local-seed/main.go")
 
 REQUIRED_SEED_001_TOKENS = {
     "Auth local admin user": ["usr_local_admin", "cred_local_admin_password", "urole_local_admin_admin"],
@@ -190,6 +191,11 @@ REQUIRED_DEV_UP_TOKENS = [
     "AI_GATEWAY_LOCAL_SEED_ENABLED",
     "render_ai_gateway_local_seed.go",
     "applying AI Gateway local env seed overlay",
+    "cmd/local-seed",
+    "QA_DATABASE_URL",
+    "AI_GATEWAY_LOCAL_PROVIDER_BASE_URL",
+    "AI_GATEWAY_LOCAL_PROVIDER_API_KEY",
+    "AI_GATEWAY_LOCAL_CHAT_MODEL",
 ]
 
 REQUIRED_RUN_BACKEND_TOKENS = [
@@ -388,6 +394,7 @@ def verify_local_seed_contract(root: Path) -> list[str]:
     watch_knowledge_runtime_worker_idle_script = read_required(root, WATCH_KNOWLEDGE_RUNTIME_WORKER_IDLE_SCRIPT, issues)
     run_knowledge_parse_stack_script = read_required(root, RUN_KNOWLEDGE_PARSE_STACK_SCRIPT, issues)
     stop_backend_script = read_required(root, STOP_BACKEND_SCRIPT, issues)
+    ai_gateway_local_seed_main = read_required(root, AI_GATEWAY_LOCAL_SEED_MAIN, issues)
     gitignore = read_required(root, GITIGNORE, issues)
 
     issues.extend(validate_seed_001(seed_001))
@@ -409,6 +416,7 @@ def verify_local_seed_contract(root: Path) -> list[str]:
             watch_knowledge_runtime_worker_idle_script,
             run_knowledge_parse_stack_script,
             stop_backend_script,
+            ai_gateway_local_seed_main,
         )
     )
     issues.extend(validate_gitignore(gitignore))
@@ -557,6 +565,7 @@ def validate_docs(
     watch_knowledge_runtime_worker_idle_script: str,
     run_knowledge_parse_stack_script: str,
     stop_backend_script: str,
+    ai_gateway_local_seed_main: str,
 ) -> list[str]:
     issues: list[str] = []
     combined = "\n".join([deploy_readme, runbook, env_example])
@@ -609,6 +618,16 @@ def validate_docs(
     for token in REQUIRED_STOP_BACKEND_TOKENS:
         if token not in stop_backend_script:
             issues.append(f"{STOP_BACKEND_SCRIPT} missing backend stop token `{token}`")
+    for token in [
+        "QA_DATABASE_URL",
+        "llm_config_versions",
+        "syncQALLMConfig",
+        "provider = 'ai-gateway'",
+        "default-chat",
+        "AI_GATEWAY_LOCAL_CHAT_MODEL",
+    ]:
+        if token not in ai_gateway_local_seed_main:
+            issues.append(f"{AI_GATEWAY_LOCAL_SEED_MAIN} missing QA LLM sync token `{token}`")
     return issues
 
 
@@ -640,6 +659,7 @@ def validate_forbidden_content(root: Path) -> list[str]:
         START_KNOWLEDGE_RUNTIME_WORKER_SCRIPT,
         WATCH_KNOWLEDGE_RUNTIME_WORKER_IDLE_SCRIPT,
         RUN_KNOWLEDGE_PARSE_STACK_SCRIPT,
+        AI_GATEWAY_LOCAL_SEED_MAIN,
         STOP_BACKEND_SCRIPT,
     ]:
         path = root / relative

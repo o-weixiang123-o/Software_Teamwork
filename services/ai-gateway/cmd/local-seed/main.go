@@ -9,10 +9,12 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/ai-gateway/internal/config"
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/ai-gateway/internal/repository"
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/ai-gateway/internal/service"
+	"github.com/jackc/pgx/v5"
 )
 
 const (
@@ -27,11 +29,18 @@ const (
 	envRerankModel        = "AI_GATEWAY_LOCAL_RERANK_MODEL"
 	envRerankTopN         = "AI_GATEWAY_LOCAL_RERANK_TOP_N"
 	envQAmodelID          = "MODEL_ID"
+	envQADatabaseURL      = "QA_DATABASE_URL"
+	envQATimeout          = "AI_GATEWAY_TIMEOUT"
+	envQAMaxTokens        = "AGENT_MAX_TOKENS"
+	envQATemperature      = "AI_GATEWAY_LOCAL_QA_TEMPERATURE"
 
 	defaultSeedUserID       = "usr_local_admin"
 	defaultProvider         = service.ProviderOpenAICompatible
 	defaultEmbeddingDim     = 1024
 	defaultRerankTopN       = 5
+	defaultQATimeoutSeconds = 60
+	defaultQAMaxTokens      = 4096
+	defaultQATemperature    = "0.700"
 	placeholderLocalChat    = "local-placeholder-chat"
 	localSeedCaller         = "local-seed"
 	localSeedRequestID      = "local-env-seed"
@@ -47,6 +56,7 @@ type seedConfig struct {
 	APIKey    string
 	TimeoutMS int
 	Profiles  []profileSeed
+	QALLM     *qaLLMSeed
 }
 
 type profileSeed struct {
@@ -58,6 +68,15 @@ type profileSeed struct {
 	Dimensions        *int
 	TopN              *int
 	DefaultParameters json.RawMessage
+}
+
+type qaLLMSeed struct {
+	DatabaseURL    string
+	ProfileID      string
+	Model          string
+	TimeoutSeconds int
+	MaxTokens      int
+	Temperature    string
 }
 
 type modelProfileService interface {
@@ -101,7 +120,10 @@ func run(ctx context.Context, getenv getenvFunc, out io.Writer) error {
 		return err
 	}
 	profiles := service.New(repo, encryptor, cfg.DefaultTimeoutMS)
-	return applySeed(ctx, profiles, repo, encryptor, seed, out)
+	if err := applySeed(ctx, profiles, repo, encryptor, seed, out); err != nil {
+		return err
+	}
+	return applyQALLMSeed(ctx, seed, out)
 }
 
 func loadSeedConfig(getenv getenvFunc) (seedConfig, error) {
@@ -165,14 +187,20 @@ func loadSeedConfig(getenv getenvFunc) (seedConfig, error) {
 
 	chatModel := firstNonBlank(getenv(envChatModel), qaModelFallback(getenv(envQAmodelID)))
 	if chatModel != "" {
-		seed.Profiles = append(seed.Profiles, profileSeed{
+		chatProfile := profileSeed{
 			ID:                "default-chat",
 			Name:              "Local env chat profile",
 			Purpose:           service.PurposeChat,
 			Model:             chatModel,
 			SupportsStreaming: true,
 			DefaultParameters: json.RawMessage(`{"temperature":0.2}`),
-		})
+		}
+		seed.Profiles = append(seed.Profiles, chatProfile)
+		qaLLM, err := loadQALLMSeed(getenv, chatProfile)
+		if err != nil {
+			return seedConfig{}, err
+		}
+		seed.QALLM = &qaLLM
 	}
 
 	if embeddingModel := strings.TrimSpace(getenv(envEmbeddingModel)); embeddingModel != "" {
@@ -211,6 +239,29 @@ func loadSeedConfig(getenv getenvFunc) (seedConfig, error) {
 	return seed, nil
 }
 
+func loadQALLMSeed(getenv getenvFunc, chatProfile profileSeed) (qaLLMSeed, error) {
+	timeoutSeconds, err := parseDurationSecondsEnv(getenv(envQATimeout), defaultQATimeoutSeconds, envQATimeout)
+	if err != nil {
+		return qaLLMSeed{}, err
+	}
+	maxTokens, err := parsePositiveIntEnv(getenv(envQAMaxTokens), defaultQAMaxTokens, 1, envQAMaxTokens)
+	if err != nil {
+		return qaLLMSeed{}, err
+	}
+	temperature, err := parseTemperatureEnv(getenv(envQATemperature), defaultQATemperature, envQATemperature)
+	if err != nil {
+		return qaLLMSeed{}, err
+	}
+	return qaLLMSeed{
+		DatabaseURL:    strings.TrimSpace(getenv(envQADatabaseURL)),
+		ProfileID:      chatProfile.ID,
+		Model:          chatProfile.Model,
+		TimeoutSeconds: timeoutSeconds,
+		MaxTokens:      maxTokens,
+		Temperature:    temperature,
+	}, nil
+}
+
 func applySeed(ctx context.Context, profiles modelProfileService, credentials credentialRepository, encryptor *service.CredentialEncryptor, seed seedConfig, out io.Writer) error {
 	req := service.RequestContext{
 		UserID:        defaultSeedUserID,
@@ -244,6 +295,94 @@ func applySeed(ctx context.Context, profiles modelProfileService, credentials cr
 		fmt.Fprintf(out, "ai-gateway local seed: updated %s (%s)\n", profile.ID, profile.Model)
 	}
 	return nil
+}
+
+func applyQALLMSeed(ctx context.Context, seed seedConfig, out io.Writer) error {
+	if seed.QALLM == nil {
+		return nil
+	}
+	if strings.TrimSpace(seed.QALLM.DatabaseURL) == "" {
+		fmt.Fprintln(out, "ai-gateway local seed: skipped QA LLM config sync; QA_DATABASE_URL is not set")
+		return nil
+	}
+	conn, err := pgx.Connect(ctx, seed.QALLM.DatabaseURL)
+	if err != nil {
+		return fmt.Errorf("connect QA database for LLM config sync: %w", err)
+	}
+	defer conn.Close(ctx)
+	changed, err := syncQALLMConfig(ctx, conn, *seed.QALLM)
+	if err != nil {
+		return err
+	}
+	if changed {
+		fmt.Fprintf(out, "ai-gateway local seed: activated QA LLM config %s/%s\n", seed.QALLM.ProfileID, seed.QALLM.Model)
+		return nil
+	}
+	fmt.Fprintf(out, "ai-gateway local seed: unchanged QA LLM config %s/%s\n", seed.QALLM.ProfileID, seed.QALLM.Model)
+	return nil
+}
+
+func syncQALLMConfig(ctx context.Context, conn *pgx.Conn, seed qaLLMSeed) (bool, error) {
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("begin QA LLM config sync: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `LOCK TABLE llm_config_versions IN EXCLUSIVE MODE`); err != nil {
+		return false, fmt.Errorf("lock QA LLM config versions: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE llm_config_versions
+		SET is_active = false
+		WHERE is_active = true
+		  AND NOT (
+			provider = 'ai-gateway'
+			AND COALESCE(profile_id, '') = $1
+			AND model_name = $2
+			AND timeout_seconds = $3
+			AND max_tokens = $4
+			AND temperature = $5::numeric
+		  )`,
+		seed.ProfileID,
+		seed.Model,
+		seed.TimeoutSeconds,
+		seed.MaxTokens,
+		seed.Temperature,
+	); err != nil {
+		return false, fmt.Errorf("deactivate old QA LLM config: %w", err)
+	}
+	tag, err := tx.Exec(ctx, `
+		INSERT INTO llm_config_versions (
+			version_no, provider, profile_id, model_name, timeout_seconds,
+			temperature, max_tokens, is_active, created_by_user_id
+		)
+		SELECT
+			(SELECT COALESCE(MAX(version_no), 0) + 1 FROM llm_config_versions),
+			'ai-gateway', $1, $2, $3, $5::numeric, $4, true, $6
+		WHERE NOT EXISTS (
+			SELECT 1 FROM llm_config_versions
+			WHERE is_active = true
+			  AND provider = 'ai-gateway'
+			  AND COALESCE(profile_id, '') = $1
+			  AND model_name = $2
+			  AND timeout_seconds = $3
+			  AND max_tokens = $4
+			  AND temperature = $5::numeric
+		)`,
+		seed.ProfileID,
+		seed.Model,
+		seed.TimeoutSeconds,
+		seed.MaxTokens,
+		seed.Temperature,
+		defaultSeedUserID,
+	)
+	if err != nil {
+		return false, fmt.Errorf("insert QA LLM config: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("commit QA LLM config sync: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
 }
 
 func createInput(seed seedConfig, profile profileSeed) service.CreateModelProfileInput {
@@ -370,6 +509,34 @@ func parsePositiveIntEnv(raw string, fallback, min int, name string) (int, error
 		return 0, fmt.Errorf("%s must be an integer >= %d", name, min)
 	}
 	return value, nil
+}
+
+func parseDurationSecondsEnv(raw string, fallback int, name string) (int, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return fallback, nil
+	}
+	value, err := time.ParseDuration(trimmed)
+	if err != nil || value <= 0 {
+		return 0, fmt.Errorf("%s must be a positive duration", name)
+	}
+	seconds := int(value.Seconds())
+	if seconds <= 0 {
+		return 0, fmt.Errorf("%s must be at least 1s", name)
+	}
+	return seconds, nil
+}
+
+func parseTemperatureEnv(raw, fallback, name string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return fallback, nil
+	}
+	value, err := strconv.ParseFloat(trimmed, 64)
+	if err != nil || value < 0 || value > 2 {
+		return "", fmt.Errorf("%s must be a number between 0 and 2", name)
+	}
+	return strconv.FormatFloat(value, 'f', 3, 64), nil
 }
 
 func optionalBool(raw string) (bool, bool, error) {
