@@ -43,6 +43,7 @@ paths:
     post:
       tags: [KnowledgeBases]
       summary: Create knowledge base
+      description: Requires knowledge:write, knowledge:admin, or system:admin. Standard users with only knowledge:read cannot create knowledge bases.
       requestBody:
         required: true
         content:
@@ -76,6 +77,7 @@ paths:
     patch:
       tags: [KnowledgeBases]
       summary: Update knowledge base
+      description: Requires knowledge:write, knowledge:admin, or system:admin.
       requestBody:
         required: true
         content:
@@ -94,6 +96,7 @@ paths:
     delete:
       tags: [KnowledgeBases]
       summary: Delete knowledge base
+      description: Requires knowledge:write, knowledge:admin, or system:admin.
       responses:
         '204':
           description: Deleted
@@ -147,6 +150,7 @@ paths:
     post:
       tags: [Documents]
       summary: Upload document into a knowledge base
+      description: Requires knowledge:write, knowledge:admin, or system:admin. The Knowledge runtime stores original bytes and owns parsing/index lifecycle.
       requestBody:
         required: true
         content:
@@ -169,6 +173,7 @@ paths:
     get:
       tags: [Documents]
       summary: Get document
+      description: Requires knowledge:read and the explicit knowledgeBaseId query parameter.
       responses:
         '200':
           description: Document
@@ -181,6 +186,7 @@ paths:
     patch:
       tags: [Documents]
       summary: Update document metadata
+      description: Requires knowledge:write, knowledge:admin, or system:admin and the explicit knowledgeBaseId query parameter.
       requestBody:
         required: true
         content:
@@ -199,6 +205,7 @@ paths:
     delete:
       tags: [Documents]
       summary: Delete document
+      description: Requires knowledge:write, knowledge:admin, or system:admin and the explicit knowledgeBaseId query parameter.
       responses:
         '204':
           description: Deleted
@@ -248,6 +255,7 @@ paths:
     get:
       tags: [Documents]
       summary: List document chunks
+      description: Requires knowledge:read and the explicit knowledgeBaseId query parameter. Page size is capped at 100.
       parameters:
         - $ref: '#/components/parameters/DocumentId'
         - $ref: '#/components/parameters/DocumentKnowledgeBaseId'
@@ -266,6 +274,7 @@ paths:
     get:
       tags: [Documents]
       summary: Get original document content
+      description: Requires knowledge:read and the explicit knowledgeBaseId query parameter. Runtime authentication failures are dependency errors, not user-session authentication failures.
       parameters:
         - $ref: '#/components/parameters/DocumentId'
         - $ref: '#/components/parameters/DocumentKnowledgeBaseId'
@@ -340,7 +349,7 @@ paths:
     post:
       tags: [KnowledgeQueries]
       summary: Create knowledge query
-      description: Creates a knowledge retrieval query. Empty or uncreated runtime indexes return a successful empty result set; invalid dataset combinations, document filters, or metadata filters return validation_error; missing or hidden knowledge bases return not_found; runtime retrieval, model, or index infrastructure failures return dependency_error.
+      description: Creates a knowledge retrieval query. Standard users with knowledge:read may use this endpoint directly. Empty or uncreated runtime indexes return a successful empty result set; invalid dataset combinations, document filters, or metadata filters return validation_error; missing or hidden knowledge bases return not_found; runtime retrieval, model, authentication, or index infrastructure failures return dependency_error.
       requestBody:
         required: true
         content:
@@ -534,7 +543,7 @@ components:
       name: knowledgeBaseId
       in: query
       required: true
-      description: Required knowledge base context for runtime-backed document operations.
+      description: Required knowledge base context for runtime-backed document detail, chunk, and content operations.
       schema:
         type: string
         minLength: 1

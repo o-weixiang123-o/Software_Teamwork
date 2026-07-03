@@ -135,12 +135,12 @@ async function redirectToAdminHome() {
     throw redirect({ to: '/admin/reports/records' })
   }
 
-  if (canAccess(store.user, knowledgeWriteAccess)) {
+  if (canAccess(store.user, knowledgeManagementAccess)) {
     throw redirect({ to: '/admin/knowledge' })
   }
 
-  if (canAccess(store.user, { any: ['knowledge:admin', 'knowledge:write', 'system:admin'] })) {
-    throw redirect({ to: '/admin/knowledge-config' })
+  if (canAccess(store.user, knowledgeReadAccess)) {
+    throw redirect({ to: '/admin/knowledge/search' })
   }
 
   if (canAccess(store.user, qaSettingsReadAccess)) {
@@ -173,7 +173,9 @@ const reportAccess: PermissionRequirement = {
 }
 const reportWriteAccess: PermissionRequirement = { any: ['report:write', 'reports:write'] }
 const knowledgeReadAccess: PermissionRequirement = { any: ['knowledge:read'] }
-const knowledgeWriteAccess: PermissionRequirement = { any: ['knowledge:write'] }
+const knowledgeManagementAccess: PermissionRequirement = {
+  any: ['knowledge:write', 'knowledge:admin', 'system:admin'],
+}
 const adminUsersAccess: PermissionRequirement = {
   roles: ['admin', 'super_admin'],
 }
@@ -315,14 +317,14 @@ const adminIndexRoute = createRoute({
 const adminKnowledgeRoute = createRoute({
   getParentRoute: () => adminRoute,
   path: 'knowledge',
-  beforeLoad: requireAuth(knowledgeWriteAccess),
+  beforeLoad: requireAuth(knowledgeManagementAccess),
   component: KnowledgeManagement,
 })
 
 const adminKnowledgeConfigRoute = createRoute({
   getParentRoute: () => adminRoute,
   path: 'knowledge-config',
-  beforeLoad: requireAuth({ any: ['knowledge:admin', 'knowledge:write', 'system:admin'] }),
+  beforeLoad: requireAuth(knowledgeManagementAccess),
   component: KnowledgeConfig,
 })
 
@@ -352,7 +354,7 @@ function AdminKnowledgeDocumentsPage() {
 const adminKnowledgeDocumentsRoute = createRoute({
   getParentRoute: () => adminRoute,
   path: 'knowledge/documents',
-  beforeLoad: requireAuth({ any: ['knowledge:write', 'knowledge:admin', 'system:admin'] }),
+  beforeLoad: requireAuth(knowledgeReadAccess),
   component: AdminKnowledgeDocumentsPage,
   validateSearch: (search: Record<string, unknown>): AdminKnowledgeDocumentsSearch => ({
     knowledgeBaseId:
@@ -363,7 +365,7 @@ const adminKnowledgeDocumentsRoute = createRoute({
 const adminKnowledgeSearchRoute = createRoute({
   getParentRoute: () => adminRoute,
   path: 'knowledge/search',
-  beforeLoad: requireAuth({ any: ['knowledge:write', 'knowledge:admin', 'system:admin'] }),
+  beforeLoad: requireAuth(knowledgeReadAccess),
   component: KnowledgeSearchPage,
 })
 
@@ -393,7 +395,7 @@ function AdminKnowledgeChunksPage() {
 const adminKnowledgeChunksRoute = createRoute({
   getParentRoute: () => adminRoute,
   path: 'knowledge/chunks',
-  beforeLoad: requireAuth({ any: ['knowledge:write', 'knowledge:admin', 'system:admin'] }),
+  beforeLoad: requireAuth(knowledgeReadAccess),
   component: AdminKnowledgeChunksPage,
   validateSearch: (search: Record<string, unknown>): AdminKnowledgeChunksSearch => {
     const documentId = typeof search.documentId === 'string' ? search.documentId : ''
@@ -416,11 +418,15 @@ const adminQASystemPromptRoute = createRoute({
   component: QASystemPromptPage,
 })
 
+function AdminQARetrievalTestPage() {
+  return <QARetrievalTestPage embedded />
+}
+
 const adminQARetrievalTestRoute = createRoute({
   getParentRoute: () => adminRoute,
   path: 'qa-retrieval-test',
   beforeLoad: requireAuth(qaAdminAccess),
-  component: QARetrievalTestPage,
+  component: AdminQARetrievalTestPage,
 })
 
 const adminSettingsRoute = createRoute({

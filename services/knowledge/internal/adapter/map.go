@@ -175,10 +175,13 @@ func mapVendorError(err error) error {
 				msg = "vendor runtime validation failed"
 			}
 			return service.ValidationError(msg, nil)
-		case apiErr.MatchesHTTPStatus(http.StatusUnauthorized) || apiErr.Code == http.StatusUnauthorized:
-			return service.UnauthorizedError()
-		case apiErr.Code == vendorRetCodeAuthentication:
-			return service.UnauthorizedError()
+		case apiErr.MatchesHTTPStatus(http.StatusUnauthorized) ||
+			apiErr.Code == http.StatusUnauthorized ||
+			apiErr.Code == vendorRetCodeAuthentication:
+			if msg == "" {
+				msg = "vendor runtime authentication failed"
+			}
+			return service.DependencyError(msg, err)
 		case apiErr.MatchesHTTPStatus(http.StatusForbidden) || apiErr.Code == http.StatusForbidden || apiErr.Code == vendorRetCodePermission:
 			return service.ForbiddenError(msg)
 		case apiErr.MatchesHTTPStatus(http.StatusNotFound) || apiErr.Code == http.StatusNotFound:
@@ -778,8 +781,8 @@ func normalizePage(page, pageSize int) (service.PageInput, error) {
 	if page < 1 {
 		fields["page"] = "must be greater than or equal to 1"
 	}
-	if pageSize < 1 || pageSize > 200 {
-		fields["pageSize"] = "must be between 1 and 200"
+	if pageSize < 1 || pageSize > 100 {
+		fields["pageSize"] = "must be between 1 and 100"
 	}
 	if len(fields) > 0 {
 		return service.PageInput{}, service.ValidationError("request validation failed", fields)

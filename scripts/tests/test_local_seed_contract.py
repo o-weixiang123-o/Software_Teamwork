@@ -274,7 +274,6 @@ class LocalSeedContractTests(unittest.TestCase):
             runbook="",
             env_example="VENDOR_RUNTIME_URL=http://127.0.0.1:9380\n",
             dev_up_script="",
-            ai_gateway_local_seed_renderer="",
             run_backend_script="",
             run_knowledge_runtime_api_script="",
             start_knowledge_runtime_worker_script="",

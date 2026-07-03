@@ -67,6 +67,7 @@ const menuItems: AdminNavigationItem[] = [
     label: 'RAG 知识库',
     requirement: {
       any: [
+        'knowledge:read',
         'system:admin',
         'knowledge:write',
         'knowledge:admin',
@@ -79,19 +80,19 @@ const menuItems: AdminNavigationItem[] = [
         key: 'knowledge',
         label: '知识管理',
         path: '/admin/knowledge',
-        requirement: { any: ['knowledge:write'] },
+        requirement: { any: ['knowledge:write', 'knowledge:admin', 'system:admin'] },
       },
       {
         key: 'knowledge-documents',
         label: '文档管理',
         path: '/admin/knowledge/documents',
-        requirement: { any: ['knowledge:write', 'knowledge:admin', 'system:admin'] },
+        requirement: { any: ['knowledge:read'] },
       },
       {
         key: 'knowledge-search',
         label: '知识检索',
         path: '/admin/knowledge/search',
-        requirement: { any: ['knowledge:write', 'knowledge:admin', 'system:admin'] },
+        requirement: { any: ['knowledge:read'] },
       },
       {
         key: 'knowledge-config',

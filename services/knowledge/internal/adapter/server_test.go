@@ -319,6 +319,46 @@ func TestListKnowledgeBasesMapsVendorResponse(t *testing.T) {
 	}
 }
 
+func TestListKnowledgeBasesMapsVendorUnauthorizedAsDependencyError(t *testing.T) {
+	vendor := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/datasets" {
+			t.Fatalf("path=%s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"code":401,"message":"runtime token rejected"}`))
+	}))
+	defer vendor.Close()
+
+	server := NewServer(adapterconfig.Config{
+		ServiceVersion:   "test",
+		VendorRuntimeURL: vendor.URL,
+		ServiceToken:     testServiceToken,
+	}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/internal/v1/knowledge-bases", nil)
+	req.Header.Set("X-User-Id", "usr_test")
+	req.Header.Set("X-Service-Token", testServiceToken)
+	req.Header.Set("X-User-Permissions", "knowledge:read")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if payload.Error.Code != "dependency_error" {
+		t.Fatalf("error code=%q body=%s", payload.Error.Code, rec.Body.String())
+	}
+}
+
 func TestCreateKnowledgeQueryMapsRetrieval(t *testing.T) {
 	vendor := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/datasets/search" || r.Method != http.MethodPost {

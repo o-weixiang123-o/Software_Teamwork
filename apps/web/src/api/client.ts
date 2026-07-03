@@ -21,6 +21,7 @@ import { activeGatewayPathSet } from './active-paths'
 // ---------------------------------------------------------------------------
 
 const DEFAULT_GATEWAY_BASE_URL = '/api/v1'
+const DEV_BYPASS_TOKEN = 'dev-token-bypass'
 const JSON_CONTENT_TYPE = 'application/json'
 const SSE_CONTENT_TYPE = 'text/event-stream'
 
@@ -319,8 +320,13 @@ async function readJsonSafely(response: Response): Promise<unknown> {
 }
 
 async function toApiError(response: Response): Promise<ApiError> {
-  // Clear stale token on 401 (unauthorized)
-  if (response.status === 401) {
+  const token = accessTokenProvider?.() ?? loadToken()
+  const isDevBypassUnauthorized =
+    import.meta.env.DEV && token === DEV_BYPASS_TOKEN && response.status === 401
+
+  // Clear stale real tokens on 401. The development bypass token is only a
+  // local shell shortcut and can receive 401s from real Gateway endpoints.
+  if (response.status === 401 && !isDevBypassUnauthorized) {
     apiClient.setToken(null)
     unauthorizedHandler?.()
   }

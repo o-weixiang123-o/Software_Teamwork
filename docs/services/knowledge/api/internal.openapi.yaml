@@ -53,6 +53,7 @@ paths:
       tags: [knowledge]
       summary: Create knowledge base
       operationId: internalCreateKnowledgeBase
+      description: Requires knowledge:write, knowledge:admin, or system:admin.
       requestBody:
         required: true
         content:
@@ -89,6 +90,7 @@ paths:
       tags: [knowledge]
       summary: Update knowledge base
       operationId: internalUpdateKnowledgeBase
+      description: Requires knowledge:write, knowledge:admin, or system:admin.
       requestBody:
         required: true
         content:
@@ -110,6 +112,7 @@ paths:
       tags: [knowledge]
       summary: Soft delete knowledge base
       operationId: internalDeleteKnowledgeBase
+      description: Requires knowledge:write, knowledge:admin, or system:admin.
       responses:
         "204":
           description: Knowledge base deleted.
@@ -145,6 +148,7 @@ paths:
       tags: [knowledge]
       summary: Upload a knowledge-base document
       operationId: internalUploadKnowledgeBaseDocument
+      description: Requires knowledge:write, knowledge:admin, or system:admin. The RAGFlow runtime stores the original bytes and parsing/index lifecycle.
       requestBody:
         required: true
         content:
@@ -171,6 +175,7 @@ paths:
       tags: [knowledge]
       summary: Get document processing details
       operationId: internalGetDocument
+      description: Requires knowledge:read and the explicit knowledgeBaseId query parameter so the adapter can resolve the runtime dataset context.
       responses:
         "200":
           description: Document processing details.
@@ -185,6 +190,7 @@ paths:
       tags: [knowledge]
       summary: Update document metadata
       operationId: internalUpdateDocument
+      description: Requires knowledge:write, knowledge:admin, or system:admin and the explicit knowledgeBaseId query parameter.
       requestBody:
         required: true
         content:
@@ -206,6 +212,7 @@ paths:
       tags: [knowledge]
       summary: Soft-delete document
       operationId: internalDeleteDocument
+      description: Requires knowledge:write, knowledge:admin, or system:admin and the explicit knowledgeBaseId query parameter.
       responses:
         "204":
           description: Document was soft-deleted and cleanup was queued.
@@ -221,6 +228,7 @@ paths:
       tags: [knowledge]
       summary: List document chunks
       operationId: internalListDocumentChunks
+      description: Requires knowledge:read and the explicit knowledgeBaseId query parameter. Page size is capped at 100.
       parameters:
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PageSize"
@@ -242,6 +250,7 @@ paths:
       tags: [knowledge]
       summary: Get original document content
       operationId: internalGetDocumentContent
+      description: Requires knowledge:read and the explicit knowledgeBaseId query parameter. Runtime authentication failures are dependency errors, not user-session authentication failures.
       responses:
         "200":
           description: Original document content stream.
@@ -262,10 +271,11 @@ paths:
         Creates a knowledge retrieval query. Empty or uncreated runtime indexes
         return a successful empty result set; invalid query/runtime business
         inputs return 400, missing or hidden datasets return 404, and runtime
-        dependency failures return 502. Trusted QA callers may use this route
-        for project-wide QA RAG retrieval even when the end user does not have
-        Knowledge management permissions; non-empty knowledgeBaseIds still
-        narrows the query to the supplied knowledge bases.
+        dependency failures return 502. Regular callers need knowledge:read.
+        Trusted QA callers may use this route for project-wide QA RAG retrieval,
+        but that project scope applies only to query execution; document detail,
+        chunk, and content reads still require explicit knowledgeBaseId and
+        normal Knowledge read authorization.
       operationId: internalCreateKnowledgeQuery
       requestBody:
         required: true
@@ -311,7 +321,7 @@ components:
       name: pageSize
       in: query
       required: false
-      schema: { type: integer, minimum: 1, maximum: 200, default: 20 }
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
     KnowledgeBaseId:
       name: knowledgeBaseId
       in: path
@@ -326,7 +336,7 @@ components:
       name: knowledgeBaseId
       in: query
       required: true
-      description: Required dataset context for runtime document operations.
+      description: Required dataset context for runtime document detail, chunk, and content operations.
       schema: { type: string, minLength: 1 }
   responses:
     Error:

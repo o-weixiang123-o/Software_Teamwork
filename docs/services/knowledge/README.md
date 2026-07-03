@@ -9,7 +9,7 @@ RESTful 路径、统一响应和错误 envelope 以 [前后端集成契约](../.
 | 文档 | 说明 |
 | --- | --- |
 | [API 契约](docs/api-contract.md) | 知识管理公开接口、权限、错误码和跨服务边界。 |
-| [数据模型](docs/data-models.md) | Knowledge Service 拥有的 PostgreSQL、Qdrant 和运行时逻辑模型。 |
+| [数据模型](docs/data-models.md) | Knowledge Service 的 RAGFlow runtime 映射、parser-config PostgreSQL 资源和历史兼容字段。 |
 | [MCP 工具接口与参数规范](docs/mcp-tools.md) | 四个 Knowledge MCP 工具的参数、JSON Schema、输出字段、示例和 Agent 选用规则。 |
 | [MCP Server 协议与运行说明](docs/mcp-server.md) | Streamable HTTP、鉴权、工具发现、QA 回退、Agent 调用流程和运维约束。 |
 | [权限矩阵](docs/permission-matrix.md) | 知识库、文档、检索和 parser config 的角色/权限矩阵。 |

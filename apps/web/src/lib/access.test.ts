@@ -12,16 +12,28 @@ const businessUser: UserSummary = {
 }
 
 describe('shared access requirements', () => {
-  it('does not grant the admin shell to unrelated standard business permissions', () => {
-    expect(canAccess(businessUser, adminShellAccess)).toBe(false)
+  it('grants the admin shell to standard knowledge readers', () => {
+    expect(canAccess(businessUser, adminShellAccess)).toBe(true)
   })
 
-  it('does not grant the admin shell to ordinary retrieval permissions', () => {
+  it('grants the admin shell to ordinary retrieval permissions', () => {
     expect(
       canAccess(
         {
           ...businessUser,
           permissions: ['knowledge:read', 'qa:use'],
+        },
+        adminShellAccess,
+      ),
+    ).toBe(true)
+  })
+
+  it('does not grant the admin shell to unrelated standard business permissions', () => {
+    expect(
+      canAccess(
+        {
+          ...businessUser,
+          permissions: ['qa:use', 'document:upload'],
         },
         adminShellAccess,
       ),

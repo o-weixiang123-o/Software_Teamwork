@@ -40,6 +40,7 @@ type fakeVendorState struct {
 	searchUserID       string
 	listUserIDs        []string
 	documentUserIDs    []string
+	createUserIDs      []string
 	createBody         []byte
 	createPath         string
 }
@@ -155,6 +156,7 @@ func startFakeVendor(t *testing.T, state *fakeVendorState) *httptest.Server {
 		case r.Method == http.MethodPost && (r.URL.Path == "/api/v1/datasets" || r.URL.Path == "/api/v1/internal/datasets"):
 			var body map[string]any
 			raw, _ := io.ReadAll(r.Body)
+			state.createUserIDs = append(state.createUserIDs, r.Header.Get("X-User-Id"))
 			state.createPath = r.URL.Path
 			state.createBody = append([]byte(nil), raw...)
 			_ = json.Unmarshal(raw, &body)
@@ -364,6 +366,50 @@ func TestAdapterCreateKnowledgeBaseAppliesDefaultParserConfig(t *testing.T) {
 	}
 	if state.createPath != "/api/v1/datasets" {
 		t.Fatalf("create path=%s", state.createPath)
+	}
+}
+
+func TestAdapterKnowledgeBasesUseProjectRuntimeScope(t *testing.T) {
+	state := newFakeVendorState()
+	state.datasets["kb_fake_1"] = map[string]any{"id": "kb_fake_1", "name": "Boiler"}
+	vendor := startFakeVendor(t, state)
+	defer vendor.Close()
+
+	server := NewServer(adapterconfig.Config{
+		ServiceVersion:       "test",
+		VendorRuntimeURL:     vendor.URL,
+		ServiceToken:         testServiceToken,
+		ProjectRuntimeUserID: "project_runtime",
+	}, nil)
+
+	listReq := httptest.NewRequest(http.MethodGet, "/internal/v1/knowledge-bases", nil)
+	listReq.Header.Set("X-User-Id", "usr_standard")
+	listReq.Header.Set("X-Service-Token", testServiceToken)
+	listReq.Header.Set("X-User-Permissions", "knowledge:read")
+	listRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("list status=%d body=%s", listRec.Code, listRec.Body.String())
+	}
+
+	createReq := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-bases", strings.NewReader(`{"name":"Manuals"}`))
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq.Header.Set("X-User-Id", "usr_admin")
+	createReq.Header.Set("X-Service-Token", testServiceToken)
+	createReq.Header.Set("X-User-Permissions", "knowledge:write")
+	createRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", createRec.Code, createRec.Body.String())
+	}
+
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if len(state.listUserIDs) == 0 || state.listUserIDs[0] != "project_runtime" {
+		t.Fatalf("list user ids=%v", state.listUserIDs)
+	}
+	if len(state.createUserIDs) == 0 || state.createUserIDs[0] != "project_runtime" {
+		t.Fatalf("create user ids=%v", state.createUserIDs)
 	}
 }
 
@@ -748,9 +794,10 @@ func TestAdapterKnowledgeQueryMapsRuntimeValidationError(t *testing.T) {
 	defer vendor.Close()
 
 	server := NewServer(adapterconfig.Config{
-		ServiceVersion:   "test",
-		VendorRuntimeURL: vendor.URL,
-		ServiceToken:     testServiceToken,
+		ServiceVersion:       "test",
+		VendorRuntimeURL:     vendor.URL,
+		ServiceToken:         testServiceToken,
+		ProjectRuntimeUserID: "project_runtime",
 	}, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-queries", strings.NewReader(`{"query":"maintenance","knowledgeBaseIds":["kb_1","kb_2"]}`))
@@ -787,9 +834,10 @@ func TestAdapterKnowledgeQueryMapsRuntimeNotFoundError(t *testing.T) {
 	defer vendor.Close()
 
 	server := NewServer(adapterconfig.Config{
-		ServiceVersion:   "test",
-		VendorRuntimeURL: vendor.URL,
-		ServiceToken:     testServiceToken,
+		ServiceVersion:       "test",
+		VendorRuntimeURL:     vendor.URL,
+		ServiceToken:         testServiceToken,
+		ProjectRuntimeUserID: "project_runtime",
 	}, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-queries", strings.NewReader(`{"query":"maintenance","knowledgeBaseIds":["kb_missing"]}`))
@@ -823,9 +871,10 @@ func TestAdapterKnowledgeQueryExpandsAccessibleKnowledgeBasesWhenOmitted(t *test
 	defer vendor.Close()
 
 	server := NewServer(adapterconfig.Config{
-		ServiceVersion:   "test",
-		VendorRuntimeURL: vendor.URL,
-		ServiceToken:     testServiceToken,
+		ServiceVersion:       "test",
+		VendorRuntimeURL:     vendor.URL,
+		ServiceToken:         testServiceToken,
+		ProjectRuntimeUserID: "project_runtime",
 	}, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-queries", strings.NewReader(`{"query":"maintenance"}`))
@@ -848,6 +897,12 @@ func TestAdapterKnowledgeQueryExpandsAccessibleKnowledgeBasesWhenOmitted(t *test
 	datasetIDs, _ := payload["dataset_ids"].([]any)
 	if len(datasetIDs) != 2 || datasetIDs[0] != "kb_fake_1" || datasetIDs[1] != "kb_fake_2" {
 		t.Fatalf("dataset_ids=%v", payload["dataset_ids"])
+	}
+	if len(state.listUserIDs) == 0 || state.listUserIDs[0] != "project_runtime" {
+		t.Fatalf("list user ids=%v", state.listUserIDs)
+	}
+	if state.searchUserID != "project_runtime" {
+		t.Fatalf("search user id=%q", state.searchUserID)
 	}
 }
 

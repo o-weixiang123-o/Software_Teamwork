@@ -29,7 +29,8 @@ func (s *Server) handleListKnowledgeBases(w http.ResponseWriter, r *http.Request
 		writeAppError(w, r, err)
 		return
 	}
-	items, total, err := s.vendor.ListDatasets(r.Context(), reqCtx.UserID, page.Page, page.PageSize)
+	runtimeUserID := s.projectReadRuntimeUserID(reqCtx)
+	items, total, err := s.vendor.ListDatasets(r.Context(), runtimeUserID, page.Page, page.PageSize)
 	if err != nil {
 		writeAppError(w, r, mapVendorError(err))
 		return
@@ -70,7 +71,8 @@ func (s *Server) handleCreateKnowledgeBase(w http.ResponseWriter, r *http.Reques
 		writeAppError(w, r, err)
 		return
 	}
-	created, err := s.vendor.CreateDataset(r.Context(), reqCtx.UserID, payload)
+	runtimeUserID := s.projectReadRuntimeUserID(reqCtx)
+	created, err := s.vendor.CreateDataset(r.Context(), runtimeUserID, payload)
 	if err != nil {
 		writeAppError(w, r, mapVendorError(err))
 		return
@@ -129,7 +131,8 @@ func (s *Server) handleUpdateKnowledgeBase(w http.ResponseWriter, r *http.Reques
 		writeAppError(w, r, err)
 		return
 	}
-	updated, err := s.vendor.UpdateDataset(r.Context(), reqCtx.UserID, r.PathValue("knowledgeBaseId"), payload)
+	runtimeUserID := s.projectReadRuntimeUserID(reqCtx)
+	updated, err := s.vendor.UpdateDataset(r.Context(), runtimeUserID, r.PathValue("knowledgeBaseId"), payload)
 	if err != nil {
 		writeAppError(w, r, mapVendorError(err))
 		return
@@ -146,7 +149,8 @@ func (s *Server) handleDeleteKnowledgeBase(w http.ResponseWriter, r *http.Reques
 		writeAppError(w, r, err)
 		return
 	}
-	if err := s.vendor.DeleteDataset(r.Context(), reqCtx.UserID, r.PathValue("knowledgeBaseId")); err != nil {
+	runtimeUserID := s.projectReadRuntimeUserID(reqCtx)
+	if err := s.vendor.DeleteDataset(r.Context(), runtimeUserID, r.PathValue("knowledgeBaseId")); err != nil {
 		writeAppError(w, r, mapVendorError(err))
 		return
 	}
@@ -203,7 +207,8 @@ func (s *Server) handleUploadDocument(w http.ResponseWriter, r *http.Request) {
 	if header != nil {
 		contentType = strings.TrimSpace(header.Header.Get("Content-Type"))
 	}
-	uploaded, err := s.vendor.UploadDocument(r.Context(), reqCtx.UserID, r.PathValue("knowledgeBaseId"), header.Filename, contentType, file)
+	runtimeUserID := s.projectReadRuntimeUserID(reqCtx)
+	uploaded, err := s.vendor.UploadDocument(r.Context(), runtimeUserID, r.PathValue("knowledgeBaseId"), header.Filename, contentType, file)
 	if err != nil {
 		writeAppError(w, r, mapVendorError(err))
 		return
@@ -211,8 +216,8 @@ func (s *Server) handleUploadDocument(w http.ResponseWriter, r *http.Request) {
 	kbID := r.PathValue("knowledgeBaseId")
 	docID := stringField(uploaded, "id")
 	if s.cfg.AutoStartIngestion && docID != "" {
-		if err := s.vendor.StartDocumentParse(r.Context(), reqCtx.UserID, kbID, []string{docID}); err != nil {
-			if delErr := s.vendor.DeleteDocument(r.Context(), reqCtx.UserID, kbID, docID); delErr != nil {
+		if err := s.vendor.StartDocumentParse(r.Context(), runtimeUserID, kbID, []string{docID}); err != nil {
+			if delErr := s.vendor.DeleteDocument(r.Context(), runtimeUserID, kbID, docID); delErr != nil {
 				s.logger.WarnContext(r.Context(), "upload parse failed and document cleanup failed",
 					"service", "knowledge-adapter",
 					"request_id", reqCtx.RequestID,
@@ -274,7 +279,8 @@ func (s *Server) handleUpdateDocument(w http.ResponseWriter, r *http.Request) {
 		writeAppError(w, r, err)
 		return
 	}
-	_, err = s.vendor.GetDatasetDocument(r.Context(), reqCtx.UserID, kbID, r.PathValue("documentId"))
+	runtimeUserID := s.projectReadRuntimeUserID(reqCtx)
+	_, err = s.vendor.GetDatasetDocument(r.Context(), runtimeUserID, kbID, r.PathValue("documentId"))
 	if err != nil {
 		writeAppError(w, r, mapVendorError(err))
 		return
@@ -284,7 +290,7 @@ func (s *Server) handleUpdateDocument(w http.ResponseWriter, r *http.Request) {
 		writeAppError(w, r, err)
 		return
 	}
-	updated, err := s.vendor.UpdateDocument(r.Context(), reqCtx.UserID, kbID, r.PathValue("documentId"), payload)
+	updated, err := s.vendor.UpdateDocument(r.Context(), runtimeUserID, kbID, r.PathValue("documentId"), payload)
 	if err != nil {
 		writeAppError(w, r, mapVendorError(err))
 		return
@@ -316,7 +322,8 @@ func (s *Server) handleDeleteDocument(w http.ResponseWriter, r *http.Request) {
 		writeAppError(w, r, err)
 		return
 	}
-	if err := s.vendor.DeleteDocument(r.Context(), reqCtx.UserID, kbID, documentID); err != nil {
+	runtimeUserID := s.projectReadRuntimeUserID(reqCtx)
+	if err := s.vendor.DeleteDocument(r.Context(), runtimeUserID, kbID, documentID); err != nil {
 		writeAppError(w, r, mapVendorError(err))
 		return
 	}
@@ -467,7 +474,7 @@ func (s *Server) handleCreateKnowledgeQuery(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
-	runtimeUserID := reqCtx.UserID
+	runtimeUserID := s.projectReadRuntimeUserID(reqCtx)
 	if trustedProjectRetrievalScope(reqCtx, r) {
 		runtimeUserID = s.projectRuntimeUserID()
 	} else {
@@ -541,7 +548,8 @@ func (s *Server) handleKnowledgeStatistics(w http.ResponseWriter, r *http.Reques
 		writeAppError(w, r, err)
 		return
 	}
-	stats, err := s.collectKnowledgeStatistics(r.Context(), reqCtx.UserID)
+	runtimeUserID := s.projectReadRuntimeUserID(reqCtx)
+	stats, err := s.collectKnowledgeStatistics(r.Context(), runtimeUserID)
 	if err != nil {
 		writeAppError(w, r, mapVendorError(err))
 		return

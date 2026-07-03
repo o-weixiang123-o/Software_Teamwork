@@ -75,8 +75,8 @@ export function KnowledgeSearchPage() {
     setKbsLoading(true)
     setKbsError(null)
 
-    // Fetch all KBs (page 1, large pageSize to get all)
-    listKnowledgeBases({ page: 1, pageSize: 200 })
+    // Fetch all KBs within the runtime API page-size cap.
+    listKnowledgeBases({ page: 1, pageSize: 100 })
       .then((result) => {
         if (!cancelled) {
           setAvailableKbs(result.items)
@@ -158,237 +158,241 @@ export function KnowledgeSearchPage() {
   // ── Render ──
 
   return (
-    <div>
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 p-6">
       {/* Header */}
-      <div className="mb-6">
+      <div>
         <h3 className="text-2xl font-semibold text-foreground">知识检索</h3>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <p className="mt-2 text-sm text-muted-foreground">
           在知识库中检索相关内容，支持语义向量检索和向量重排序。
         </p>
       </div>
 
-      {/* Search input */}
-      <div className="mb-4">
-        <div className="relative">
-          <Search
-            aria-hidden="true"
-            className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-          />
-          <Input
-            type="text"
-            maxLength={500}
-            placeholder="输入检索关键词或问题..."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={handleKeyDown}
-            className="h-10 pl-9 pr-20"
-          />
-          <Button
-            size="sm"
-            className="!absolute right-1 top-1/2 -translate-y-1/2"
-            onClick={handleSearch}
-            disabled={!query.trim() || searchMutation.isPending}
-          >
-            {searchMutation.isPending ? (
-              <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />
-            ) : (
-              '检索'
-            )}
-          </Button>
+      <section className="space-y-4 rounded-lg border border-border bg-card p-5">
+        {/* Search input */}
+        <div>
+          <div className="relative">
+            <Search
+              aria-hidden="true"
+              className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+            />
+            <Input
+              type="text"
+              maxLength={500}
+              placeholder="输入检索关键词或问题..."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={handleKeyDown}
+              className="h-10 pl-9 pr-20"
+            />
+            <Button
+              size="sm"
+              className="!absolute right-1 top-1/2 -translate-y-1/2"
+              onClick={handleSearch}
+              disabled={!query.trim() || searchMutation.isPending}
+            >
+              {searchMutation.isPending ? (
+                <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />
+              ) : (
+                '检索'
+              )}
+            </Button>
+          </div>
         </div>
-      </div>
 
-      {/* Knowledge base selection */}
-      <div className="mb-4">
-        <p className="mb-1.5 text-xs font-medium text-muted-foreground">知识库范围</p>
-        {kbsLoading && (
-          <InlineNotice icon={Loader2} iconClassName="animate-spin">
-            加载知识库...
-          </InlineNotice>
-        )}
-        {kbsError && <InlineNotice variant="error">加载知识库失败: {kbsError}</InlineNotice>}
-        {!kbsLoading && !kbsError && (
-          <div className="flex flex-wrap gap-1.5">
-            <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs transition-colors hover:bg-muted/30">
-              <input
-                type="checkbox"
-                className="size-3 accent-primary"
-                checked={availableKbs.length > 0 && selectedKbIds.length === availableKbs.length}
-                onChange={selectAllKbs}
-              />
-              全选
-            </label>
-            {availableKbs.map((kb) => (
-              <label
-                key={kb.id}
-                className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs transition-colors ${
-                  selectedKbIds.includes(kb.id)
-                    ? 'border-primary bg-primary/10 text-primary'
-                    : 'border-border hover:bg-muted/30'
-                }`}
-              >
+        {/* Knowledge base selection */}
+        <div>
+          <p className="mb-1.5 text-xs font-medium text-muted-foreground">知识库范围</p>
+          {kbsLoading && (
+            <InlineNotice icon={Loader2} iconClassName="animate-spin">
+              加载知识库...
+            </InlineNotice>
+          )}
+          {kbsError && <InlineNotice variant="error">加载知识库失败: {kbsError}</InlineNotice>}
+          {!kbsLoading && !kbsError && (
+            <div className="flex flex-wrap gap-1.5">
+              <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs transition-colors hover:bg-muted/30">
                 <input
                   type="checkbox"
                   className="size-3 accent-primary"
-                  checked={selectedKbIds.includes(kb.id)}
-                  onChange={() => toggleKb(kb.id)}
+                  checked={availableKbs.length > 0 && selectedKbIds.length === availableKbs.length}
+                  onChange={selectAllKbs}
                 />
-                {kb.name}
-                <span className="text-muted-foreground">({kb.documentCount})</span>
+                全选
               </label>
-            ))}
-            {availableKbs.length === 0 && (
-              <span className="text-xs text-muted-foreground">暂无可用知识库</span>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Advanced options toggle */}
-      <div className="mb-4">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="-ml-2 text-xs text-muted-foreground"
-          onClick={() => setShowAdvanced((v) => !v)}
-        >
-          {showAdvanced ? (
-            <ChevronUp aria-hidden="true" className="mr-1 size-3.5" />
-          ) : (
-            <ChevronDown aria-hidden="true" className="mr-1 size-3.5" />
+              {availableKbs.map((kb) => (
+                <label
+                  key={kb.id}
+                  className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs transition-colors ${
+                    selectedKbIds.includes(kb.id)
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-border hover:bg-muted/30'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    className="size-3 accent-primary"
+                    checked={selectedKbIds.includes(kb.id)}
+                    onChange={() => toggleKb(kb.id)}
+                  />
+                  {kb.name}
+                  <span className="text-muted-foreground">({kb.documentCount})</span>
+                </label>
+              ))}
+              {availableKbs.length === 0 && (
+                <span className="text-xs text-muted-foreground">暂无可用知识库</span>
+              )}
+            </div>
           )}
-          高级选项
-        </Button>
-      </div>
+        </div>
 
-      <div
-        inert={!showAdvanced}
-        className={cn(
-          'overflow-hidden transition-[max-height,opacity] duration-300 ease-out',
-          showAdvanced ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0',
-        )}
-      >
-        <div className="mb-4 space-y-3 rounded-lg border border-border p-4">
-          {/* Search mode toggle */}
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">检索模式</label>
-            <div className="flex gap-2">
+        {/* Advanced options toggle */}
+        <div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="-ml-2 text-xs text-muted-foreground"
+            onClick={() => setShowAdvanced((v) => !v)}
+          >
+            {showAdvanced ? (
+              <ChevronUp aria-hidden="true" className="mr-1 size-3.5" />
+            ) : (
+              <ChevronDown aria-hidden="true" className="mr-1 size-3.5" />
+            )}
+            高级选项
+          </Button>
+        </div>
+
+        <div
+          inert={!showAdvanced}
+          className={cn(
+            'overflow-hidden transition-[max-height,opacity] duration-300 ease-out',
+            showAdvanced ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0',
+          )}
+        >
+          <div className="space-y-3 rounded-lg border border-border bg-background p-4">
+            {/* Search mode toggle */}
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                检索模式
+              </label>
+              <div className="flex gap-2">
+                <label
+                  className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm transition-colors ${
+                    !useRerank
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-border hover:bg-muted/30'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="search-mode"
+                    className="size-3 accent-primary"
+                    checked={!useRerank}
+                    onChange={() => setUseRerank(false)}
+                  />
+                  语义向量检索
+                </label>
+                <label
+                  className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm transition-colors ${
+                    useRerank
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-border hover:bg-muted/30'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="search-mode"
+                    className="size-3 accent-primary"
+                    checked={useRerank}
+                    onChange={() => setUseRerank(true)}
+                  />
+                  向量 + 重排序
+                </label>
+              </div>
+            </div>
+
+            {/* Top K */}
+            <div>
+              <div className="mb-1 flex items-center justify-between">
+                <label htmlFor="search-topk" className="text-xs font-medium text-muted-foreground">
+                  返回结果数 (Top K)
+                </label>
+                <span className="text-xs text-muted-foreground min-w-[2rem] text-right font-mono">
+                  {topK}
+                </span>
+              </div>
+              <input
+                id="search-topk"
+                type="range"
+                min={TOP_K_MIN}
+                max={TOP_K_MAX}
+                value={topK}
+                onChange={(e) => setTopK(Number(e.target.value))}
+                className="range-slider w-full accent-primary"
+              />
+              <div className="mt-0.5 flex justify-between text-[0.65rem] text-muted-foreground">
+                <span>{TOP_K_MIN}</span>
+                <span>{TOP_K_MAX}</span>
+              </div>
+            </div>
+
+            {/* Score threshold */}
+            <div>
+              <div className="mb-1 flex items-center justify-between">
+                <label htmlFor="search-score" className="text-xs font-medium text-muted-foreground">
+                  相似度阈值
+                </label>
+                <span className="text-xs text-muted-foreground min-w-[2rem] text-right font-mono">
+                  {scoreThreshold.toFixed(2)}
+                </span>
+              </div>
+              <input
+                id="search-score"
+                type="range"
+                min={SCORE_THRESHOLD_MIN}
+                max={SCORE_THRESHOLD_MAX}
+                step={SCORE_THRESHOLD_STEP}
+                value={scoreThreshold}
+                onChange={(e) => setScoreThreshold(Number(e.target.value))}
+                className="range-slider w-full accent-primary"
+              />
+              <div className="mt-0.5 flex justify-between text-[0.65rem] text-muted-foreground">
+                <span>0.00</span>
+                <span>1.00</span>
+              </div>
+            </div>
+
+            {/* Tag filter */}
+            <div>
               <label
-                className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm transition-colors ${
-                  !useRerank
-                    ? 'border-primary bg-primary/10 text-primary'
-                    : 'border-border hover:bg-muted/30'
-                }`}
+                htmlFor="search-tags"
+                className="mb-1 block text-xs font-medium text-muted-foreground"
               >
-                <input
-                  type="radio"
-                  name="search-mode"
-                  className="size-3 accent-primary"
-                  checked={!useRerank}
-                  onChange={() => setUseRerank(false)}
-                />
-                语义向量检索
+                标签筛选（逗号分隔）
               </label>
-              <label
-                className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm transition-colors ${
-                  useRerank
-                    ? 'border-primary bg-primary/10 text-primary'
-                    : 'border-border hover:bg-muted/30'
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="search-mode"
-                  className="size-3 accent-primary"
-                  checked={useRerank}
-                  onChange={() => setUseRerank(true)}
-                />
-                向量 + 重排序
-              </label>
+              <Input
+                id="search-tags"
+                type="text"
+                maxLength={200}
+                placeholder="例如: 规程, 安全"
+                value={tagFilter}
+                onChange={(e) => setTagFilter(e.target.value)}
+              />
             </div>
-          </div>
-
-          {/* Top K */}
-          <div>
-            <div className="mb-1 flex items-center justify-between">
-              <label htmlFor="search-topk" className="text-xs font-medium text-muted-foreground">
-                返回结果数 (Top K)
-              </label>
-              <span className="text-xs text-muted-foreground min-w-[2rem] text-right font-mono">
-                {topK}
-              </span>
-            </div>
-            <input
-              id="search-topk"
-              type="range"
-              min={TOP_K_MIN}
-              max={TOP_K_MAX}
-              value={topK}
-              onChange={(e) => setTopK(Number(e.target.value))}
-              className="range-slider w-full accent-primary"
-            />
-            <div className="mt-0.5 flex justify-between text-[0.65rem] text-muted-foreground">
-              <span>{TOP_K_MIN}</span>
-              <span>{TOP_K_MAX}</span>
-            </div>
-          </div>
-
-          {/* Score threshold */}
-          <div>
-            <div className="mb-1 flex items-center justify-between">
-              <label htmlFor="search-score" className="text-xs font-medium text-muted-foreground">
-                相似度阈值
-              </label>
-              <span className="text-xs text-muted-foreground min-w-[2rem] text-right font-mono">
-                {scoreThreshold.toFixed(2)}
-              </span>
-            </div>
-            <input
-              id="search-score"
-              type="range"
-              min={SCORE_THRESHOLD_MIN}
-              max={SCORE_THRESHOLD_MAX}
-              step={SCORE_THRESHOLD_STEP}
-              value={scoreThreshold}
-              onChange={(e) => setScoreThreshold(Number(e.target.value))}
-              className="range-slider w-full accent-primary"
-            />
-            <div className="mt-0.5 flex justify-between text-[0.65rem] text-muted-foreground">
-              <span>0.00</span>
-              <span>1.00</span>
-            </div>
-          </div>
-
-          {/* Tag filter */}
-          <div>
-            <label
-              htmlFor="search-tags"
-              className="mb-1 block text-xs font-medium text-muted-foreground"
-            >
-              标签筛选（逗号分隔）
-            </label>
-            <Input
-              id="search-tags"
-              type="text"
-              maxLength={200}
-              placeholder="例如: 规程, 安全"
-              value={tagFilter}
-              onChange={(e) => setTagFilter(e.target.value)}
-            />
           </div>
         </div>
-      </div>
 
-      {/* Error */}
-      {searchIssue && (
-        <InlineNotice title={searchIssue.title} variant={searchIssue.variant}>
-          {searchIssue.description}
-        </InlineNotice>
-      )}
+        {/* Error */}
+        {searchIssue && (
+          <InlineNotice title={searchIssue.title} variant={searchIssue.variant}>
+            {searchIssue.description}
+          </InlineNotice>
+        )}
+      </section>
 
       {/* Results */}
       {resultSummary && (
-        <div className="mt-4 space-y-4">
+        <div className="space-y-4">
           {/* Trace info */}
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span>查询: &ldquo;{resultSummary.query}&rdquo;</span>

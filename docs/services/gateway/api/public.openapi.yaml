@@ -332,7 +332,7 @@ paths:
         schema:
           type: integer
           minimum: 1
-          maximum: 200
+          maximum: 100
           default: 20
       responses:
         '200':
@@ -349,6 +349,11 @@ paths:
       summary: Create knowledge base
       operationId: createKnowledgeBase
       x-owner-service: knowledge
+      x-required-permissions:
+      - knowledge:write
+      - knowledge:admin
+      - system:admin
+      description: Create a knowledge base. Standard users with only `knowledge:read` cannot create knowledge bases.
       requestBody:
         required: true
         content:
@@ -388,6 +393,10 @@ paths:
       summary: Update knowledge base
       operationId: updateKnowledgeBase
       x-owner-service: knowledge
+      x-required-permissions:
+      - knowledge:write
+      - knowledge:admin
+      - system:admin
       requestBody:
         required: true
         content:
@@ -412,6 +421,11 @@ paths:
       summary: Delete knowledge base
       operationId: deleteKnowledgeBase
       x-owner-service: knowledge
+      x-required-permissions:
+      - knowledge:write
+      - knowledge:admin
+      - system:admin
+      description: Delete a knowledge base. Standard users with only `knowledge:read` cannot delete knowledge bases.
       responses:
         '204':
           description: Knowledge base deleted.
@@ -440,7 +454,7 @@ paths:
         schema:
           type: integer
           minimum: 1
-          maximum: 200
+          maximum: 100
           default: 20
       - name: status
         in: query
@@ -464,7 +478,11 @@ paths:
       summary: Upload a document to a knowledge base
       operationId: uploadKnowledgeBaseDocument
       x-owner-service: knowledge
-      description: Gateway exposes the knowledge-base document upload workflow. Knowledge service owns the document resource, knowledge-base association, metadata, ingestion state, chunks, embeddings, and retrieval lifecycle through its runtime adapter. Report templates, report materials, and generated report files are separate document-owned resources and must not be modeled through this path.
+      x-required-permissions:
+      - knowledge:write
+      - knowledge:admin
+      - system:admin
+      description: Gateway exposes the knowledge-base document upload workflow. Knowledge service owns the document resource, knowledge-base association, metadata, ingestion state, chunks, embeddings, and retrieval lifecycle through its runtime adapter. Standard users with only `knowledge:read` cannot upload documents. Report templates, report materials, and generated report files are separate document-owned resources and must not be modeled through this path.
       requestBody:
         required: true
         content:
@@ -517,6 +535,10 @@ paths:
       summary: Update document tags
       operationId: updateDocument
       x-owner-service: knowledge
+      x-required-permissions:
+      - knowledge:write
+      - knowledge:admin
+      - system:admin
       requestBody:
         required: true
         content:
@@ -541,6 +563,10 @@ paths:
       summary: Delete document
       operationId: deleteDocument
       x-owner-service: knowledge
+      x-required-permissions:
+      - knowledge:write
+      - knowledge:admin
+      - system:admin
       responses:
         '204':
           description: Document deleted.
@@ -573,7 +599,7 @@ paths:
         schema:
           type: integer
           minimum: 1
-          maximum: 500
+          maximum: 100
           default: 50
       responses:
         '200':
@@ -618,7 +644,7 @@ paths:
       x-owner-service: knowledge
       x-required-permissions:
       - knowledge:read
-      description: Run a resource-mode knowledge retrieval query. Query execution is modeled as creating a knowledge-query resource, not as an action-style search path. Standard users have `knowledge:read` by default and may use this retrieval endpoint directly. Empty or uncreated runtime indexes return 201 with an empty results array. Invalid dataset combinations, document filters, or metadata filters return validation_error. Missing or hidden knowledge bases return not_found. Runtime retrieval, model, or index infrastructure failures return dependency_error.
+      description: Run a resource-mode knowledge retrieval query. Query execution is modeled as creating a knowledge-query resource, not as an action-style search path. Standard users have `knowledge:read` by default and may use this retrieval endpoint directly. Empty or uncreated runtime indexes return 201 with an empty results array. Invalid dataset combinations, document filters, or metadata filters return validation_error. Missing or hidden knowledge bases return not_found. Runtime retrieval, runtime authentication, model, or index infrastructure failures return dependency_error.
       requestBody:
         required: true
         content:
@@ -2905,7 +2931,7 @@ components:
       name: knowledgeBaseId
       in: query
       required: true
-      description: Required knowledge base context for runtime-backed document operations.
+      description: Required knowledge base context for runtime-backed document detail, chunk, and content operations; the adapter must not infer it by scanning all knowledge bases.
       schema:
         type: string
         minLength: 1

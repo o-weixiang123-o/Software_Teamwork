@@ -58,7 +58,7 @@ describe('KnowledgeSearchPage', () => {
   beforeEach(() => {
     vi.mocked(listKnowledgeBases).mockResolvedValue({
       items: knowledgeBases,
-      page: { page: 1, pageSize: 200, total: 1 },
+      page: { page: 1, pageSize: 100, total: 1 },
     })
     vi.mocked(runKnowledgeQuery).mockResolvedValue(queryResult)
   })

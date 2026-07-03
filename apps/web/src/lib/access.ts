@@ -5,6 +5,7 @@ export const adminShellAccess: PermissionRequirement = {
     'admin',
     'super_admin',
     'system:admin',
+    'knowledge:read',
     'knowledge:admin',
     'knowledge:write',
     'admin:model-profile:write',

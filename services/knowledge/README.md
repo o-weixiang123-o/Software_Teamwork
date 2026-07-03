@@ -55,6 +55,8 @@ Operational routes:
 
 - `GET /healthz`
 - `GET /readyz`
+- `GET /internal/v1/runtime/status` (internal diagnostics; requires
+  `X-Service-Token`)
 
 Internal service routes:
 
@@ -100,22 +102,41 @@ and [`docs/services/knowledge/docs/mcp-tools.md`](../../docs/services/knowledge/
 ## Access Context
 
 Business routes require gateway-injected `X-User-Id` (from Auth service).
-The adapter forwards this as vendor tenant context; vendor login/JWT is disabled.
+Gateway user id is the audit and authorization context. Runtime calls use
+`KNOWLEDGE_PROJECT_RUNTIME_USER_ID` when configured so normal users with
+`knowledge:read` can read and search the shared project KB pool; otherwise the
+adapter falls back to the caller user id as runtime tenant context. Vendor
+login/JWT is disabled.
 
 Supported permission strings:
 
 - `knowledge:read`
 - `knowledge:write`
-- `knowledge:admin` / `admin:parser-config:write` for parser-config admin
+- `knowledge:admin`
+- `system:admin`
+- `admin:parser-config:write` for parser-config admin
 
 Rules:
 
-- Read routes require `knowledge:read` or `knowledge:write` (or admin roles).
-- Mutations require `knowledge:write` (or admin roles).
-- Trusted QA retrieval is the exception: QA uses service-token authenticated
-  `knowledge-queries` for project-wide RAG, so a QA user does not need
-  Knowledge management `knowledge:read` merely to ask questions.
-- Vendor errors map to standard `{error}` envelopes.
+- Read routes require `knowledge:read` or write/admin permissions. Standard
+  users are expected to have `knowledge:read`, so they can list visible
+  knowledge bases, inspect documents/chunks/content, and run direct
+  `knowledge-queries`.
+- Mutations require `knowledge:write`, `knowledge:admin`, or `system:admin`.
+  Standard users must not create, update, delete, upload, or remove documents
+  unless they are explicitly granted one of those write permissions.
+- Document singleton reads (`GET /documents/{documentId}`, `/chunks`,
+  `/content`) require the caller to provide `knowledgeBaseId` so the adapter can
+  resolve the exact runtime dataset and document. Project-scope QA retrieval
+  does not bypass this read authorization.
+- Trusted QA retrieval is limited to `POST /knowledge-queries`: QA may use
+  service-token authenticated project-wide RAG for answer generation, but
+  citation source lookup and document downloads still go back through normal
+  Knowledge read checks with `knowledgeBaseId`.
+- Vendor errors map to standard `{error}` envelopes. Runtime authentication
+  failures, including a mismatched `VENDOR_RUNTIME_SERVICE_TOKEN` /
+  `KNOWLEDGE_RUNTIME_SERVICE_TOKEN`, are downstream dependency failures and
+  should surface as `502 dependency_error`, not as browser login expiration.
 
 ## Data Model
 

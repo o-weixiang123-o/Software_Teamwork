@@ -43,7 +43,7 @@ const navItems: Array<{
   requirement?: PermissionRequirement
 }> = [
   { label: '问答', to: '/chat', requirement: { any: ['qa:use'] } },
-  { label: '检索测试', to: '/qa/retrieval-test', requirement: { any: ['qa:use'] } },
+  { label: '检索', to: '/qa/retrieval-test', requirement: { any: ['qa:use'] } },
   { label: '知识', to: '/knowledge/search', requirement: { any: ['knowledge:read'] } },
   {
     label: '报告',
@@ -184,13 +184,13 @@ export function AppLayout({ children }: PropsWithChildren) {
 
         <nav
           aria-label="主导航"
-          className="relative flex items-center gap-1 rounded-lg bg-muted/50 p-1 text-sm"
+          className="relative flex items-center gap-1 rounded-lg border border-border/80 bg-muted/60 p-1 text-sm shadow-inner"
         >
           {/* Sliding pill — only visible when on a main nav item, not /profile */}
           {visibleNavItems.some((item) => pathname.startsWith(item.to)) && (
             <div
               aria-hidden
-              className="absolute top-1 h-[calc(100%-8px)] rounded-md bg-background shadow-sm transition-all duration-300 ease-out"
+              className="absolute top-1 h-[calc(100%-8px)] rounded-md border border-border/80 bg-muted/80 shadow-inner transition-all duration-300 ease-out"
               style={{ left: sliderStyle.left, width: sliderStyle.width }}
             />
           )}

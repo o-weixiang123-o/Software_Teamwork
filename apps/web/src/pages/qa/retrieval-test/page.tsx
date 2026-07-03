@@ -16,6 +16,7 @@ import type {
   QARetrievalTestResult,
   QARetrievalTestRun,
 } from '@/features/qa-admin/qa-admin.types'
+import { cn } from '@/lib/utils'
 
 type RetrievalFormState = {
   question: string
@@ -218,7 +219,7 @@ function ResultsList({ results }: { results: QARetrievalTestResult[] }) {
   )
 }
 
-export function QARetrievalTestPage() {
+export function QARetrievalTestPage({ embedded = false }: { embedded?: boolean } = {}) {
   const [form, setForm] = useState<RetrievalFormState>(initialForm)
   const [latestRun, setLatestRun] = useState<QARetrievalTestRun | null>(null)
   const [latestRunId, setLatestRunId] = useState<string | null>(null)
@@ -253,7 +254,7 @@ export function QARetrievalTestPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className={cn('mx-auto max-w-6xl space-y-6', !embedded && 'p-6')}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="text-2xl font-semibold text-foreground">QA 检索测试</h3>

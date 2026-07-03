@@ -31,7 +31,7 @@
 | 文档处理状态和分块 | 公开读取入口和响应归一化。 | `knowledge` | 文档详情和分块的已生效 gateway 契约。Gateway 不得实现解析、分块、嵌入或索引访问。Knowledge 通过 RAGFlow runtime 完成解析、切块、embedding、索引和检索，但业务资源、状态、权限和公开响应仍归 knowledge。 |
 | 原始文档内容 | 路由并执行认证上下文约束。 | `knowledge` | Knowledge 拥有 `documents/{documentId}/content` 资源和业务可见性；当前底层 bytes 由 RAGFlow runtime/adapter 映射读取，不暴露 runtime object key、bucket 或内部 URL。 |
 | 前端知识查询 | 公开入口和响应归一化。 | `knowledge` | 已生效的 gateway 契约。查询执行建模为 `knowledge-queries`，不使用动作式 search 路径。标准用户默认具备 `knowledge:read`，可直接使用知识检索；检索和 rerank 业务规则留在 knowledge；模型 rerank 调用可经过 AI Gateway。 |
-| QA Agent 答案生成 | 公开入口、SSE 转发、认证上下文透传和响应归一化。 | `qa` | 已生效的 gateway 契约。QA 负责会话/消息/引用状态，运行 ReAct 循环，调用 AI Gateway 获取 OpenAI 兼容的 Function Calling 传输，并调用 MCP Client 使用已批准工具。QA 长期知识库检索权限由 QA 使用权限授权；Knowledge 管理面的 `knowledge:read` 不作为 QA 检索前置条件。公开工具调用字段仅为脱敏后的摘要。 |
+| QA Agent 答案生成 | 公开入口、SSE 转发、认证上下文透传和响应归一化。 | `qa` | 已生效的 gateway 契约。QA 负责会话/消息/引用状态，运行 ReAct 循环，调用 AI Gateway 获取 OpenAI 兼容的 Function Calling 传输，并调用 MCP Client 使用已批准工具。QA 项目级长期知识库检索由 QA 使用权限授权，只适用于查询执行；引用来源、文档详情、chunks 和 content 仍必须回到 Knowledge 做普通 `knowledge:read` 复核。公开工具调用字段仅为脱敏后的摘要。 |
 | QA 会话附件上传与解析 | 公开文件上传入口、owner 授权和响应归一化。 | `qa` | QA 拥有会话附件元数据、解析状态、临时 chunk 和 Agent 检索入口。会话临时附件不写入 knowledge 的长期知识库或索引；需要长期知识检索时调用 Knowledge 查询接口，默认检索项目全局知识库，非空 QA 默认知识库列表才收窄范围。访问控制与隐藏策略见 [QA 权限矩阵](../services/qa/docs/permission-matrix.md)。公开响应不暴露 `file_ref`、object key、bucket 或内部 URL。 |
 | 引用来源查询 | 公开入口和响应归一化。 | `qa` | 已保存引用快照的已生效 gateway 契约。来源知识分块和知识文档内容以 Knowledge 公开资源为权威；QA 必须携带引用里的 `knowledgeBaseId` 与 `documentId` 做普通用户级 Knowledge 读权限复核，不能用项目级检索 scope 绕过文档来源权限。报告文件、QA 附件等 file-backed 资源仍由各 owner service 通过 File Service 处理。 |
 | 报告模板管理 | 公开入口和认证上下文透传。 | `document` | Document 服务负责模板元数据、模板结构和模板文件引用。 |

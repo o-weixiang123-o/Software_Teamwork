@@ -152,7 +152,7 @@ describe('AppLayout accessibility smoke', () => {
     expect(logoutButton).toHaveFocus()
   })
 
-  it('does not expose the admin shell to standard users', () => {
+  it('exposes the admin shell to standard users with read-only knowledge access', () => {
     useAuthStore.setState({
       accessToken: 'opaque-test-token',
       error: null,
@@ -169,9 +169,9 @@ describe('AppLayout accessibility smoke', () => {
 
     const nav = screen.getByRole('navigation')
     expect(within(nav).getByRole('link', { name: '问答' })).toBeVisible()
-    expect(within(nav).getByRole('link', { name: '检索测试' })).toBeVisible()
+    expect(within(nav).getByRole('link', { name: '检索' })).toBeVisible()
     expect(within(nav).getByRole('link', { name: '知识' })).toBeVisible()
-    expect(within(nav).queryByRole('link', { name: '管理' })).not.toBeInTheDocument()
+    expect(within(nav).getByRole('link', { name: '管理' })).toBeVisible()
   })
 
   it('exposes the admin shell to users with admin report routes', () => {

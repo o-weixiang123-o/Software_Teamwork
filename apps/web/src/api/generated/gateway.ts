@@ -208,7 +208,10 @@ export interface paths {
         /** List knowledge bases */
         get: operations["listKnowledgeBases"];
         put?: never;
-        /** Create knowledge base */
+        /**
+         * Create knowledge base
+         * @description Create a knowledge base. Standard users with only `knowledge:read` cannot create knowledge bases.
+         */
         post: operations["createKnowledgeBase"];
         delete?: never;
         options?: never;
@@ -229,7 +232,10 @@ export interface paths {
         get: operations["getKnowledgeBase"];
         put?: never;
         post?: never;
-        /** Delete knowledge base */
+        /**
+         * Delete knowledge base
+         * @description Delete a knowledge base. Standard users with only `knowledge:read` cannot delete knowledge bases.
+         */
         delete: operations["deleteKnowledgeBase"];
         options?: never;
         head?: never;
@@ -254,7 +260,7 @@ export interface paths {
         put?: never;
         /**
          * Upload a document to a knowledge base
-         * @description Gateway exposes the knowledge-base document upload workflow. Knowledge service owns the document resource, knowledge-base association, metadata, ingestion state, chunks, embeddings, and retrieval lifecycle through its runtime adapter. Report templates, report materials, and generated report files are separate document-owned resources and must not be modeled through this path.
+         * @description Gateway exposes the knowledge-base document upload workflow. Knowledge service owns the document resource, knowledge-base association, metadata, ingestion state, chunks, embeddings, and retrieval lifecycle through its runtime adapter. Standard users with only `knowledge:read` cannot upload documents. Report templates, report materials, and generated report files are separate document-owned resources and must not be modeled through this path.
          */
         post: operations["uploadKnowledgeBaseDocument"];
         delete?: never;
@@ -266,7 +272,7 @@ export interface paths {
     "/api/v1/documents/{documentId}": {
         parameters: {
             query: {
-                /** @description Required knowledge base context for runtime-backed document operations. */
+                /** @description Required knowledge base context for runtime-backed document detail, chunk, and content operations; the adapter must not infer it by scanning all knowledge bases. */
                 knowledgeBaseId: components["parameters"]["DocumentKnowledgeBaseId"];
             };
             header?: never;
@@ -296,7 +302,7 @@ export interface paths {
     "/api/v1/documents/{documentId}/chunks": {
         parameters: {
             query: {
-                /** @description Required knowledge base context for runtime-backed document operations. */
+                /** @description Required knowledge base context for runtime-backed document detail, chunk, and content operations; the adapter must not infer it by scanning all knowledge bases. */
                 knowledgeBaseId: components["parameters"]["DocumentKnowledgeBaseId"];
             };
             header?: never;
@@ -346,7 +352,7 @@ export interface paths {
         put?: never;
         /**
          * Create knowledge query
-         * @description Run a resource-mode knowledge retrieval query. Query execution is modeled as creating a knowledge-query resource, not as an action-style search path. Standard users have `knowledge:read` by default and may use this retrieval endpoint directly. Empty or uncreated runtime indexes return 201 with an empty results array. Invalid dataset combinations, document filters, or metadata filters return validation_error. Missing or hidden knowledge bases return not_found. Runtime retrieval, model, or index infrastructure failures return dependency_error.
+         * @description Run a resource-mode knowledge retrieval query. Query execution is modeled as creating a knowledge-query resource, not as an action-style search path. Standard users have `knowledge:read` by default and may use this retrieval endpoint directly. Empty or uncreated runtime indexes return 201 with an empty results array. Invalid dataset combinations, document filters, or metadata filters return validation_error. Missing or hidden knowledge bases return not_found. Runtime retrieval, runtime authentication, model, or index infrastructure failures return dependency_error.
          */
         post: operations["createKnowledgeQuery"];
         delete?: never;
@@ -3332,7 +3338,7 @@ export interface components {
     parameters: {
         KnowledgeBaseId: string;
         DocumentId: string;
-        /** @description Required knowledge base context for runtime-backed document operations. */
+        /** @description Required knowledge base context for runtime-backed document detail, chunk, and content operations; the adapter must not infer it by scanning all knowledge bases. */
         DocumentKnowledgeBaseId: string;
         ReportId: string;
         ReportTemplateId: string;
@@ -3777,7 +3783,7 @@ export interface operations {
     getDocument: {
         parameters: {
             query: {
-                /** @description Required knowledge base context for runtime-backed document operations. */
+                /** @description Required knowledge base context for runtime-backed document detail, chunk, and content operations; the adapter must not infer it by scanning all knowledge bases. */
                 knowledgeBaseId: components["parameters"]["DocumentKnowledgeBaseId"];
             };
             header?: never;
@@ -3804,7 +3810,7 @@ export interface operations {
     deleteDocument: {
         parameters: {
             query: {
-                /** @description Required knowledge base context for runtime-backed document operations. */
+                /** @description Required knowledge base context for runtime-backed document detail, chunk, and content operations; the adapter must not infer it by scanning all knowledge bases. */
                 knowledgeBaseId: components["parameters"]["DocumentKnowledgeBaseId"];
             };
             header?: never;
@@ -3829,7 +3835,7 @@ export interface operations {
     updateDocument: {
         parameters: {
             query: {
-                /** @description Required knowledge base context for runtime-backed document operations. */
+                /** @description Required knowledge base context for runtime-backed document detail, chunk, and content operations; the adapter must not infer it by scanning all knowledge bases. */
                 knowledgeBaseId: components["parameters"]["DocumentKnowledgeBaseId"];
             };
             header?: never;
@@ -3860,7 +3866,7 @@ export interface operations {
     listDocumentChunks: {
         parameters: {
             query: {
-                /** @description Required knowledge base context for runtime-backed document operations. */
+                /** @description Required knowledge base context for runtime-backed document detail, chunk, and content operations; the adapter must not infer it by scanning all knowledge bases. */
                 knowledgeBaseId: components["parameters"]["DocumentKnowledgeBaseId"];
                 page?: number;
                 pageSize?: number;
@@ -3889,7 +3895,7 @@ export interface operations {
     getDocumentContent: {
         parameters: {
             query: {
-                /** @description Required knowledge base context for runtime-backed document operations. */
+                /** @description Required knowledge base context for runtime-backed document detail, chunk, and content operations; the adapter must not infer it by scanning all knowledge bases. */
                 knowledgeBaseId: components["parameters"]["DocumentKnowledgeBaseId"];
             };
             header?: never;

@@ -62,9 +62,18 @@ Swagger UI 约定：
 
 Knowledge 首期统一采用 opaque Bearer token，不为知识管理 API 单独设计独立会话鉴权通道。角色能力、权限字符串、知识库可见性、parser config 管理权限和首期 RBAC 边界统一维护在 [Knowledge 权限矩阵](permission-matrix.md)。
 
+当前权限预期：
+
+- `standard` 默认具备 `knowledge:read`，可查看有权限知识库、文档、chunks、content，并可直接创建 `knowledge-queries`。
+- 知识库创建/更新/删除、文档上传/更新/删除需要 `knowledge:write`、`knowledge:admin` 或 `system:admin`；Gateway 可先预拦截这些写入口，Knowledge 仍必须在服务边界复核。
+- QA 项目级 RAG 是 `POST /knowledge-queries` 的受信任检索例外，不代表用户获得知识库或文档写权限，也不绕过文档详情、chunks 或 content 的读权限复核。
+- Knowledge adapter 可通过 `KNOWLEDGE_PROJECT_RUNTIME_USER_ID` 使用项目级 runtime tenant 池；这只是 runtime 数据集上下文，不是权限提升。
+
 ### 2.4 通用响应结构
 
 除 `204 No Content` 和原始文件二进制流外，browser-facing JSON 成功、分页和错误响应使用 gateway envelope；格式和通用错误码见 [`docs/architecture/frontend-backend-contract.md`](../../../architecture/frontend-backend-contract.md)。Knowledge 文档只补充知识库、文档、切片、检索和依赖失败的业务场景。
+
+RAGFlow runtime 的认证失败、service token 错配或 runtime 内部租户上下文错误属于下游依赖或配置问题。经 Gateway/Knowledge 暴露给前端时应归一化为 `502 dependency_error`，不得把 runtime `401` 映射成用户登录态失效。
 
 ### 2.5 枚举
 
@@ -286,6 +295,11 @@ POST /api/v1/knowledge-bases
 GET /api/v1/knowledge-bases?page=1&pageSize=20
 ```
 
+规则：
+
+- 需要 `knowledge:read`。
+- `pageSize` 当前上限为 100；超过上限返回 `validation_error`。
+
 响应：
 
 ```json
@@ -319,6 +333,8 @@ GET /api/v1/knowledge-bases/{knowledgeBaseId}
 
 响应：`data` 为 `KnowledgeBase`
 
+规则：需要 `knowledge:read` 且知识库对当前用户可见。
+
 ### 4.4 更新知识库
 
 ```http
@@ -350,6 +366,7 @@ PATCH /api/v1/knowledge-bases/{knowledgeBaseId}
 
 状态影响：
 
+- 需要 `knowledge:write`、`knowledge:admin` 或 `system:admin`。
 - 分段策略变更后，所有 `ready` 文档需要进入后台重处理。
 - 检索策略变更不一定需要重建向量，但如果影响 embedding 模型或向量维度，则必须重建索引。
 
@@ -363,7 +380,7 @@ DELETE /api/v1/knowledge-bases/{knowledgeBaseId}
 
 规则：
 
-- 删除前必须校验权限。
+- 删除前必须校验 `knowledge:write`、`knowledge:admin` 或 `system:admin`。
 - 首期采用软删除；当前 adapter 将删除语义转给 RAGFlow runtime，runtime 内部对象、chunks 和索引生命周期不得泄露给 gateway。
 - 删除知识库时应处理 runtime dataset/document/index 生命周期；bucket、object key 和底层对象删除策略由 runtime 或对应 owner service 独占。
 
@@ -415,7 +432,7 @@ POST /api/v1/knowledge-base-deletion-jobs
 POST /api/v1/knowledge-bases/{knowledgeBaseId}/documents
 ```
 
-请求使用 `multipart/form-data`。Knowledge adapter 创建知识库文档资源，并通过 RAGFlow runtime 保存原始文件、触发解析和索引；当前路径不直接调用 File Service。
+请求使用 `multipart/form-data`。Knowledge adapter 创建知识库文档资源，并通过 RAGFlow runtime 保存原始文件、触发解析和索引；当前路径不直接调用 File Service。上传需要 `knowledge:write`、`knowledge:admin` 或 `system:admin`，普通 `knowledge:read` 用户不能上传。
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
@@ -444,6 +461,11 @@ POST /api/v1/knowledge-bases/{knowledgeBaseId}/documents
 GET /api/v1/knowledge-bases/{knowledgeBaseId}/documents?page=1&pageSize=20&status=ready&q=规程
 ```
 
+规则：
+
+- 需要 `knowledge:read` 且知识库对当前用户可见。
+- `pageSize` 当前上限为 100；超过上限返回 `validation_error`。
+
 响应：
 
 ```json
@@ -470,15 +492,17 @@ GET /api/v1/knowledge-bases/{knowledgeBaseId}/documents?page=1&pageSize=20&statu
 ### 5.3 获取文档详情
 
 ```http
-GET /api/v1/documents/{documentId}
+GET /api/v1/documents/{documentId}?knowledgeBaseId=kb_001
 ```
 
 响应：`data` 为 `KnowledgeDocument`
 
+规则：需要 `knowledge:read`；`knowledgeBaseId` 是必填查询参数，用于定位 runtime dataset，不允许由 adapter 扫描所有知识库推断。
+
 ### 5.4 更新文档标签
 
 ```http
-PATCH /api/v1/documents/{documentId}
+PATCH /api/v1/documents/{documentId}?knowledgeBaseId=kb_001
 ```
 
 请求：
@@ -491,10 +515,12 @@ PATCH /api/v1/documents/{documentId}
 
 响应：`data` 为 `KnowledgeDocument`
 
+规则：需要 `knowledge:write`、`knowledge:admin` 或 `system:admin`。
+
 ### 5.5 删除文档
 
 ```http
-DELETE /api/v1/documents/{documentId}
+DELETE /api/v1/documents/{documentId}?knowledgeBaseId=kb_001
 ```
 
 响应：`204 No Content`
@@ -502,6 +528,7 @@ DELETE /api/v1/documents/{documentId}
 规则：
 
 - 删除文档必须同步完成 Knowledge adapter 的软删除语义，并转交 runtime 处理内部文档、chunks 和索引生命周期。
+- 删除文档需要 `knowledge:write`、`knowledge:admin` 或 `system:admin`，且必须携带 `knowledgeBaseId`。
 - 如果历史问答引用了该文档，引用详情应返回“原文已删除或无权限访问”的 fallback。
 - 历史 delete cleanup worker、`file_ref` 和 Qdrant point 清理只适用于旧 Go worker 路径；当前实现不得把这些内部细节暴露给前端或作为 runtime 成功条件。
 - Runtime 内部对象或索引不存在、重复删除和权限隐藏都应按幂等/脱敏语义处理，不恢复文档可见性。
@@ -554,7 +581,7 @@ POST /api/v1/documents/{documentId}/processing-jobs
 ### 5.8 获取文档切片
 
 ```http
-GET /api/v1/documents/{documentId}/chunks?page=1&pageSize=50
+GET /api/v1/documents/{documentId}/chunks?knowledgeBaseId=kb_001&page=1&pageSize=50
 ```
 
 响应：
@@ -580,10 +607,15 @@ GET /api/v1/documents/{documentId}/chunks?page=1&pageSize=50
 }
 ```
 
+规则：
+
+- 需要 `knowledge:read`；`knowledgeBaseId` 是必填查询参数。
+- `pageSize` 当前上限为 100；超过上限返回 `validation_error`。
+
 ### 5.9 读取原文内容
 
 ```http
-GET /api/v1/documents/{documentId}/content
+GET /api/v1/documents/{documentId}/content?knowledgeBaseId=kb_001
 ```
 
 响应：原始文件二进制流。
@@ -591,6 +623,7 @@ GET /api/v1/documents/{documentId}/content
 规则：
 
 - 必须先校验文档访问权限。
+- `knowledgeBaseId` 是必填查询参数；QA citation 原文下载也必须保存并传递该字段。
 - 不得返回 `file_ref`、file 内部 ID、bucket、object key、MinIO URL、签名 URL 或内部存储 URL。
 - 审计日志首期暂缓，后续可接入独立审计服务。
 
@@ -756,7 +789,8 @@ POST /api/v1/knowledge-queries
 
 规则：
 
-- 必须过滤用户无权限访问的知识库和文档。
+- 普通调用需要 `knowledge:read`，必须过滤用户无权限访问的知识库和文档。
+- QA 受信任项目级检索只适用于创建 `knowledge-query` 资源；citation source lookup、chunk 原文和 document content 仍需按当前用户 `knowledge:read` 回到 Knowledge 复核。
 - browser-facing API 返回 `contentPreview`，不得返回原始向量、完整 runtime index payload、prompt、`file_ref`、bucket、object key、MinIO URL、签名 URL 或 provider 原始响应体。`qdrantCollection` 是兼容字段名，当前 adapter 可填入 runtime doc engine 标识。
 - `qa` 和 `document` 应通过该接口复用检索能力。
 - 检索建模为创建 `knowledge-query` 资源，不使用 `search` 动作路径。

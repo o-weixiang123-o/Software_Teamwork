@@ -45,7 +45,30 @@ import type { KnowledgeBaseSummary } from '@/lib/types'
 
 const PAGE_SIZE = 10
 
-const DOC_TYPE_OPTIONS = ['规程规范', '技术报告论文', '术语条目', '通用文档'] as const
+const DOC_TYPE_OPTIONS = [
+  { value: 'manual', label: '规程规范' },
+  { value: 'paper', label: '技术报告论文' },
+  { value: 'qa', label: '术语条目' },
+  { value: 'naive', label: '通用文档' },
+] as const
+
+type DocTypeValue = (typeof DOC_TYPE_OPTIONS)[number]['value']
+
+const DOC_TYPE_LABELS: Record<DocTypeValue, string> = DOC_TYPE_OPTIONS.reduce(
+  (labels, option) => ({ ...labels, [option.value]: option.label }),
+  {} as Record<DocTypeValue, string>,
+)
+
+const LEGACY_DOC_TYPE_VALUES: Record<string, DocTypeValue> = {
+  GENERAL: 'naive',
+  MANUAL: 'manual',
+  PAPER: 'paper',
+  QA: 'qa',
+  规程规范: 'manual',
+  技术报告论文: 'paper',
+  术语条目: 'qa',
+  通用文档: 'naive',
+}
 
 const RETRIEVAL_MODE_OPTIONS = [
   { value: 'semantic', label: '语义检索' },
@@ -55,6 +78,22 @@ const RETRIEVAL_MODE_OPTIONS = [
 const RETRIEVAL_MODE_LABELS: Record<string, string> = {
   semantic: '语义检索',
   vector_rerank: '向量重排序',
+}
+
+function normalizeDocType(value: string | null | undefined): DocTypeValue {
+  const trimmed = value?.trim()
+  if (!trimmed) return 'naive'
+  if (trimmed in DOC_TYPE_LABELS) return trimmed as DocTypeValue
+  return LEGACY_DOC_TYPE_VALUES[trimmed] ?? 'naive'
+}
+
+function formatDocType(value: string | null | undefined): string {
+  const trimmed = value?.trim()
+  if (!trimmed) return '-'
+  if (trimmed in DOC_TYPE_LABELS || trimmed in LEGACY_DOC_TYPE_VALUES) {
+    return DOC_TYPE_LABELS[normalizeDocType(trimmed)]
+  }
+  return trimmed
 }
 
 // ── Types ──
@@ -76,7 +115,7 @@ type NotificationState = {
 const EMPTY_FORM: FormData = {
   name: '',
   description: '',
-  docType: '通用文档',
+  docType: 'naive',
   retrievalMode: 'semantic',
 }
 
@@ -177,7 +216,7 @@ export function KnowledgeManagement() {
     setForm({
       name: kb.name,
       description: kb.description ?? '',
-      docType: kb.docType ?? '通用文档',
+      docType: normalizeDocType(kb.docType),
       retrievalMode: kb.retrievalStrategy?.mode ?? 'semantic',
     })
     setEditOpen(true)
@@ -348,8 +387,8 @@ export function KnowledgeManagement() {
               <SelectContent>
                 <SelectItem value="">全部类型</SelectItem>
                 {DOC_TYPE_OPTIONS.map((dt) => (
-                  <SelectItem key={dt} value={dt}>
-                    {dt}
+                  <SelectItem key={dt.value} value={dt.value}>
+                    {dt.label}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -425,7 +464,7 @@ export function KnowledgeManagement() {
                         </td>
                         <td className="px-4 py-2.5">
                           {kb.docType ? (
-                            <Badge variant="secondary">{kb.docType}</Badge>
+                            <Badge variant="secondary">{formatDocType(kb.docType)}</Badge>
                           ) : (
                             <span className="text-muted-foreground">-</span>
                           )}
@@ -570,8 +609,8 @@ export function KnowledgeManagement() {
                 </SelectTrigger>
                 <SelectContent>
                   {DOC_TYPE_OPTIONS.map((dt) => (
-                    <SelectItem key={dt} value={dt}>
-                      {dt}
+                    <SelectItem key={dt.value} value={dt.value}>
+                      {dt.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -675,8 +714,8 @@ export function KnowledgeManagement() {
                 </SelectTrigger>
                 <SelectContent>
                   {DOC_TYPE_OPTIONS.map((dt) => (
-                    <SelectItem key={dt} value={dt}>
-                      {dt}
+                    <SelectItem key={dt.value} value={dt.value}>
+                      {dt.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
