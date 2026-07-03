@@ -46,6 +46,15 @@ VALID_COMPOSE = textwrap.dedent(
         image: ${MINIO_IMAGE:-minio/minio:RELEASE.2025-09-07T16-13-09Z}
       minio-init:
         image: ${MINIO_MC_IMAGE:-minio/mc:RELEASE.2025-08-13T08-35-41Z}
+      elasticsearch:
+        profiles: ["knowledge-runtime"]
+        build:
+          context: .
+          dockerfile: Dockerfile.elasticsearch-local
+          args:
+            IMAGE_REGISTRY_PREFIX: ${IMAGE_REGISTRY_PREFIX:-}
+            ELASTICSEARCH_IMAGE: ${KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE:-docker.elastic.co/elasticsearch/elasticsearch:8.15.3}
+        image: ${KNOWLEDGE_RUNTIME_ELASTICSEARCH_LOCAL_IMAGE:-software-teamwork/knowledge-runtime-elasticsearch:8.15.3-local}
     """
 )
 
@@ -60,6 +69,14 @@ VALID_ENV = textwrap.dedent(
     # QDRANT_IMAGE=docker.m.daocloud.io/qdrant/qdrant:v1.18.2
     # MINIO_IMAGE=docker.m.daocloud.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     # MINIO_MC_IMAGE=docker.m.daocloud.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+    """
+)
+
+VALID_ELASTICSEARCH_DOCKERFILE = textwrap.dedent(
+    """
+    ARG IMAGE_REGISTRY_PREFIX=
+    ARG ELASTICSEARCH_IMAGE=docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+    FROM ${IMAGE_REGISTRY_PREFIX}${ELASTICSEARCH_IMAGE}
     """
 )
 
@@ -96,7 +113,7 @@ class DockerPolicyTests(unittest.TestCase):
 
         self.assertIssueContains(issues, "local Docker default must only define infrastructure services")
         self.assertIssueContains(issues, "business service `parser` must run on the host")
-        self.assertIssueContains(issues, "Compose must not use `build:`")
+        self.assertIssueContains(issues, "service `parser` must not use `build:`")
 
     def test_profile_services_are_reported(self) -> None:
         compose = VALID_COMPOSE.replace(
@@ -107,6 +124,16 @@ class DockerPolicyTests(unittest.TestCase):
         issues = self.verify(files={"deploy/docker-compose.yml": compose})
 
         self.assertIssueContains(issues, "profile service `gateway` is not allowed")
+
+    def test_elasticsearch_profile_build_is_allowed_only_with_expected_dockerfile(self) -> None:
+        compose = VALID_COMPOSE.replace(
+            "dockerfile: Dockerfile.elasticsearch-local",
+            "dockerfile: Dockerfile.other",
+        )
+
+        issues = self.verify(files={"deploy/docker-compose.yml": compose})
+
+        self.assertIssueContains(issues, "service `elasticsearch` build `dockerfile` must be `Dockerfile.elasticsearch-local`")
 
     def test_compose_image_defaults_must_stay_pinned_and_overridable(self) -> None:
         compose = VALID_COMPOSE.replace(
@@ -169,13 +196,14 @@ class DockerPolicyTests(unittest.TestCase):
         self.assertIssueContains(issues, "services/parser is retired")
 
     def test_env_example_regressions_are_reported(self) -> None:
-        env = VALID_ENV + "\nPOSTGRES_IMAGE=postgres:latest\n"
+        env = VALID_ENV + "\nPOSTGRES_IMAGE=postgres:latest\nHF_ENDPOINT=https://hf-mirror.com\n"
 
         issues = self.verify(files={"deploy/.env.example": env})
 
         self.assertIssueContains(issues, "POSTGRES_IMAGE")
         self.assertIssueContains(issues, "must not be active by default")
         self.assertIssueContains(issues, "must not use latest")
+        self.assertIssueContains(issues, "HF_ENDPOINT=https://hf-mirror.com")
 
     def test_business_docker_artifacts_are_reported(self) -> None:
         issues = self.verify(
@@ -201,6 +229,8 @@ class DockerPolicyTests(unittest.TestCase):
             all_files = dict(files)
             all_files.setdefault("deploy/docker-compose.yml", VALID_COMPOSE)
             all_files.setdefault("deploy/.env.example", VALID_ENV)
+            all_files.setdefault("deploy/Dockerfile.elasticsearch-local", VALID_ELASTICSEARCH_DOCKERFILE)
+            all_files.setdefault("deploy/.dockerignore", ".git\n")
             for relative, content in all_files.items():
                 path = root / relative
                 path.parent.mkdir(parents=True, exist_ok=True)

@@ -8,12 +8,11 @@ LOG_DIR="$ROOT_DIR/.local/logs"
 RUNTIME_DIR="$ROOT_DIR/services/knowledge-runtime"
 ADAPTER_DIR="$ROOT_DIR/services/knowledge"
 LOCAL_RUNTIME_DIR="$ROOT_DIR/.local/knowledge-runtime"
-LOCAL_ES_CONTAINER_FILE="$RUN_DIR/knowledge-runtime-elasticsearch.container"
 CURRENT_STEP="initializing"
 STARTED_SERVICES=()
-STARTED_CONTAINERS=()
 RUNTIME_MODE="host"
 RAGFLOW_CONF_EXPLICIT=0
+CHINA_MIRRORS=0
 
 on_exit() {
   status=$?
@@ -25,6 +24,42 @@ on_exit() {
   fi
 }
 trap on_exit EXIT
+
+usage() {
+  cat <<'EOF'
+Usage: ./scripts/local/run-knowledge-parse-stack.sh [--china]
+
+Starts the host-run Knowledge runtime API, runtime worker, and Knowledge adapter.
+Local Elasticsearch is managed by ./scripts/local/dev-up.sh through the root
+Compose knowledge-runtime profile when KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=true.
+
+Options:
+  --china   Use hf-mirror for HuggingFace model downloads in this run only when
+            HF_ENDPOINT is not already set.
+  -h, --help
+            Show this help.
+EOF
+}
+
+parse_args() {
+  while (($# > 0)); do
+    case "$1" in
+      --china)
+        CHINA_MIRRORS=1
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        echo "unknown argument: $1" >&2
+        usage >&2
+        exit 2
+        ;;
+    esac
+    shift
+  done
+}
 
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -93,34 +128,6 @@ normalize_http_url() {
 
 to_lower() {
   printf '%s\n' "$1" | tr '[:upper:]' '[:lower:]'
-}
-
-url_port() {
-  local url="$1"
-  local scheme rest host_port port
-  if [[ "$url" == *"://"* ]]; then
-    scheme="${url%%://*}"
-    rest="${url#*://}"
-  else
-    scheme="http"
-    rest="$url"
-  fi
-  host_port="${rest%%/*}"
-  if [[ "$host_port" == \[*\]* ]]; then
-    port="${host_port##*]:}"
-    [[ "$port" != "$host_port" ]] || port=""
-  elif [[ "$host_port" == *:* ]]; then
-    port="${host_port##*:}"
-  else
-    port=""
-  fi
-  if [[ -z "$port" ]]; then
-    case "$scheme" in
-      https) port="443" ;;
-      *) port="80" ;;
-    esac
-  fi
-  printf '%s\n' "$port"
 }
 
 print_required_env_hint() {
@@ -226,8 +233,10 @@ require_env() {
   export RAGFLOW_CONF="${RAGFLOW_CONF:-$RUNTIME_DIR/conf/service_conf.yaml}"
   export PYTHONPATH="."
   export LITELLM_LOCAL_MODEL_COST_MAP="${LITELLM_LOCAL_MODEL_COST_MAP:-True}"
-  # Local mainland default equivalent: HF_ENDPOINT=https://hf-mirror.com
-  export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
+  if (( CHINA_MIRRORS )) && [[ -z "${HF_ENDPOINT:-}" ]]; then
+    export HF_ENDPOINT="https://hf-mirror.com"
+    echo "using HF_ENDPOINT=https://hf-mirror.com for this run (--china); deploy/.env is not modified"
+  fi
 
   append_no_proxy "127.0.0.1"
   append_no_proxy "localhost"
@@ -236,20 +245,6 @@ require_env() {
   if [[ -n "${KNOWLEDGE_RUNTIME_ES_URL:-}" ]]; then
     append_no_proxy_for_url "$KNOWLEDGE_RUNTIME_ES_URL"
   fi
-}
-
-should_start_local_elasticsearch() {
-  [[ "$RUNTIME_MODE" == "host" ]] || return 1
-  [[ "$(to_lower "${DOC_ENGINE:-elasticsearch}")" == "elasticsearch" ]] || return 1
-  case "$(to_lower "${KNOWLEDGE_RUNTIME_START_ELASTICSEARCH:-auto}")" in
-    0|false|no|off|external)
-      return 1
-      ;;
-  esac
-  if [[ -n "${KNOWLEDGE_RUNTIME_ES_URL:-}" ]] && ! is_loopback_host "$(url_host "$KNOWLEDGE_RUNTIME_ES_URL")"; then
-    return 1
-  fi
-  return 0
 }
 
 prepare_runtime_config() {
@@ -288,53 +283,6 @@ prepare_runtime_config() {
   ' "$RUNTIME_DIR/conf/service_conf.yaml" >"$config_file"
   export RAGFLOW_CONF="$config_file"
   echo "knowledge-runtime config generated: $RAGFLOW_CONF"
-}
-
-container_running() {
-  local name="$1"
-  [[ "$(docker inspect -f '{{.State.Running}}' "$name" 2>/dev/null || true)" == "true" ]]
-}
-
-start_local_elasticsearch() {
-  should_start_local_elasticsearch || return 0
-  CURRENT_STEP="starting local Elasticsearch"
-
-  local es_url="$KNOWLEDGE_RUNTIME_ES_URL"
-  local es_port
-  local container_name="${KNOWLEDGE_RUNTIME_ELASTICSEARCH_CONTAINER:-software-teamwork-knowledge-elasticsearch}"
-  local volume_name="${KNOWLEDGE_RUNTIME_ELASTICSEARCH_VOLUME:-software-teamwork-knowledge-elasticsearch-data}"
-  local local_image="${KNOWLEDGE_RUNTIME_ELASTICSEARCH_LOCAL_IMAGE:-software-teamwork/knowledge-runtime-elasticsearch:8.15.3-local}"
-  local upstream_image="${KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE:-docker.elastic.co/elasticsearch/elasticsearch:8.15.3}"
-  local image_prefix="${KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE_REGISTRY_PREFIX:-${IMAGE_REGISTRY_PREFIX:-}}"
-  es_port="$(url_port "$es_url")"
-
-  if container_running "$container_name"; then
-    echo "local Elasticsearch already running: $container_name"
-    printf '%s\n' "$container_name" >"$LOCAL_ES_CONTAINER_FILE"
-    return 0
-  fi
-
-  echo "building local Elasticsearch image $local_image from deploy/Dockerfile.elasticsearch-local"
-  docker build \
-    -f "$ROOT_DIR/deploy/Dockerfile.elasticsearch-local" \
-    --build-arg "IMAGE_REGISTRY_PREFIX=$image_prefix" \
-    --build-arg "ELASTICSEARCH_IMAGE=$upstream_image" \
-    -t "$local_image" \
-    "$ROOT_DIR/deploy"
-
-  docker rm -f "$container_name" >/dev/null 2>&1 || true
-  docker volume create "$volume_name" >/dev/null
-  echo "starting local Elasticsearch container $container_name on $es_url"
-  docker run -d \
-    --name "$container_name" \
-    -p "$es_port:9200" \
-    -e "discovery.type=single-node" \
-    -e "xpack.security.enabled=false" \
-    -e "ES_JAVA_OPTS=${KNOWLEDGE_RUNTIME_ELASTICSEARCH_JAVA_OPTS:--Xms512m -Xmx512m}" \
-    -v "$volume_name:/usr/share/elasticsearch/data" \
-    "$local_image" >/dev/null
-  printf '%s\n' "$container_name" >"$LOCAL_ES_CONTAINER_FILE"
-  STARTED_CONTAINERS+=("$container_name")
 }
 
 ensure_runtime_venv() {
@@ -471,6 +419,10 @@ wait_for_http_ok() {
   done
 
   echo "$name did not become ready at $url" >&2
+  if [[ "$name" == "Elasticsearch" ]]; then
+    echo "For local Elasticsearch, set KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=true in deploy/.env and rerun ./scripts/local/dev-up.sh." >&2
+    echo "For external Elasticsearch, set KNOWLEDGE_RUNTIME_ES_URL to the reachable endpoint." >&2
+  fi
   if [[ -s "$response_file" ]]; then
     echo "last response:" >&2
     tail -n 20 "$response_file" >&2
@@ -491,6 +443,7 @@ knowledge_base_url() {
 }
 
 echo "knowledge parse stack startup: starting Knowledge parse stack"
+parse_args "$@"
 
 if [[ ! -f "$ENV_FILE" ]]; then
   echo "missing deploy/.env; run: cp deploy/.env.example deploy/.env" >&2
@@ -511,14 +464,10 @@ require_command go
 require_command curl
 if [[ "$RUNTIME_MODE" == "host" ]]; then
   require_command uv
-  if should_start_local_elasticsearch; then
-    require_command docker
-  fi
 fi
 mkdir -p "$RUN_DIR" "$LOG_DIR"
 
 if [[ "$RUNTIME_MODE" == "host" ]]; then
-  start_local_elasticsearch
   prepare_runtime_config
   if [[ "$(to_lower "${DOC_ENGINE:-elasticsearch}")" == "elasticsearch" && -n "${KNOWLEDGE_RUNTIME_ES_URL:-}" ]]; then
     wait_for_http_ok "Elasticsearch" "$KNOWLEDGE_RUNTIME_ES_URL/_cluster/health" "${KNOWLEDGE_RUNTIME_ELASTICSEARCH_READY_TIMEOUT_SECONDS:-120}"

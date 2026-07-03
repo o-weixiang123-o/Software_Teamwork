@@ -6,6 +6,7 @@ ENV_FILE="$ROOT_DIR/deploy/.env"
 COMPOSE_FILE="$ROOT_DIR/deploy/docker-compose.yml"
 CURRENT_STEP="initializing"
 INFRA_SERVICES=(postgres redis qdrant minio)
+PULL_SERVICES=(postgres redis qdrant minio minio-init)
 CHINA_MIRRORS=0
 SKIP_KNOWLEDGE_RUNTIME_DEPS=0
 
@@ -21,6 +22,7 @@ CHINA_REDIS_IMAGE="docker.m.daocloud.io/library/redis:7-alpine"
 CHINA_QDRANT_IMAGE="docker.m.daocloud.io/qdrant/qdrant:v1.18.2"
 CHINA_MINIO_IMAGE="docker.m.daocloud.io/minio/minio:RELEASE.2025-09-07T16-13-09Z"
 CHINA_MINIO_MC_IMAGE="docker.m.daocloud.io/minio/mc:RELEASE.2025-08-13T08-35-41Z"
+CHINA_IMAGE_REGISTRY_PREFIX="docker.m.daocloud.io/"
 
 COLOR_RESET=""
 COLOR_BLUE=""
@@ -55,6 +57,21 @@ log_error() {
 
 log_hint() {
   printf '%b%s %s%b\n' "$COLOR_CYAN" "[hint]" "$*" "$COLOR_RESET" >&2
+}
+
+to_lower() {
+  printf '%s\n' "$1" | tr '[:upper:]' '[:lower:]'
+}
+
+is_truthy() {
+  case "$(to_lower "${1:-}")" in
+    1|true|yes|on)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
 }
 
 usage() {
@@ -207,6 +224,7 @@ apply_china_mirrors() {
   export QDRANT_IMAGE="$CHINA_QDRANT_IMAGE"
   export MINIO_IMAGE="$CHINA_MINIO_IMAGE"
   export MINIO_MC_IMAGE="$CHINA_MINIO_MC_IMAGE"
+  export IMAGE_REGISTRY_PREFIX="${IMAGE_REGISTRY_PREFIX:-$CHINA_IMAGE_REGISTRY_PREFIX}"
   export UV_DEFAULT_INDEX="$CHINA_UV_DEFAULT_INDEX"
   export GOPROXY="$CHINA_GOPROXY"
   export GOSUMDB="$CHINA_GOSUMDB"
@@ -295,6 +313,11 @@ else
 fi
 
 compose=(docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE")
+if is_truthy "${KNOWLEDGE_RUNTIME_START_ELASTICSEARCH:-false}"; then
+  compose+=(--profile knowledge-runtime)
+  INFRA_SERVICES+=(elasticsearch)
+  log_info "enabling optional Elasticsearch Compose profile (KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=true)"
+fi
 
 initialize_qdrant_collection() {
   CURRENT_STEP="initializing Qdrant collection"
@@ -353,7 +376,7 @@ if (( CHINA_MIRRORS )); then
   run_step "preparing Knowledge runtime dependencies with China mirrors" prepare_knowledge_runtime_deps
 fi
 run_step "validating Docker Compose config" "${compose[@]}" config --quiet
-run_step "pulling infrastructure images" "${compose[@]}" pull
+run_step "pulling infrastructure images" "${compose[@]}" pull "${PULL_SERVICES[@]}"
 run_step "starting infrastructure and waiting for health" "${compose[@]}" up -d --wait --wait-timeout "${LOCAL_INFRA_WAIT_TIMEOUT_SECONDS:-180}" "${INFRA_SERVICES[@]}"
 run_minio_init
 

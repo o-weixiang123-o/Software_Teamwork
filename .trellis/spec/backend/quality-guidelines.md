@@ -244,12 +244,14 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
   - `./scripts/local/dev-up.sh`
   - `./scripts/local/run-backend.sh`
   - `cd apps/web && bun install && bun run dev`
-- Allowed Compose services:
+- Default Compose services:
   - `postgres`
   - `redis`
   - `qdrant`
   - `minio`
   - `minio-init`
+- Optional Compose profile services:
+  - `elasticsearch` under profile `knowledge-runtime`
 - Public browser/API entrypoint after host-run services start:
   - `http://localhost:8080` through gateway.
 - Operational routes:
@@ -259,7 +261,9 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
 ### 3. Contracts
 
 - The root local Compose path stays infrastructure-only. Business services and
-  the RAGFlow Knowledge runtime API/worker run on the host.
+  the RAGFlow Knowledge runtime API/worker run on the host. Local
+  Elasticsearch may exist only as the optional `knowledge-runtime` profile
+  service for Knowledge runtime doc-engine infrastructure, disabled by default.
 - Docs must provide host-run commands for Auth, File, Knowledge, AI Gateway,
   QA, Document, Gateway, and frontend.
 - Frontend and browser-facing documentation must route traffic through gateway;
@@ -285,6 +289,14 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
   Docker policy.
 - Runtime Python dependency changes belong under `services/knowledge-runtime`;
   the default local backend startup path must not depend on `services/parser`.
+- `run-knowledge-parse-stack.sh` must not run direct `docker build` or
+  `docker run` for Elasticsearch. Local Elasticsearch lifecycle belongs to the
+  root Compose `knowledge-runtime` profile started by `dev-up.sh` when
+  `KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=true`.
+- `HF_ENDPOINT=https://hf-mirror.com` must not be active in committed defaults
+  or forced by runtime scripts in official-default mode. Mainland China runtime
+  model download mirrors are explicit through
+  `run-knowledge-parse-stack.sh --china` or local untracked env overrides.
 - Host-run Go module downloads should use `GOPROXY` and `GOSUMDB` from
   `deploy/.env.example`, with official upstream values as the committed
   default. Mainland China mirror usage must be explicit through
@@ -366,11 +378,11 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
 | Condition | Required handling |
 | --- | --- |
 | Compose YAML or env interpolation is invalid | `docker compose ... config --quiet` must fail before merge. |
-| Default Compose service list includes business services or profile services | Remove the service or update policy only if the team explicitly changes the Docker boundary. |
+| Default Compose service list includes business services or profile services | Remove the service or update policy only if the team explicitly changes the Docker boundary. Optional `elasticsearch` is allowed only under profile `knowledge-runtime`. |
 | Host migrations or seed run before PostgreSQL/init scripts are ready | Add or restore an infra health wait in `scripts/local/dev-up.sh`; do not rely on plain `docker compose up -d`. Run one-shot init jobs separately from `up --wait` and fail visibly if they exit non-zero. |
 | `QDRANT_URL` is set for a legacy/test-only path but the requested collection is not created | Add or restore guarded Qdrant collection initialization in `scripts/local/dev-up.sh`; do not document it as the default Knowledge ingestion path. |
 | Knowledge runtime/doc-engine env is configured but required runtime provisioning is missing | Fix the runtime dependency guard, startup docs, or smoke setup; do not restore the old Go adapter Qdrant bootstrap as the default Knowledge path. |
-| Compose contains `build:` | Remove it; repository Docker must stay pull-only infra. |
+| Compose contains `build:` | Remove it unless it is the explicit root Compose `elasticsearch` profile service using `deploy/Dockerfile.elasticsearch-local`; repository Docker must otherwise stay pull-only infra. |
 | Docker policy checker fails | Fix the Compose/docs/script regression or update `scripts/check_docker_policy.py` and the runbook in the same PR when the policy intentionally changes. |
 | Retired parser paths or env keys reappear in startup scripts | Remove the parser dependency and route document parsing through `services/knowledge-runtime`. |
 | Local startup script exits without a success or failure summary | Add or restore explicit command-line status output in the script and local seed contract checker. |
@@ -389,9 +401,10 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
 
 ### 5. Good/Base/Bad Cases
 
-- Good: `deploy/README.md` documents infra pulls, host-run migrations, host-run
-  services, seed data, request-id troubleshooting, and common dependency
-  failures; Compose config parses and lists only the five infra services.
+- Good: `deploy/README.md` documents infra pulls, optional Compose
+  Elasticsearch profile startup, host-run migrations, host-run services, seed
+  data, request-id troubleshooting, and common dependency failures; default
+  Compose config parses and lists only the five infra services.
 - Base: Docker runtime smoke tests are skipped when images are missing, but the
   exact image pull commands and skipped validation are reported.
 - Bad: documentation tells new contributors to run business services through
@@ -401,8 +414,9 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
 ### 6. Tests Required
 
 - Run Compose config parsing for the infra baseline.
-- Run `docker compose ... config --services` and confirm only the five infra
-  services are present.
+- Run `docker compose ... config --services` and confirm only the five default
+  infra services are present. Run the profile config path when Elasticsearch
+  wiring changes and confirm only optional `elasticsearch` is added.
 - Run `bash -n scripts/local/dev-up.sh scripts/local/run-backend.sh scripts/local/stop-backend.sh`
   when local startup scripts change.
 - Run `python3 scripts/check_docker_policy.py` and the policy/environment unit
@@ -431,7 +445,7 @@ frontend -> http://localhost:8083/internal/v1/knowledge-bases
 deploy/.env.example -> real provider API key
 document worker -> file /internal/v1/files without X-Service-Token
 seed SQL -> inserts model_profiles before ai-gateway migrations
-root Compose -> business service or build entry
+root Compose -> business service or unapproved build entry
 ```
 
 #### Correct
@@ -441,7 +455,8 @@ frontend -> gateway http://localhost:8080/api/v1/knowledge-bases
 deploy/.env.example -> local placeholder secrets only
 document worker -> file /internal/v1/files with DOCUMENT_FILE_SERVICE_TOKEN
 seed SQL -> idempotent local/demo data after host-run service migrations
-root Compose -> postgres, redis, qdrant, minio, minio-init only
+root Compose default -> postgres, redis, qdrant, minio, minio-init only
+root Compose opt-in -> elasticsearch only under profile knowledge-runtime
 ```
 
 ---

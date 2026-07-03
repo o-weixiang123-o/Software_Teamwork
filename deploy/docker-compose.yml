@@ -74,7 +74,31 @@ services:
         mc mb --ignore-existing local/software-teamwork-knowledge
     restart: "no"
 
+  elasticsearch:
+    profiles: ["knowledge-runtime"]
+    build:
+      context: .
+      dockerfile: Dockerfile.elasticsearch-local
+      args:
+        IMAGE_REGISTRY_PREFIX: ${IMAGE_REGISTRY_PREFIX:-}
+        ELASTICSEARCH_IMAGE: ${KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE:-docker.elastic.co/elasticsearch/elasticsearch:8.15.3}
+    image: ${KNOWLEDGE_RUNTIME_ELASTICSEARCH_LOCAL_IMAGE:-software-teamwork/knowledge-runtime-elasticsearch:8.15.3-local}
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: ${KNOWLEDGE_RUNTIME_ELASTICSEARCH_JAVA_OPTS:--Xms512m -Xmx512m}
+    ports:
+      - "${KNOWLEDGE_RUNTIME_ELASTICSEARCH_PORT:-9200}:9200"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+
 volumes:
   postgres_data:
   qdrant_data:
   minio_data:
+  elasticsearch_data:

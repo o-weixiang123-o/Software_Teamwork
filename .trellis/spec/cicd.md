@@ -24,7 +24,9 @@ deploy/docker-compose.yml
 ```
 
 Current Docker target: local infrastructure Compose only. Business services and
-the RAGFlow Knowledge runtime API/worker run on the host.
+the RAGFlow Knowledge runtime API/worker run on the host. Local Elasticsearch is
+the only optional Compose profile service, used as Knowledge runtime
+infrastructure when explicitly enabled from local env.
 
 ---
 
@@ -835,8 +837,8 @@ jobs:
 
 ## Docker Infra Compose
 
-Repository Docker usage is infrastructure-only. The root Compose file may pull
-and start only:
+Repository Docker usage is infrastructure-only. The root Compose default path
+may pull and start only:
 
 ```text
 postgres
@@ -850,7 +852,13 @@ Rules:
 
 - Do not add business services, migration jobs, seed jobs, frontend, Parser, or
   service runtime containers to the root Compose baseline.
-- Do not add `build:` entries to `deploy/docker-compose.yml`.
+- The only allowed root Compose profile service is `elasticsearch` under profile
+  `knowledge-runtime`, used for local Knowledge runtime doc-engine
+  infrastructure when `KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=true`.
+- The only allowed `build:` entry in `deploy/docker-compose.yml` is that
+  optional `elasticsearch` profile service, using
+  `deploy/Dockerfile.elasticsearch-local` with pinned upstream image defaults.
+  All other Compose `build:` entries remain forbidden.
 - Compose infrastructure images must keep pinned defaults and may expose
   full-image override variables for local or enterprise registries. Do not use
   `latest` as a default or documented normal path.
@@ -884,7 +892,9 @@ Rules:
 ## Local Integration Runtime
 
 Local integration uses `deploy/docker-compose.yml` only for shared
-infrastructure. Business services run on the host.
+infrastructure. Business services run on the host. Optional local Elasticsearch
+is Compose-managed infrastructure, not a business service container, and must be
+disabled by default.
 
 Required local sequence:
 
@@ -894,7 +904,10 @@ Required local sequence:
    legacy/test-only Qdrant collection initialization, host migrations, and
    local seed. Current Knowledge indexing is prepared by the host-run Knowledge
    runtime/doc engine, not by restoring Go-side Qdrant bootstrap as a required
-   default.
+   default. If local `deploy/.env` sets
+   `KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=true`, this step also enables the
+   Compose `knowledge-runtime` profile and starts the optional `elasticsearch`
+   infrastructure service.
 3. Start or keep available the host-run Knowledge runtime API/worker when
    running Knowledge ingestion/retrieval scenarios.
 4. Run `./scripts/local/run-backend.sh` to start Auth, File, Knowledge,
@@ -923,6 +936,14 @@ Runtime rules:
   only; Docker registry rewrite remains the Compose image path.
 - Treat `services/knowledge-runtime/**` and its host-run API/worker scripts as
   the local runtime contract for Knowledge parsing and retrieval changes.
+- `run-knowledge-parse-stack.sh` must not run direct `docker build` or
+  `docker run` for Elasticsearch. It verifies the configured
+  `KNOWLEDGE_RUNTIME_ES_URL` and starts host-run runtime processes; local
+  Elasticsearch lifecycle belongs to the root Compose profile in `dev-up.sh`.
+- `HF_ENDPOINT=https://hf-mirror.com` must not be active in committed defaults
+  or forced by runtime scripts in official-default mode. Mainland China runtime
+  model download mirrors are explicit through
+  `run-knowledge-parse-stack.sh --china` or local untracked env overrides.
 - Keep `GOPROXY` and `GOSUMDB` in `deploy/.env.example` as the default host-run
   Go module proxy/checksum settings, using official upstream values by default.
   Mainland China mirror usage must be explicit through `dev-up.sh --china`,

@@ -27,6 +27,15 @@ EXPECTED_IMAGE_DEFAULTS = {
 }
 LOCAL_COMPOSE_FILE = Path("deploy/docker-compose.yml")
 ALLOWED_DEFAULT_COMPOSE_SERVICES = ("postgres", "redis", "qdrant", "minio", "minio-init")
+ALLOWED_PROFILE_COMPOSE_SERVICES = {
+    "elasticsearch": ("knowledge-runtime",),
+}
+ALLOWED_ROOT_COMPOSE_BUILD_SERVICES = {
+    "elasticsearch": {
+        "context": ".",
+        "dockerfile": "Dockerfile.elasticsearch-local",
+    },
+}
 DISALLOWED_DEFAULT_COMPOSE_SERVICES = (
     "migrate-auth",
     "migrate-file",
@@ -275,7 +284,9 @@ def validate_compose_file(root: Path, compose_file: Path) -> list[str]:
     if "GOSUMDB=off" in content or re.search(r"GOSUMDB\s*:\s*(?:\$\{[^}]*:-)?off\b", content):
         issues.append(f"{rel}: must not disable Go checksum verification with GOSUMDB=off")
 
-    if "build:" in content:
+    if "build:" in content and rel == LOCAL_COMPOSE_FILE.as_posix():
+        issues.extend(validate_local_compose_builds(rel, content))
+    elif "build:" in content:
         issues.append(f"{rel}: Compose must not use `build:`; local Docker is pull-only infrastructure")
     if "GOPROXY:" in content and GO_PROXY_COMPOSE not in content:
         issues.append(f"{rel}: Go build args must default to `{GO_PROXY_COMPOSE}`")
@@ -338,7 +349,13 @@ def validate_local_compose(rel: str, content: str) -> list[str]:
     for service, profiles in services.items():
         if service in default_service_set:
             continue
-        if profiles:
+        expected_profiles = ALLOWED_PROFILE_COMPOSE_SERVICES.get(service)
+        if expected_profiles is not None:
+            if tuple(profiles) != expected_profiles:
+                issues.append(
+                    f"{rel}: profile service `{service}` must use profile `{', '.join(expected_profiles)}`"
+                )
+        elif profiles:
             issues.append(f"{rel}: profile service `{service}` is not allowed by local Docker policy")
         else:
             issues.append(f"{rel}: unexpected local Docker service `{service}`")
@@ -346,34 +363,94 @@ def validate_local_compose(rel: str, content: str) -> list[str]:
     return issues
 
 
+def validate_local_compose_builds(rel: str, content: str) -> list[str]:
+    issues: list[str] = []
+    builds = extract_compose_builds(content)
+    for service, attrs in builds.items():
+        expected = ALLOWED_ROOT_COMPOSE_BUILD_SERVICES.get(service)
+        if expected is None:
+            issues.append(
+                f"{rel}: service `{service}` must not use `build:`; only optional `elasticsearch` profile may build"
+            )
+            continue
+        for key, expected_value in expected.items():
+            actual = attrs.get(key, "")
+            if actual != expected_value:
+                issues.append(
+                    f"{rel}: service `{service}` build `{key}` must be `{expected_value}`, found `{actual or '(missing)'}`"
+                )
+    return issues
+
+
 def extract_compose_services(content: str) -> dict[str, tuple[str, ...]]:
     services: dict[str, tuple[str, ...]] = {}
-    lines = content.splitlines()
+    for service, block in extract_compose_service_blocks(content).items():
+        services[service] = extract_profiles_from_block(block)
+    return services
+
+
+def extract_compose_service_blocks(content: str) -> dict[str, list[tuple[int, str]]]:
+    services: dict[str, list[tuple[int, str]]] = {}
     in_services = False
     current_service: str | None = None
-    current_indent: int | None = None
-    for line in lines:
+    for line_no, line in enumerate(content.splitlines(), start=1):
         if re.match(r"^services:\s*$", line):
             in_services = True
             current_service = None
-            current_indent = None
             continue
         if in_services and re.match(r"^[A-Za-z0-9_.-]+:\s*$", line):
             break
         if not in_services:
             continue
-        service_match = re.match(r"^(  )([A-Za-z0-9_.-]+):\s*$", line)
+        service_match = re.match(r"^  ([A-Za-z0-9_.-]+):\s*$", line)
         if service_match:
-            current_service = service_match.group(2)
-            current_indent = len(service_match.group(1))
-            services[current_service] = ()
+            current_service = service_match.group(1)
+            services[current_service] = []
             continue
-        if current_service is None or current_indent is None:
-            continue
-        profile_match = re.match(rf"^ {{{current_indent + 2}}}profiles:\s*(.+?)\s*$", line)
-        if profile_match:
-            services[current_service] = parse_profiles(profile_match.group(1))
+        if current_service is not None:
+            services[current_service].append((line_no, line))
     return services
+
+
+def extract_profiles_from_block(block: list[tuple[int, str]]) -> tuple[str, ...]:
+    for index, (_line_no, line) in enumerate(block):
+        profile_match = re.match(r"^    profiles:\s*(.*?)\s*$", line)
+        if not profile_match:
+            continue
+        inline_profiles = profile_match.group(1)
+        if inline_profiles:
+            return parse_profiles(inline_profiles)
+        profiles: list[str] = []
+        for _child_line_no, child in block[index + 1 :]:
+            if re.match(r"^    [A-Za-z0-9_.-]+:", child):
+                break
+            list_match = re.match(r"^      -\s*(.+?)\s*$", child)
+            if list_match:
+                profiles.append(list_match.group(1).strip().strip("'\""))
+        return tuple(profiles)
+    return ()
+
+
+def extract_compose_builds(content: str) -> dict[str, dict[str, str]]:
+    builds: dict[str, dict[str, str]] = {}
+    for service, block in extract_compose_service_blocks(content).items():
+        for index, (_line_no, line) in enumerate(block):
+            build_match = re.match(r"^    build:\s*(.*?)\s*$", line)
+            if not build_match:
+                continue
+            attrs: dict[str, str] = {}
+            inline_value = build_match.group(1).strip().strip("'\"")
+            if inline_value:
+                attrs["context"] = inline_value
+            for _child_line_no, child in block[index + 1 :]:
+                if re.match(r"^    [A-Za-z0-9_.-]+:", child):
+                    break
+                attr_match = re.match(r"^      ([A-Za-z0-9_.-]+):\s*(.+?)\s*$", child)
+                if attr_match:
+                    attrs[attr_match.group(1)] = attr_match.group(2).strip().strip("'\"")
+            builds[service] = attrs
+            break
+    return builds
 
 
 def parse_profiles(raw: str) -> tuple[str, ...]:
@@ -406,6 +483,10 @@ def validate_env_example(root: Path) -> list[str]:
     for key, value in values.items():
         if key.endswith("_IMAGE") and uses_latest_tag(value):
             issues.append(f"deploy/.env.example: `{key}` must not use latest")
+    if values.get("HF_ENDPOINT") == "https://hf-mirror.com":
+        issues.append(
+            "deploy/.env.example: `HF_ENDPOINT=https://hf-mirror.com` must not be active by default; use run-knowledge-parse-stack.sh --china or local deploy/.env overrides"
+        )
     if values.get("GO_DOCKER_GOSUMDB") == "off":
         issues.append("deploy/.env.example: must not disable Go checksum verification")
 
