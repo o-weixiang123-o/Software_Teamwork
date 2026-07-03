@@ -212,7 +212,7 @@ class ChunkService:
                     docs.append(d)
                     return
 
-                await image2id(d, partial(settings.STORAGE_IMPL.put, tenant_id=ctx.tenant_id), d["id"], ctx.kb_id)
+                await image2id(d, partial(settings.STORAGE_IMPL.put, scope_id=ctx.scope_id), d["id"], ctx.kb_id)
                 docs.append(d)
             except Exception:
                 logging.exception(
@@ -247,7 +247,7 @@ class ChunkService:
     async def insert_chunks(
         self,
         task_id: str,
-        task_tenant_id: str,
+        task_scope_id: str,
         task_dataset_id: str,
         chunks: List[Dict[str, Any]],
         doc_bulk_size: int = None,
@@ -256,7 +256,7 @@ class ChunkService:
 
         Args:
             task_id: Task identifier.
-            task_tenant_id: Tenant ID.
+            task_scope_id: runtime scope ID.
             task_dataset_id: Dataset/knowledge base ID.
             chunks: List of chunk dictionaries to insert.
             doc_bulk_size: Batch size for document store inserts.
@@ -270,11 +270,11 @@ class ChunkService:
         mothers = self._create_mother_chunks(chunks)
 
         # Insert mother chunks
-        if not await self._insert_mother_chunks(task_id, task_tenant_id, task_dataset_id, mothers, doc_bulk_size):
+        if not await self._insert_mother_chunks(task_id, task_scope_id, task_dataset_id, mothers, doc_bulk_size):
             return False
 
         # Insert main chunks
-        return await self._insert_main_chunks(task_id, task_tenant_id, task_dataset_id, chunks, doc_bulk_size)
+        return await self._insert_main_chunks(task_id, task_scope_id, task_dataset_id, chunks, doc_bulk_size)
 
     @classmethod
     def _create_mother_chunks(cls, chunks: List[Dict]) -> List[Dict]:
@@ -319,7 +319,7 @@ class ChunkService:
     async def _insert_mother_chunks(
         self,
         task_id: str,
-        task_tenant_id: str,
+        task_scope_id: str,
         task_dataset_id: str,
         mothers: List[Dict],
         doc_bulk_size: int,
@@ -328,7 +328,7 @@ class ChunkService:
         for b in range(0, len(mothers), doc_bulk_size):
             await self._intercept_doc_store_insert(
                 mothers[b:b + doc_bulk_size],
-                search.index_name(task_tenant_id),
+                search.index_name(task_scope_id),
                 task_dataset_id
             )
 
@@ -355,7 +355,7 @@ class ChunkService:
     async def _insert_main_chunks(
         self,
         task_id: str,
-        task_tenant_id: str,
+        task_scope_id: str,
         task_dataset_id: str,
         chunks: List[Dict],
         doc_bulk_size: int,
@@ -364,14 +364,14 @@ class ChunkService:
         for b in range(0, len(chunks), doc_bulk_size):
             doc_store_result = await self._intercept_doc_store_insert(
                 chunks[b:b + doc_bulk_size],
-                search.index_name(task_tenant_id),
+                search.index_name(task_scope_id),
                 task_dataset_id
             )
 
             if self._task_context.has_canceled_func(task_id):
                 # Roll back partial RAPTOR summary inserts
                 await self._rollback_raptor_chunks(
-                    task_id, task_tenant_id, task_dataset_id, chunks, b, doc_bulk_size
+                    task_id, task_scope_id, task_dataset_id, chunks, b, doc_bulk_size
                 )
                 self._task_context.progress_cb(-1, msg="Task has been canceled.")
                 return False
@@ -391,7 +391,7 @@ class ChunkService:
             chunk_ids = [chunk["id"] for chunk in chunks[:b + doc_bulk_size]]
             if not await self._update_task_chunk_ids(task_id, chunk_ids):
                 # Roll back on failure
-                await self._rollback_insertion(task_tenant_id, task_dataset_id, chunk_ids)
+                await self._rollback_insertion(task_scope_id, task_dataset_id, chunk_ids)
                 self._task_context.progress_cb(
                     -1,
                     msg=f"Chunk updates failed since task {task_id} is unknown."
@@ -403,7 +403,7 @@ class ChunkService:
     async def _rollback_raptor_chunks(
         self,
         task_id: str,
-        task_tenant_id: str,
+        task_scope_id: str,
         task_dataset_id: str,
         chunks: List[Dict],
         up_to_batch: int,
@@ -418,7 +418,7 @@ class ChunkService:
         if raptor_ids:
             try:
                 await self._intercept_doc_store_delete(
-                    {"id": raptor_ids}, search.index_name(task_tenant_id), task_dataset_id
+                    {"id": raptor_ids}, search.index_name(task_scope_id), task_dataset_id
                 )
                 logging.info(
                     "insert_chunks: rolled back %d partial RAPTOR chunks after cancellation (task=%s)",
@@ -449,13 +449,13 @@ class ChunkService:
 
     async def _rollback_insertion(
         self,
-        task_tenant_id: str,
+        task_scope_id: str,
         task_dataset_id: str,
         chunk_ids: List[str],
     ):
         """Roll back an insertion by deleting chunks and images."""
         await self._intercept_doc_store_delete(
-            {"id": chunk_ids}, search.index_name(task_tenant_id), task_dataset_id
+            {"id": chunk_ids}, search.index_name(task_scope_id), task_dataset_id
         )
 
         # Delete associated images

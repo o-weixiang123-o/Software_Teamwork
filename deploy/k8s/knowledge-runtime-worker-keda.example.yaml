@@ -3,7 +3,7 @@
 # Purpose:
 # - keep the Knowledge adapter query-ready without a parser worker;
 # - let uploads call /documents/parse and enqueue Redis Stream tasks;
-# - let KEDA scale the RAGFlow runtime worker Deployment from 0 when queue lag
+# - let KEDA scale the Knowledge runtime worker Deployment from 0 when queue lag
 #   appears.
 #
 # Before applying:

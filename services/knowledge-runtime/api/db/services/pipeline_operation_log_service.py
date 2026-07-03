@@ -39,7 +39,7 @@ class PipelineOperationLogService(CommonService):
         return [
             cls.model.id,
             cls.model.document_id,
-            cls.model.tenant_id,
+            cls.model.scope_id,
             cls.model.kb_id,
             cls.model.pipeline_id,
             cls.model.pipeline_title,
@@ -67,7 +67,7 @@ class PipelineOperationLogService(CommonService):
     def get_dataset_logs_fields(cls):
         return [
             cls.model.id,
-            cls.model.tenant_id,
+            cls.model.scope_id,
             cls.model.kb_id,
             cls.model.progress,
             cls.model.progress_msg,
@@ -123,7 +123,7 @@ class PipelineOperationLogService(CommonService):
         ok, kb_info = KnowledgebaseService.get_by_id(document.kb_id)
         if not ok:
             raise RuntimeError(f"Cannot find dataset {document.kb_id} for referred_document {referred_document_id}")
-        tenant_id = kb_info.tenant_id
+        scope_id = kb_info.scope_id
 
         if task_type not in VALID_PIPELINE_TASK_TYPES:
             raise ValueError(f"Invalid task type: {task_type}")
@@ -161,7 +161,7 @@ class PipelineOperationLogService(CommonService):
         log = dict(
             id=get_uuid(),
             document_id=document_id,  # GRAPH_RAPTOR_FAKE_DOC_ID or real document_id
-            tenant_id=tenant_id,
+            scope_id=scope_id,
             kb_id=document.kb_id,
             pipeline_id=pipeline_id,
             pipeline_title=title,

@@ -351,7 +351,7 @@ class OpenDataLoaderParser(RAGFlowPdfParser):
             )
 
         # Render page images locally — used by _make_line_tag() and crop().
-        # The image rendering stays on the RAGFlow host; only the Java conversion
+        # The image rendering stays on the runtime host; only the Java conversion
         # runs inside the opendataloader service container.
         try:
             if binary is not None:

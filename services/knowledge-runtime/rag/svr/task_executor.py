@@ -78,8 +78,8 @@ from api.db.services.doc_metadata_service import DocMetadataService
 from api.db.services.llm_service import LLMBundle
 from api.db.services.task_service import TaskService, has_canceled, DATASET_SCOPE_TASK_DOC_ID, is_dataset_scope_task_doc_id
 from api.db.services.file2document_service import File2DocumentService
-from api.db.joint_services.tenant_model_service import get_tenant_default_model_by_type, get_model_config_from_provider_instance
-from common.versions import get_ragflow_version
+from api.db.joint_services.runtime_model_service import get_runtime_default_model_by_type, get_model_config_from_provider_instance
+from common.versions import get_runtime_version
 from api.db.db_models import close_connection
 from rag.app import laws, paper, presentation, manual, qa, table, book, resume, picture, naive, one, audio, email, tag
 from rag.nlp import search, rag_tokenizer, add_positions
@@ -320,7 +320,7 @@ async def build_chunks(task, progress_callback):
                 callback=progress_callback,
                 kb_id=task["kb_id"],
                 parser_config=parser_config_for_chunk,
-                tenant_id=task["tenant_id"],
+                scope_id=task["scope_id"],
             )
         logging.info("Chunking({}) {}/{} done".format(timer() - st, task["location"], task["name"]))
     except TaskCanceledException:
@@ -370,7 +370,7 @@ async def build_chunks(task, progress_callback):
                 d["img_id"] = ""
                 docs.append(d)
                 return
-            await image2id(d, partial(settings.STORAGE_IMPL.put, tenant_id=task["tenant_id"]), d["id"], task["kb_id"])
+            await image2id(d, partial(settings.STORAGE_IMPL.put, scope_id=task["scope_id"]), d["id"], task["kb_id"])
             docs.append(d)
         except Exception:
             logging.exception("Saving image of chunk {}/{}/{} got exception".format(task["location"], task["name"], d["id"]))
@@ -397,8 +397,8 @@ async def build_chunks(task, progress_callback):
     if task["parser_config"].get("auto_keywords", 0):
         st = timer()
         progress_callback(msg="Start to generate keywords for every chunk ...")
-        chat_model_config = get_model_config_from_provider_instance(task["tenant_id"], LLMType.CHAT, task["llm_id"])
-        chat_mdl = LLMBundle(task["tenant_id"], chat_model_config, lang=task["language"])
+        chat_model_config = get_model_config_from_provider_instance(task["scope_id"], LLMType.CHAT, task["llm_id"])
+        chat_mdl = LLMBundle(task["scope_id"], chat_model_config, lang=task["language"])
 
         async def doc_keyword_extraction(chat_mdl, d, topn):
             cached = get_llm_cache(chat_mdl.llm_name, d["content_with_weight"], "keywords", {"topn": topn})
@@ -434,8 +434,8 @@ async def build_chunks(task, progress_callback):
     if task["parser_config"].get("auto_questions", 0):
         st = timer()
         progress_callback(msg="Start to generate questions for every chunk ...")
-        chat_model_config = get_model_config_from_provider_instance(task["tenant_id"], LLMType.CHAT, task["llm_id"])
-        chat_mdl = LLMBundle(task["tenant_id"], chat_model_config, lang=task["language"])
+        chat_model_config = get_model_config_from_provider_instance(task["scope_id"], LLMType.CHAT, task["llm_id"])
+        chat_mdl = LLMBundle(task["scope_id"], chat_model_config, lang=task["language"])
 
         async def doc_question_proposal(chat_mdl, d, topn):
             cached = get_llm_cache(chat_mdl.llm_name, d["content_with_weight"], "question", {"topn": topn})
@@ -470,8 +470,8 @@ async def build_chunks(task, progress_callback):
     if task["parser_config"].get("enable_metadata", False) and (task["parser_config"].get("metadata") or task["parser_config"].get("built_in_metadata")):
         st = timer()
         progress_callback(msg="Start to generate meta-data for every chunk ...")
-        chat_model_config = get_model_config_from_provider_instance(task["tenant_id"], LLMType.CHAT, task["llm_id"])
-        chat_mdl = LLMBundle(task["tenant_id"], chat_model_config, lang=task["language"])
+        chat_model_config = get_model_config_from_provider_instance(task["scope_id"], LLMType.CHAT, task["llm_id"])
+        chat_mdl = LLMBundle(task["scope_id"], chat_model_config, lang=task["language"])
 
         async def gen_metadata_task(chat_mdl, d):
             metadata_conf = task["parser_config"].get("metadata", [])
@@ -532,19 +532,19 @@ async def build_chunks(task, progress_callback):
     if task["kb_parser_config"].get("tag_kb_ids", []):
         progress_callback(msg="Start to tag for every chunk ...")
         kb_ids = task["kb_parser_config"]["tag_kb_ids"]
-        tenant_id = task["tenant_id"]
+        scope_id = task["scope_id"]
         topn_tags = task["kb_parser_config"].get("topn_tags", 3)
         S = 1000
         st = timer()
         examples = []
         all_tags = get_tags_from_cache(kb_ids)
         if not all_tags:
-            all_tags = settings.retriever.all_tags_in_portion(tenant_id, kb_ids, S)
+            all_tags = settings.retriever.all_tags_in_portion(scope_id, kb_ids, S)
             set_tags_to_cache(kb_ids, all_tags)
         else:
             all_tags = json.loads(all_tags)
-        chat_model_config = get_model_config_from_provider_instance(tenant_id, LLMType.CHAT, task["llm_id"])
-        chat_mdl = LLMBundle(task["tenant_id"], chat_model_config, lang=task["language"])
+        chat_model_config = get_model_config_from_provider_instance(scope_id, LLMType.CHAT, task["llm_id"])
+        chat_mdl = LLMBundle(task["scope_id"], chat_model_config, lang=task["language"])
 
         docs_to_tag = []
         for d in docs:
@@ -552,7 +552,7 @@ async def build_chunks(task, progress_callback):
             if task_canceled:
                 progress_callback(-1, msg="Task has been canceled.")
                 return None
-            if settings.retriever.tag_content(tenant_id, kb_ids, d, all_tags, topn_tags=topn_tags, S=S) and len(d[TAG_FLD]) > 0:
+            if settings.retriever.tag_content(scope_id, kb_ids, d, all_tags, topn_tags=topn_tags, S=S) and len(d[TAG_FLD]) > 0:
                 examples.append({"content": d["content_with_weight"], TAG_FLD: d[TAG_FLD]})
             else:
                 docs_to_tag.append(d)
@@ -608,8 +608,8 @@ async def build_chunks(task, progress_callback):
 @timed_with_recording
 def build_TOC(task, docs, progress_callback):
     progress_callback(msg="Start to generate table of content ...")
-    chat_model_config = get_model_config_from_provider_instance(task["tenant_id"], LLMType.CHAT, task["llm_id"])
-    chat_mdl = LLMBundle(task["tenant_id"], chat_model_config, lang=task["language"])
+    chat_model_config = get_model_config_from_provider_instance(task["scope_id"], LLMType.CHAT, task["llm_id"])
+    chat_mdl = LLMBundle(task["scope_id"], chat_model_config, lang=task["language"])
     docs = sorted(
         docs,
         key=lambda d: (
@@ -655,7 +655,7 @@ def build_TOC(task, docs, progress_callback):
 
 
 def init_kb(row, vector_size: int):
-    idxnm = search.index_name(row["tenant_id"])
+    idxnm = search.index_name(row["scope_id"])
     parser_id = row.get("parser_id", None)
     return settings.docStoreConn.create_idx(idxnm, row.get("kb_id", ""), vector_size, parser_id)
 
@@ -727,14 +727,14 @@ async def embedding(docs, mdl, parser_config=None, callback=None):
 RAPTOR_METHOD_SEARCH_LIMIT = 10000
 
 
-async def get_raptor_chunk_field_map(doc_id: str, tenant_id: str, kb_id: str) -> dict:
+async def get_raptor_chunk_field_map(doc_id: str, scope_id: str, kb_id: str) -> dict:
     """Return stored RAPTOR marker fields for a document."""
     from common.doc_store.doc_store_base import OrderByExpr
     from rag.nlp import search as nlp_search
 
     async def search_fields(fields: list[str], condition: dict, order_by=None):
         """Search chunk fields in the current knowledge base."""
-        res = await thread_pool_exec(settings.docStoreConn.search, fields, [], condition, [], order_by or OrderByExpr(), 0, RAPTOR_METHOD_SEARCH_LIMIT, nlp_search.index_name(tenant_id), [kb_id])
+        res = await thread_pool_exec(settings.docStoreConn.search, fields, [], condition, [], order_by or OrderByExpr(), 0, RAPTOR_METHOD_SEARCH_LIMIT, nlp_search.index_name(scope_id), [kb_id])
         return settings.docStoreConn.get_fields(res, fields)
 
     primary = await search_fields(["raptor_kwd", "extra"], {"doc_id": doc_id, "raptor_kwd": ["raptor"]})
@@ -752,7 +752,7 @@ async def get_raptor_chunk_field_map(doc_id: str, tenant_id: str, kb_id: str) ->
         return primary
 
 
-async def get_raptor_chunk_methods(doc_id: str, tenant_id: str, kb_id: str) -> set[str]:
+async def get_raptor_chunk_methods(doc_id: str, scope_id: str, kb_id: str) -> set[str]:
     """Return the RAPTOR tree builders already stored for doc_id.
 
     Queries directly for raptor_kwd="raptor" rows so a non-RAPTOR leading
@@ -760,21 +760,21 @@ async def get_raptor_chunk_methods(doc_id: str, tenant_id: str, kb_id: str) -> s
     do not have method metadata are treated as the original RAPTOR builder.
     """
     try:
-        field_map = await get_raptor_chunk_field_map(doc_id, tenant_id, kb_id)
+        field_map = await get_raptor_chunk_field_map(doc_id, scope_id, kb_id)
         methods = collect_raptor_methods(field_map)
         if methods:
             logging.info(
-                "Checkpoint hit: RAPTOR chunks for doc %s (tenant=%s kb=%s methods=%s) already exist",
+                "Checkpoint hit: RAPTOR chunks for doc %s (scope=%s kb=%s methods=%s) already exist",
                 doc_id,
-                tenant_id,
+                scope_id,
                 kb_id,
                 sorted(methods),
             )
         else:
             logging.info(
-                "Checkpoint miss: no RAPTOR chunks for doc %s (tenant=%s kb=%s)",
+                "Checkpoint miss: no RAPTOR chunks for doc %s (scope=%s kb=%s)",
                 doc_id,
-                tenant_id,
+                scope_id,
                 kb_id,
             )
         return methods
@@ -783,54 +783,54 @@ async def get_raptor_chunk_methods(doc_id: str, tenant_id: str, kb_id: str) -> s
         raise
 
 
-async def has_raptor_chunks(doc_id: str, tenant_id: str, kb_id: str, tree_builder: str = RAPTOR_TREE_BUILDER) -> bool:
+async def has_raptor_chunks(doc_id: str, scope_id: str, kb_id: str, tree_builder: str = RAPTOR_TREE_BUILDER) -> bool:
     """Return whether doc_id already has summaries for tree_builder."""
-    methods = await get_raptor_chunk_methods(doc_id, tenant_id, kb_id)
+    methods = await get_raptor_chunk_methods(doc_id, scope_id, kb_id)
     return tree_builder in methods
 
 
-async def delete_raptor_chunks(doc_id: str, tenant_id: str, kb_id: str, keep_method: str | None = None):
+async def delete_raptor_chunks(doc_id: str, scope_id: str, kb_id: str, keep_method: str | None = None):
     """Delete RAPTOR summaries for doc_id, optionally preserving one method."""
     if keep_method is None:
         logging.info(
-            "delete_raptor_chunks: removing all RAPTOR summaries (doc=%s tenant=%s kb=%s)",
+            "delete_raptor_chunks: removing all RAPTOR summaries (doc=%s scope=%s kb=%s)",
             doc_id,
-            tenant_id,
+            scope_id,
             kb_id,
         )
         ret = await thread_pool_exec(
             settings.docStoreConn.delete,
             {"doc_id": doc_id, "raptor_kwd": ["raptor"]},
-            nlp_search.index_name(tenant_id),
+            nlp_search.index_name(scope_id),
             kb_id,
         )
         get_recording_context().save_func_return_value("docStoreConn.delete", ret)
         return 0
 
-    field_map = await get_raptor_chunk_field_map(doc_id, tenant_id, kb_id)
+    field_map = await get_raptor_chunk_field_map(doc_id, scope_id, kb_id)
     chunk_ids = collect_raptor_chunk_ids(field_map, exclude_methods={keep_method})
     if not chunk_ids:
         logging.debug(
-            "delete_raptor_chunks: no stale RAPTOR chunks to remove (doc=%s tenant=%s kb=%s keep=%s)",
+            "delete_raptor_chunks: no stale RAPTOR chunks to remove (doc=%s scope=%s kb=%s keep=%s)",
             doc_id,
-            tenant_id,
+            scope_id,
             kb_id,
             keep_method,
         )
         return 0
 
     logging.info(
-        "delete_raptor_chunks: removing %d stale RAPTOR chunks (doc=%s tenant=%s kb=%s keep=%s)",
+        "delete_raptor_chunks: removing %d stale RAPTOR chunks (doc=%s scope=%s kb=%s keep=%s)",
         len(chunk_ids),
         doc_id,
-        tenant_id,
+        scope_id,
         kb_id,
         keep_method,
     )
     ret = await thread_pool_exec(
         settings.docStoreConn.delete,
         {"id": list(chunk_ids)},
-        nlp_search.index_name(tenant_id),
+        nlp_search.index_name(scope_id),
         kb_id,
     )
     get_recording_context().save_func_return_value("docStoreConn.delete", ret)
@@ -941,7 +941,7 @@ async def run_raptor_for_kb(row, kb_parser_config, chat_mdl, embd_mdl, vector_si
             tk_count += num_tokens_from_string(content)
 
     if raptor_config.get("scope", "file") == "file":
-        dataset_methods = await get_raptor_chunk_methods(dataset_task_doc_id, row["tenant_id"], row["kb_id"])
+        dataset_methods = await get_raptor_chunk_methods(dataset_task_doc_id, row["scope_id"], row["kb_id"])
         remove_dataset_summaries = bool(dataset_methods)
         has_file_level_target = False
         if dataset_methods:
@@ -952,7 +952,7 @@ async def run_raptor_for_kb(row, kb_parser_config, chat_mdl, embd_mdl, vector_si
                 callback(prog=(x + 1.0) / len(doc_ids))
                 continue
             # CHECKPOINT: skip docs that already have RAPTOR chunks in the doc store
-            existing_methods = await get_raptor_chunk_methods(doc_id, row["tenant_id"], row["kb_id"])
+            existing_methods = await get_raptor_chunk_methods(doc_id, row["scope_id"], row["kb_id"])
             if tree_builder in existing_methods:
                 has_file_level_target = True
                 if existing_methods != {tree_builder}:
@@ -966,7 +966,7 @@ async def run_raptor_for_kb(row, kb_parser_config, chat_mdl, embd_mdl, vector_si
 
             chunks = []
             skipped_chunks = 0
-            for d in settings.retriever.chunk_list(doc_id, row["tenant_id"], [str(row["kb_id"])], fields=["content_with_weight", vctr_nm], sort_by_position=True):
+            for d in settings.retriever.chunk_list(doc_id, row["scope_id"], [str(row["kb_id"])], fields=["content_with_weight", vctr_nm], sort_by_position=True):
                 # Skip chunks that don't have the required vector field (may have been indexed with different embedding model)
                 if vctr_nm not in d or d[vctr_nm] is None:
                     skipped_chunks += 1
@@ -1003,14 +1003,14 @@ async def run_raptor_for_kb(row, kb_parser_config, chat_mdl, embd_mdl, vector_si
             if skip_raptor_doc(doc_id):
                 skipped_doc_ids.add(doc_id)
                 continue
-            existing_methods = await get_raptor_chunk_methods(doc_id, row["tenant_id"], row["kb_id"])
+            existing_methods = await get_raptor_chunk_methods(doc_id, row["scope_id"], row["kb_id"])
             if existing_methods:
                 file_cleanup_doc_ids.append(doc_id)
                 migrated_file_docs += 1
         if migrated_file_docs:
             callback(msg=f"[RAPTOR] will remove file-level summaries for {migrated_file_docs} docs after dataset-level build succeeds.")
 
-        existing_methods = await get_raptor_chunk_methods(dataset_task_doc_id, row["tenant_id"], row["kb_id"])
+        existing_methods = await get_raptor_chunk_methods(dataset_task_doc_id, row["scope_id"], row["kb_id"])
         if tree_builder in existing_methods:
             if existing_methods != {tree_builder}:
                 schedule_raptor_cleanup(dataset_task_doc_id, tree_builder)
@@ -1028,7 +1028,7 @@ async def run_raptor_for_kb(row, kb_parser_config, chat_mdl, embd_mdl, vector_si
         for doc_id in doc_ids:
             if doc_id in skipped_doc_ids:
                 continue
-            for d in settings.retriever.chunk_list(doc_id, row["tenant_id"], [str(row["kb_id"])], fields=["content_with_weight", vctr_nm], sort_by_position=True):
+            for d in settings.retriever.chunk_list(doc_id, row["scope_id"], [str(row["kb_id"])], fields=["content_with_weight", vctr_nm], sort_by_position=True):
                 # Skip chunks that don't have the required vector field
                 if vctr_nm not in d or d[vctr_nm] is None:
                     skipped_chunks += 1
@@ -1068,13 +1068,13 @@ async def delete_image(kb_id, chunk_id):
 
 
 @timed_with_recording
-async def insert_chunks(task_id, task_tenant_id, task_dataset_id, chunks, progress_callback):
+async def insert_chunks(task_id, task_scope_id, task_dataset_id, chunks, progress_callback):
     """
     Insert chunks into document store (Elasticsearch OR Infinity).
 
     Args:
         task_id: Task identifier
-        task_tenant_id: Tenant ID
+        task_scope_id: runtime scope ID
         task_dataset_id: Dataset/knowledge base ID
         chunks: List of chunk dictionaries to insert
         progress_callback: Callback function for progress updates
@@ -1104,7 +1104,7 @@ async def insert_chunks(task_id, task_tenant_id, task_dataset_id, chunks, progre
         ret = await thread_pool_exec(
             settings.docStoreConn.insert,
             mothers[b : b + settings.DOC_BULK_SIZE],
-            search.index_name(task_tenant_id),
+            search.index_name(task_scope_id),
             task_dataset_id,
         )
         get_recording_context().save_func_return_value("docStoreConn.insert", ret)
@@ -1117,7 +1117,7 @@ async def insert_chunks(task_id, task_tenant_id, task_dataset_id, chunks, progre
         doc_store_result = await thread_pool_exec(
             settings.docStoreConn.insert,
             chunks[b : b + settings.DOC_BULK_SIZE],
-            search.index_name(task_tenant_id),
+            search.index_name(task_scope_id),
             task_dataset_id,
         )
         get_recording_context().save_func_return_value("docStoreConn.insert", doc_store_result)
@@ -1131,7 +1131,7 @@ async def insert_chunks(task_id, task_tenant_id, task_dataset_id, chunks, progre
                     ret = await thread_pool_exec(
                         settings.docStoreConn.delete,
                         {"id": raptor_ids_to_rollback},
-                        search.index_name(task_tenant_id),
+                        search.index_name(task_scope_id),
                         task_dataset_id,
                     )
                     get_recording_context().save_func_return_value("docStoreConn.delete", ret)
@@ -1163,7 +1163,7 @@ async def insert_chunks(task_id, task_tenant_id, task_dataset_id, chunks, progre
             doc_store_result = await thread_pool_exec(
                 settings.docStoreConn.delete,
                 {"id": chunk_ids},
-                search.index_name(task_tenant_id),
+                search.index_name(task_scope_id),
                 task_dataset_id,
             )
             get_recording_context().save_func_return_value("docStoreConn.delete", doc_store_result)
@@ -1190,7 +1190,7 @@ async def do_handle_task(task):
     task_id = task["id"]
     task_from_page = task["from_page"]
     task_to_page = task["to_page"]
-    task_tenant_id = task["tenant_id"]
+    task_scope_id = task["scope_id"]
     task_embedding_id = task["embd_id"]
     task_language = task.get("language") or "Chinese"
     if not task.get("language"):
@@ -1217,10 +1217,10 @@ async def do_handle_task(task):
     try:
         # bind embedding model
         if task_embedding_id:
-            embd_model_config = get_model_config_from_provider_instance(task_tenant_id, LLMType.EMBEDDING, task_embedding_id)
+            embd_model_config = get_model_config_from_provider_instance(task_scope_id, LLMType.EMBEDDING, task_embedding_id)
         else:
-            embd_model_config = get_tenant_default_model_by_type(task_tenant_id, LLMType.EMBEDDING)
-        embedding_model = LLMBundle(task_tenant_id, embd_model_config, lang=task_language)
+            embd_model_config = get_runtime_default_model_by_type(task_scope_id, LLMType.EMBEDDING)
+        embedding_model = LLMBundle(task_scope_id, embd_model_config, lang=task_language)
         vts, _ = embedding_model.encode(["ok"])
         vector_size = len(vts[0])
     except Exception as e:
@@ -1261,8 +1261,8 @@ async def do_handle_task(task):
                 return
 
         # bind LLM for raptor
-        chat_model_config = get_model_config_from_provider_instance(task_tenant_id, LLMType.CHAT, kb_task_llm_id)
-        chat_model = LLMBundle(task_tenant_id, chat_model_config, lang=task_language)
+        chat_model_config = get_model_config_from_provider_instance(task_scope_id, LLMType.CHAT, kb_task_llm_id)
+        chat_model = LLMBundle(task_scope_id, chat_model_config, lang=task_language)
         # run RAPTOR
         async with kg_limiter:
             chunks, token_count, raptor_cleanup_chunks = await run_raptor_for_kb(
@@ -1320,8 +1320,8 @@ async def do_handle_task(task):
 
         graphrag_conf = kb_parser_config.get("graphrag", {})
         start_ts = timer()
-        chat_model_config = get_model_config_from_provider_instance(task_tenant_id, LLMType.CHAT, kb_task_llm_id)
-        chat_model = LLMBundle(task_tenant_id, chat_model_config, lang=task_language)
+        chat_model_config = get_model_config_from_provider_instance(task_scope_id, LLMType.CHAT, kb_task_llm_id)
+        chat_model = LLMBundle(task_scope_id, chat_model_config, lang=task_language)
         with_resolution = graphrag_conf.get("resolution", False)
         with_community = graphrag_conf.get("community", False)
         async with kg_limiter:
@@ -1388,7 +1388,7 @@ async def do_handle_task(task):
         if has_canceled(task_id):
             progress_callback(-1, msg="Task has been canceled.")
             return False
-        insert_result = await insert_chunks(task_id, task_tenant_id, task_dataset_id, _chunks, progress_callback)
+        insert_result = await insert_chunks(task_id, task_scope_id, task_dataset_id, _chunks, progress_callback)
         return bool(insert_result)
 
     try:
@@ -1405,7 +1405,7 @@ async def do_handle_task(task):
             for cleanup_doc_id, keep_method in raptor_cleanup_chunks:
                 ret = await delete_raptor_chunks(
                     cleanup_doc_id,
-                    task_tenant_id,
+                    task_scope_id,
                     task_dataset_id,
                     keep_method=keep_method,
                 )
@@ -1484,14 +1484,14 @@ async def do_handle_task(task):
             try:
                 exists = await thread_pool_exec(
                     settings.docStoreConn.index_exist,
-                    search.index_name(task_tenant_id),
+                    search.index_name(task_scope_id),
                     task_dataset_id,
                 )
                 if exists:
                     ret = await thread_pool_exec(
                         settings.docStoreConn.delete,
                         {"doc_id": task_doc_id},
-                        search.index_name(task_tenant_id),
+                        search.index_name(task_scope_id),
                         task_dataset_id,
                     )
                     get_recording_context().save_func_return_value("docStoreConn.delete", ret)
@@ -1684,7 +1684,7 @@ async def main():
 /___/_/ /_/\__, /\___/____/\__/_/\____/_/ /_/  /____/\___/_/    |___/\___/_/
           /____/
     """)
-    logging.info(f"RAGFlow ingestion version: {get_ragflow_version()}")
+    logging.info(f"Knowledge runtime worker version: {get_runtime_version()}")
     logging.info(f"ENABLE_DRY_RUN_COMPARISON: {os.environ.get('ENABLE_DRY_RUN_COMPARISON', '0')}")
     show_configs()
     settings.init_settings()
@@ -1704,7 +1704,7 @@ async def main():
     report_task = asyncio.create_task(report_status())
     tasks = []
 
-    logging.info(f"RAGFlow ingestion is ready after {time.time() - start_ts}s initialization.")
+    logging.info(f"Knowledge runtime worker is ready after {time.time() - start_ts}s initialization.")
     try:
         while not stop_event.is_set():
             await task_limiter.acquire()

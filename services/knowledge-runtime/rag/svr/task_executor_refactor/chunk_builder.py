@@ -98,7 +98,7 @@ async def run_chunking(
                 callback=ctx.progress_cb,
                 kb_id=ctx.kb_id,
                 parser_config=parser_config,
-                tenant_id=ctx.tenant_id,
+                scope_id=ctx.scope_id,
             )
         logging.info("Chunking({}) {}/{} done".format(timer() - st, ctx.location, ctx.name))
         ctx.recording_context.record("parser_config_after_merge", parser_config)

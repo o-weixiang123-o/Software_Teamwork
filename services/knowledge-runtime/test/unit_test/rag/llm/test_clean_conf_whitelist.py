@@ -19,7 +19,7 @@ Regression guard for issue #15427: LiteLLM-routed chats failed with
 ``Unknown parameter: 'model_type'`` (OpenAI).
 
 A chat assistant's ``llm_setting`` is forwarded to the provider as
-``gen_conf``. ``llm_setting`` can legitimately carry RAGFlow-internal
+``gen_conf``. ``llm_setting`` can legitimately carry runtime-internal
 metadata such as ``model_type`` (the new chat REST APIs read it back out).
 ``Base._clean_conf`` already whitelisted the keys it forwards, so OpenAI-
 compatible providers were unaffected, but ``LiteLLMBase._clean_conf`` only

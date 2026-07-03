@@ -55,7 +55,7 @@
 #     "api.db.services.pipeline_operation_log_service",
 #     "api.db.joint_services",
 #     "api.db.joint_services.memory_message_service",
-#     "api.db.joint_services.tenant_model_service",
+#     "api.db.joint_services.runtime_model_service",
 #     "api.db.services.doc_metadata_service",
 #     "api.db.services.llm_service",
 #     "api.db.services.file2document_service",

@@ -1,10 +1,10 @@
 [project]
-name = "ragflow"
-version = "0.26.2"
-description = "[RAGFlow](https://ragflow.io/) is an open-source RAG (Retrieval-Augmented Generation) engine based on deep document understanding. It offers a streamlined RAG workflow for businesses of any scale, combining LLM (Large Language Models) to provide truthful question-answering capabilities, backed by well-founded citations from various complex formatted data."
-authors = [{ name = "Zhichang Yu", email = "yuzhichang@gmail.com" }]
+name = "knowledge-runtime"
+version = "0.1.0"
+description = "Host-run Knowledge document parsing, indexing, retrieval, and rerank runtime."
+authors = [{ name = "Software Teamwork contributors" }]
 license-files = ["LICENSE"]
-readme = "README_zh.md"
+readme = "README.md"
 requires-python = ">=3.13,<3.14"
 dependencies = [
     "anthropic==0.76.0",

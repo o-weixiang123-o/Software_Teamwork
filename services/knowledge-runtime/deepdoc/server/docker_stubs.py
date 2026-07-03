@@ -3,7 +3,7 @@
 
 The deepdoc vision modules (ocr.py, recognizer.py, etc.) import from
 ``common``, ``rag``, and ``deepdoc`` at module level.  In the full
-RAGFlow environment these packages pull in heavy dependencies (torch,
+runtime environment these packages pull in heavy dependencies (torch,
 pdfplumber, database connectors, beartype) that are not needed by the
 ONNX-only inference server.
 

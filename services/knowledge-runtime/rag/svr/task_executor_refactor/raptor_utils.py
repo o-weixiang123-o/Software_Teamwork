@@ -32,7 +32,7 @@ from rag.utils.raptor_utils import (
 RAPTOR_METHOD_SEARCH_LIMIT = 10000
 
 
-async def get_raptor_chunk_field_map(doc_id: str, tenant_id: str, kb_id: str) -> dict:
+async def get_raptor_chunk_field_map(doc_id: str, scope_id: str, kb_id: str) -> dict:
     """Return stored RAPTOR marker fields for a document."""
     from common.doc_store.doc_store_base import OrderByExpr
 
@@ -41,7 +41,7 @@ async def get_raptor_chunk_field_map(doc_id: str, tenant_id: str, kb_id: str) ->
         res = await thread_pool_exec(
             settings.docStoreConn.search,
             fields, [], condition, [], order_by or OrderByExpr(),
-            0, RAPTOR_METHOD_SEARCH_LIMIT, nlp_search.index_name(tenant_id), [kb_id]
+            0, RAPTOR_METHOD_SEARCH_LIMIT, nlp_search.index_name(scope_id), [kb_id]
         )
         return settings.docStoreConn.get_fields(res, fields)
 
@@ -60,38 +60,38 @@ async def get_raptor_chunk_field_map(doc_id: str, tenant_id: str, kb_id: str) ->
         return primary
 
 
-async def delete_raptor_chunks(doc_id: str, tenant_id: str, kb_id: str, keep_method: str | None = None) -> int:
+async def delete_raptor_chunks(doc_id: str, scope_id: str, kb_id: str, keep_method: str | None = None) -> int:
     """Delete RAPTOR summaries for doc_id, optionally preserving one method."""
     if keep_method is None:
         logging.info(
-            "delete_raptor_chunks: removing all RAPTOR summaries (doc=%s tenant=%s kb=%s)",
-            doc_id, tenant_id, kb_id,
+            "delete_raptor_chunks: removing all RAPTOR summaries (doc=%s scope=%s kb=%s)",
+            doc_id, scope_id, kb_id,
         )
         await thread_pool_exec(
             settings.docStoreConn.delete,
             {"doc_id": doc_id, "raptor_kwd": ["raptor"]},
-            nlp_search.index_name(tenant_id),
+            nlp_search.index_name(scope_id),
             kb_id,
         )
         return 0
 
-    field_map = await get_raptor_chunk_field_map(doc_id, tenant_id, kb_id)
+    field_map = await get_raptor_chunk_field_map(doc_id, scope_id, kb_id)
     chunk_ids = collect_raptor_chunk_ids(field_map, exclude_methods={keep_method})
     if not chunk_ids:
         logging.debug(
-            "delete_raptor_chunks: no stale RAPTOR chunks to remove (doc=%s tenant=%s kb=%s keep=%s)",
-            doc_id, tenant_id, kb_id, keep_method,
+            "delete_raptor_chunks: no stale RAPTOR chunks to remove (doc=%s scope=%s kb=%s keep=%s)",
+            doc_id, scope_id, kb_id, keep_method,
         )
         return 0
 
     logging.info(
-        "delete_raptor_chunks: removing %d stale RAPTOR chunks (doc=%s tenant=%s kb=%s keep=%s)",
-        len(chunk_ids), doc_id, tenant_id, kb_id, keep_method,
+        "delete_raptor_chunks: removing %d stale RAPTOR chunks (doc=%s scope=%s kb=%s keep=%s)",
+        len(chunk_ids), doc_id, scope_id, kb_id, keep_method,
     )
     await thread_pool_exec(
         settings.docStoreConn.delete,
         {"id": list(chunk_ids)},
-        nlp_search.index_name(tenant_id),
+        nlp_search.index_name(scope_id),
         kb_id,
     )
     return len(chunk_ids)

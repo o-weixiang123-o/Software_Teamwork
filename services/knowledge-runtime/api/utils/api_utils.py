@@ -40,10 +40,9 @@ except ImportError:  # pragma: no cover - optional dependency
 
 from peewee import OperationalError
 
-from common.constants import ActiveEnum, LLMType
+from common.constants import LLMType
 from api.utils.json_encode import CustomJSONEncoder
-from common.mcp_tool_call_conn import MCPToolCallSession, close_multiple_mcp_toolcall_sessions
-from api.db.services.tenant_llm_service import LLMFactoriesService
+from api.db.services.runtime_llm_service import LLMFactoriesService
 from common.connection_utils import timeout
 from common.constants import RetCode
 from common import settings
@@ -216,33 +215,25 @@ def not_allowed_parameters(*params):
     return decorator
 
 
-def active_required(func):
-    @wraps(func)
-    async def wrapper(*args, **kwargs):
-        from api.db.services import UserService
-        from api.apps import current_user
+def add_runtime_scope_id_to_kwargs(func):
+    """Inject the fixed runtime scope into route handler scope_id parameters."""
 
-        user_id = current_user.id
-        usr = UserService.filter_by_id(user_id)
-        # check is_active
-        if not usr or not usr.is_active == ActiveEnum.ACTIVE.value:
-            return get_json_result(code=RetCode.FORBIDDEN, message="User isn't active, please activate first.")
-        if inspect.iscoroutinefunction(func):
-            return await func(*args, **kwargs)
-        return func(*args, **kwargs)
-
-    return wrapper
-
-
-def add_tenant_id_to_kwargs(func):
     @wraps(func)
     async def wrapper(**kwargs):
         from api.apps import current_user
-        kwargs["tenant_id"] = current_user.id
+
+        kwargs["scope_id"] = current_user.id
         if inspect.iscoroutinefunction(func):
             return await func(**kwargs)
         return func(**kwargs)
+
     return wrapper
+
+
+# Route handlers still name their storage scope parameter `scope_id`. Keep this
+# alias only at the route boundary so active code can use runtime-scope wording
+# without rewriting every handler signature.
+add_scope_id_to_kwargs = add_runtime_scope_id_to_kwargs
 
 
 def get_json_result(code: RetCode = RetCode.SUCCESS, message="success", data=None):
@@ -491,21 +482,21 @@ def check_duplicate_ids(ids, id_type="item"):
     return list(set(ids)), duplicate_messages
 
 
-def verify_embedding_availability(embd_id: str, tenant_id: str) -> tuple[bool, str | None]:
-    from api.db.joint_services.tenant_model_service import get_model_config_from_provider_instance
+def verify_embedding_availability(embd_id: str, scope_id: str) -> tuple[bool, str | None]:
+    from api.db.joint_services.runtime_model_service import get_model_config_from_provider_instance
 
     """
-    Verifies availability of an embedding model for a specific tenant.
+    Verifies availability of an embedding model for a runtime namespace.
 
     Performs comprehensive verification through:
     1. Identifier Parsing: Decomposes embd_id into name and factory components
     2. System Verification: Checks model registration in LLMService
-    3. Tenant Authorization: Validates tenant-specific model assignments
+    3. Runtime Authorization: Validates namespace-specific model assignments
     4. Built-in Model Check: Confirms inclusion in predefined system models
 
     Args:
         embd_id (str): Unique identifier for the embedding model in format "model_name@factory"
-        tenant_id (str): Tenant identifier for access control
+        scope_id (str): internal runtime namespace identifier
 
     Returns:
         tuple[bool, Response | None]:
@@ -521,14 +512,14 @@ def verify_embedding_availability(embd_id: str, tenant_id: str) -> tuple[bool, s
         OperationalError: When database connection fails (auto-handled)
 
     Examples:
-        >>> verify_embedding_availability("text-embedding@openai", "tenant_123")
+        >>> verify_embedding_availability("text-embedding@openai", "runtime_123")
         (True, None)
 
-        >>> verify_embedding_availability("invalid_model", "tenant_123")
+        >>> verify_embedding_availability("invalid_model", "runtime_123")
         (False, {'code': 101, 'message': "Unsupported model: <invalid_model>"})
     """
     try:
-        get_model_config_from_provider_instance(tenant_id, LLMType.EMBEDDING, embd_id)
+        get_model_config_from_provider_instance(scope_id, LLMType.EMBEDDING, embd_id)
     except LookupError as e:
         return False, str(e)
     except OperationalError as e:
@@ -631,38 +622,6 @@ def group_by(list_of_dict, key):
         else:
             res[item[key]] = [item]
     return res
-
-
-def get_mcp_tools(mcp_servers: list, timeout: float | int = 10) -> tuple[dict, str]:
-    results = {}
-    tool_call_sessions = []
-    try:
-        for mcp_server in mcp_servers:
-            server_key = mcp_server.id
-
-            cached_tools = mcp_server.variables.get("tools", {})
-
-            tool_call_session = MCPToolCallSession(mcp_server, mcp_server.variables)
-            tool_call_sessions.append(tool_call_session)
-
-            try:
-                tools = tool_call_session.get_tools(timeout)
-            except Exception:
-                tools = []
-
-            results[server_key] = []
-            for tool in tools:
-                tool_dict = tool.model_dump()
-                cached_tool = cached_tools.get(tool_dict["name"], {})
-
-                tool_dict["enabled"] = cached_tool.get("enabled", True)
-                results[server_key].append(tool_dict)
-
-        # PERF: blocking call to close sessions — consider moving to background thread or task queue
-        close_multiple_mcp_toolcall_sessions(tool_call_sessions)
-        return results, ""
-    except Exception as e:
-        return {}, str(e)
 
 
 async def is_strong_enough(chat_model, embedding_model):

@@ -86,7 +86,7 @@ def _dashscope_native_http_api_url(base_url: str | None) -> str | None:
     """
     Resolve the DashScope *native* HTTP API root for Tongyi-Qianwen (Qwen) text embeddings.
 
-    RAGFlow often stores an OpenAI-compatible base URL (e.g. ``.../compatible-mode/v1``) for
+    The runtime often stores an OpenAI-compatible base URL (e.g. ``.../compatible-mode/v1``) for
     the same provider. The ``dashscope`` Python SDK used by ``TextEmbedding.call`` does *not*
     use that path; it expects ``https://<host>/api/v1`` instead.
 

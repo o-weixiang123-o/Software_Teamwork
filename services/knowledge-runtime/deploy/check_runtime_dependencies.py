@@ -151,7 +151,7 @@ def validate(
                     "to another supported reachable engine."
                 )
     elif doc_engine not in {"opensearch", "infinity", "oceanbase", "seekdb"}:
-        issues.append(f"DOC_ENGINE={doc_engine!r} is not supported by the vendored RAGFlow runtime.")
+        issues.append(f"DOC_ENGINE={doc_engine!r} is not supported by Knowledge runtime.")
 
     env_embedding_model = env.get("KNOWLEDGE_RUNTIME_EMBEDDING_MODEL", "").strip()
     env_embedding_factory = env.get("KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY", "").strip()

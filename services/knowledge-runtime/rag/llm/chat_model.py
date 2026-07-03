@@ -66,7 +66,7 @@ LENGTH_NOTIFICATION_EN = "...\nThe answer is truncated by your chosen LLM due to
 
 # Generation parameters that are safe to forward to the underlying completion
 # call. `gen_conf` originates from caller-provided LLM settings, which can
-# also carry RAGFlow-internal metadata (e.g. `model_type`). Anything outside
+# also carry runtime-internal metadata (e.g. `model_type`). Anything outside
 # this set is dropped so providers don't reject the request with errors like
 # "Extra inputs are not permitted" / "Unknown parameter: 'model_type'" (#15427).
 ALLOWED_GEN_CONF_KEYS = frozenset(
@@ -146,7 +146,7 @@ def _apply_model_family_policies(
 
     thinking_type = _thinking_type()
 
-    # Qwen3 keeps RAGFlow's system default of disabling thinking unless explicitly overridden.
+    # Qwen3 keeps the runtime default of disabling thinking unless explicitly overridden.
     if "qwen3" in model_name_lower:
         _pop_thinking_controls()
         enable_thinking = thinking_type == "enabled" if thinking_type else False

@@ -25,7 +25,7 @@
 
 | 公开资源 | Owner service | File 参与方式 |
 | --- | --- | --- |
-| 知识库文档上传、文档内容 | `knowledge` | 当前不通过 File Service；由 Knowledge adapter 通过 RAGFlow runtime 保存和读取原始 bytes。 |
+| 知识库文档上传、文档内容 | `knowledge` | 当前不通过 File Service；由 Knowledge adapter 通过 Knowledge runtime 保存和读取原始 bytes。 |
 | 报告模板、报告素材、报告导出文件 | `document` | 保存、读取和删除底层文件对象；不判断模板/报告权限。 |
 | QA 会话附件 | `qa` | 保存附件原始 bytes；不拥有会话、解析状态或临时 chunk。 |
 

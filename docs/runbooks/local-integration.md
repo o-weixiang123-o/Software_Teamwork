@@ -204,25 +204,14 @@ client 与 Document 工具，不代表完整 QA Agent + LLM 链路通过。Issue
   Compose health checks；单独运行一次性 `minio-init`、Go module 配置检查、migration、
   demo seed；传入 `--china` 时还会自动准备 Knowledge runtime 依赖和 artifact 下载，
   可用 `--skip-knowledge-runtime-deps` 或 `LOCAL_SKIP_KNOWLEDGE_RUNTIME_DEPS=1` 跳过。
-  当前 Knowledge 索引准备属于宿主机 RAGFlow runtime/doc engine 路径。
+  当前 Knowledge 索引准备属于宿主机 Knowledge runtime/doc engine 路径，不再执行 Go
+  侧向量库 collection bootstrap。
   `minio-init` 正常 `Exited (0)` 不应阻断后续步骤；非零失败时看
   `docker compose logs minio-init`。
 - `run-backend.sh`：后端进程启动、日志和进程组 PID。Knowledge 使用 `cmd/adapter`
-  调用宿主机 RAGFlow runtime API；runtime worker 默认不随 Go 后端启动，adapter
-  只会在 `KNOWLEDGE_RUNTIME_WORKER_START_COMMAND` 已配置且缺少 worker heartbeat
-  时通过该受控入口按需触发 worker。启动前会用当前 `deploy/.env` 对每个 Go 服务执行
-  `go mod download` 预检；服务 fork 后默认观察 8 秒，若进程组很快退出，会直接汇总
-  对应 `.local/logs/<service>.log` 尾部。
-- `run-knowledge-runtime-api.sh`：只启动 host-run `services/knowledge-runtime`
-  API，使用 `uv sync --python 3.13 --frozen --no-default-groups` 的 API-only
-  dependency profile，不启动 runtime worker 或 Knowledge adapter。它适合
-  `KNOWLEDGE_RUNTIME_READINESS_MODE=query` 的查询-only 验证。
-- `start-knowledge-runtime-worker.sh`：worker-only 本地入口。默认只启动
-  `knowledge-runtime-worker`，不启动 runtime API 或 Knowledge adapter；当 runtime
-  API 可达时会等待 `task_executor` heartbeat，并启动本地 idle watcher。队列
-  `pending=0`、`lag=0` 且没有 current task 持续
-  `KNOWLEDGE_RUNTIME_WORKER_IDLE_SHUTDOWN_SECONDS` 后，会停止 worker 进程组并清理
-  heartbeat；适合被 `KNOWLEDGE_RUNTIME_WORKER_START_COMMAND` 在上传触发时调用。
+  调用宿主机 Knowledge runtime API/worker。启动前会用当前 `deploy/.env` 对每个 Go
+  服务执行 `go mod download` 预检；服务 fork 后默认观察 8 秒，若进程组很快退出，
+  会直接汇总对应 `.local/logs/<service>.log` 尾部。
 - `run-knowledge-parse-stack.sh`：真实 Knowledge 文档解析链路入口。默认启动
   host-run `services/knowledge-runtime` API、runtime worker 和 Knowledge adapter，
   并把 `KNOWLEDGE_AUTO_START_INGESTION` 打开，使用 `uv sync --python 3.13
@@ -257,7 +246,7 @@ Infra 拉取慢：
 - 已配置 Docker daemon mirror 时，运行 `python3 scripts/check_docker_environment.py --profile all --clean-env`。
 - 代理只作为最后选择；shell proxy、daemon proxy 和 registry rewrite 是三条不同路径。
 
-RAGFlow runtime 启动慢：
+Knowledge runtime 启动慢：
 
 - 默认 `UV_DEFAULT_INDEX=https://pypi.org/simple`，host-run `uv sync` 使用官方 PyPI。
 - 中国大陆网络运行 `./scripts/local/dev-up.sh --china` 时会自动执行 runtime 依赖和
@@ -299,7 +288,7 @@ RAGFlow runtime 启动慢：
 
 - 默认保留 `deploy/.env.example` 里的 `ENABLE_TIMEOUT_ASSERTION=1`，让 runtime
   worker 的解析、embedding 和存储调用超时保护生效。
-- 不要恢复 `services/parser`；PDF 解析、切块、embedding、索引和检索由 RAGFlow
+- 不要恢复 `services/parser`；PDF 解析、切块、embedding、索引和检索由 Knowledge
   runtime worker 完成。
 
 Go modules 下载慢或超时：
@@ -361,8 +350,8 @@ Go modules 下载慢或超时：
 WSL 内存高：
 
 - 先看 `docker stats`。
-- 当前默认 Docker 只跑 infra；内存压力主要来自 PostgreSQL、MinIO、Elasticsearch、
-  宿主机 RAGFlow runtime 或本机后端进程。
+- 当前默认 Docker 只跑 infra；内存压力主要来自 PostgreSQL、Redis、MinIO、
+  Elasticsearch、宿主机 Knowledge runtime 或本机后端进程。
 - 不需要保留环境时先停后端，再执行 `docker compose -f deploy/docker-compose.yml --env-file deploy/.env down -v`。
 
 ```bash
@@ -380,7 +369,7 @@ go test ./internal/integration -run '^TestGatewayKnowledgeOwnerRouteSmoke$' -cou
 
 该测试会：
 
-- `GET /readyz` 检查 Gateway、Knowledge 和 RAGFlow runtime 可达性。
+- `GET /readyz` 检查 Gateway、Knowledge 和 Knowledge runtime 可达性。
 - 使用 `KNOWLEDGE_TEST_DATABASE_URL` ping Knowledge PostgreSQL。
 - 使用 `KNOWLEDGE_REDIS_ADDR` 发送 Redis `PING`。
 - 调用带伪造 `X-User-*` 但无 Bearer token 的 `GET /api/v1/knowledge-bases`，
@@ -488,7 +477,7 @@ PASS
 ```
 
 测试会创建 run-scoped knowledge base 和文档，并在清理阶段先调用 Gateway
-`DELETE /api/v1/documents/{documentId}` 触发 RAGFlow runtime 文档删除，再按
+`DELETE /api/v1/documents/{documentId}` 触发 Knowledge runtime 文档删除，再按
 chunks、jobs、documents、knowledge base 的顺序删除本轮 Knowledge PostgreSQL 行。
 测试开始前会读取当前 active QA config 和 LLM config，结束时通过 Gateway settings API
 重新创建并激活一份等价恢复版本。本轮 smoke 创建的 QA config versions 仍会作为本地运行

@@ -86,7 +86,7 @@ def _unwrapped_upload_document():
 def test_upload_document_skips_cross_kb_document_id_collision(monkeypatch):
     kb = SimpleNamespace(
         id="kb-target",
-        tenant_id="tenant-1",
+        scope_id="scope-1",
         name="Target KB",
         parser_id="default",
         pipeline_id=None,
@@ -106,7 +106,7 @@ def test_upload_document_skips_cross_kb_document_id_collision(monkeypatch):
     monkeypatch.setattr(
         FileService,
         "new_a_file_from_kb",
-        classmethod(lambda cls, _tenant_id, _name, _parent_id: {"id": "kb-folder"}),
+        classmethod(lambda cls, _scope_id, _name, _parent_id: {"id": "kb-folder"}),
     )
     monkeypatch.setattr(file_service_module.DocumentService, "get_by_id", lambda _doc_id: (True, existing_doc))
 

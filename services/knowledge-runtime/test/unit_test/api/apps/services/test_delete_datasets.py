@@ -41,7 +41,7 @@ def _stub(monkeypatch, name, **attrs):
 
 def _load_delete_datasets_module(monkeypatch, *, f2d_rows, file_filter_delete):
     f2d_delete = MagicMock()
-    kb = SimpleNamespace(id="kb-1", tenant_id="tenant-1", name="test-kb")
+    kb = SimpleNamespace(id="kb-1", scope_id="scope-1", name="test-kb")
     doc = SimpleNamespace(id="doc-1")
 
     _stub(
@@ -49,7 +49,7 @@ def _load_delete_datasets_module(monkeypatch, *, f2d_rows, file_filter_delete):
         "api.db.services.document_service",
         DocumentService=SimpleNamespace(
             query=lambda kb_id: [doc],
-            remove_document=lambda doc, tenant_id: True,
+            remove_document=lambda doc, scope_id: True,
         ),
         queue_raptor_o_graphrag_tasks=MagicMock(),
     )
@@ -70,7 +70,7 @@ def _load_delete_datasets_module(monkeypatch, *, f2d_rows, file_filter_delete):
         monkeypatch,
         "api.db.services.knowledgebase_service",
         KnowledgebaseService=SimpleNamespace(
-            get_or_none=lambda id, tenant_id: kb,
+            get_or_none=lambda id, scope_id: kb,
             delete_by_id=lambda kb_id: True,
             query=lambda **kwargs: [],
         ),
@@ -84,19 +84,12 @@ def _load_delete_datasets_module(monkeypatch, *, f2d_rows, file_filter_delete):
     )
     _stub(
         monkeypatch,
-        "api.db.services.user_service",
-        TenantService=SimpleNamespace(),
-        UserService=SimpleNamespace(),
-        UserTenantService=SimpleNamespace(),
+        "api.db.services.runtime_llm_service",
+        RuntimeLLMService=SimpleNamespace(),
     )
     _stub(
         monkeypatch,
-        "api.db.services.tenant_llm_service",
-        TenantLLMService=SimpleNamespace(),
-    )
-    _stub(
-        monkeypatch,
-        "api.db.joint_services.tenant_model_service",
+        "api.db.joint_services.runtime_model_service",
         get_model_config_from_provider_instance=MagicMock(),
     )
     _stub(
@@ -129,7 +122,7 @@ def _load_delete_datasets_module(monkeypatch, *, f2d_rows, file_filter_delete):
     _stub(
         monkeypatch,
         "rag.nlp.search",
-        index_name=lambda tenant_id: f"idx-{tenant_id}",
+        index_name=lambda scope_id: f"idx-{scope_id}",
     )
 
     repo_root = Path(__file__).resolve().parents[5]
@@ -151,7 +144,7 @@ async def test_delete_datasets_skips_file_delete_when_no_file2document(monkeypat
         file_filter_delete=file_filter_delete,
     )
 
-    ok, result = await module.delete_datasets("tenant-1", ids=["kb-1"])
+    ok, result = await module.delete_datasets("scope-1", ids=["kb-1"])
 
     assert ok is True
     assert result == {"success_count": 1}
@@ -169,7 +162,7 @@ async def test_delete_datasets_deletes_linked_file_when_file2document_exists(mon
         file_filter_delete=file_filter_delete,
     )
 
-    ok, result = await module.delete_datasets("tenant-1", ids=["kb-1"])
+    ok, result = await module.delete_datasets("scope-1", ids=["kb-1"])
 
     assert ok is True
     assert result == {"success_count": 1}

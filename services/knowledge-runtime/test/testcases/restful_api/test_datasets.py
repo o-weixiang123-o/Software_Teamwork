@@ -388,7 +388,7 @@ def test_dataset_update_parser_config_with_chunk_method_change_contract(rest_cli
         ("BAAI/bge-small-en-v1.5@Builtin", False),
         ("embedding-3@ZHIPU-AI", True),
     ],
-    ids=["builtin_baai", "tenant_zhipu"],
+    ids=["builtin_baai", "scope_zhipu"],
 )
 def test_dataset_update_embedding_model_contract(rest_client, clear_datasets, embedding_model, unauthorized_is_xfail):
     create_res = rest_client.post("/datasets", json={"name": f"dataset_update_embedding_{embedding_model.split('@')[0].replace('/', '_')}"})
@@ -404,7 +404,7 @@ def test_dataset_update_embedding_model_contract(rest_client, clear_datasets, em
     assert update_res.status_code == 200
     update_payload = update_res.json()
     if unauthorized_is_xfail and update_payload["code"] == 102:
-        pytest.xfail(f"Environment has no authorized tenant model for {embedding_model}: {update_payload}")
+        pytest.xfail(f"Environment has no authorized scope model for {embedding_model}: {update_payload}")
     assert update_payload["code"] == 0, update_payload
     assert update_payload["data"]["embedding_model"] == embedding_model, update_payload
 
@@ -677,13 +677,13 @@ def test_dataset_update_identifier_validation_contract(rest_client):
     assert not_uuid1_res.status_code == 200
     not_uuid1_payload = not_uuid1_res.json()
     assert not_uuid1_payload["code"] == 102, not_uuid1_payload
-    assert "lacks permission for dataset" in not_uuid1_payload["message"], not_uuid1_payload
+    assert "not found" in not_uuid1_payload["message"], not_uuid1_payload
 
     wrong_uuid_res = rest_client.put("/datasets/d94a8dc02c9711f0930f7fbc369eab6d", json=payload)
     assert wrong_uuid_res.status_code == 200
     wrong_uuid_payload = wrong_uuid_res.json()
     assert wrong_uuid_payload["code"] == 102, wrong_uuid_payload
-    assert "lacks permission for dataset" in wrong_uuid_payload["message"], wrong_uuid_payload
+    assert "not found" in wrong_uuid_payload["message"], wrong_uuid_payload
 
 
 @pytest.mark.p2
@@ -1043,7 +1043,7 @@ def test_dataset_update_field_unset_and_unsupported_contract(rest_client, clear_
 
     unsupported_field_payloads = [
         {"id": "id"},
-        {"tenant_id": "e57c1966f99211efb41e9e45646e0111"},
+        {"scope_id": "e57c1966f99211efb41e9e45646e0111"},
         {"created_by": "created_by"},
         {"create_date": "Tue, 11 Mar 2025 13:37:23 GMT"},
         {"create_time": 1741671443322},
@@ -1163,30 +1163,30 @@ def test_dataset_create_permission_contract(rest_client, clear_datasets, name, p
     "name, embedding_model, expected_code, expected_embedding_model, expected_message, unauthorized_is_xfail",
     [
         ("builtin_baai", "BAAI/bge-small-en-v1.5@Local@Builtin", 0, "BAAI/bge-small-en-v1.5@Local@Builtin", None, False),
-        ("tenant_zhipu", "embedding-3@CI@ZHIPU-AI", 0, "embedding-3@CI@ZHIPU-AI", None, True),
+        ("scope_zhipu", "embedding-3@CI@ZHIPU-AI", 0, "embedding-3@CI@ZHIPU-AI", None, True),
         ("embedding_model_unset", "__UNSET__", 0, "BAAI/bge-small-en-v1.5@Local@Builtin", None, False),
         ("embedding_model_none", None, 0, "BAAI/bge-small-en-v1.5@Local@Builtin", None, False),
         ("unknown_llm_name", "unknown@ZHIPU-AI", 102, None, "Instance default not found for model unknown@ZHIPU-AI.", False),
         ("unknown_llm_factory", "embedding-3@unknown", 102, None, "Provider unknown not found for model embedding-3@unknown.", False),
         (
-            "tenant_no_auth_default_tenant_llm",
+            "scope_no_auth_default_runtime_llm",
             "text-embedding-v3@Tongyi-Qianwen",
             102,
             None,
             "Provider Tongyi-Qianwen not found for model text-embedding-v3@Tongyi-Qianwen.",
             False,
         ),
-        ("tenant_no_auth", "text-embedding-3-small@OpenAI", 102, None, "Provider OpenAI not found for model text-embedding-3-small@OpenAI.", False),
+        ("scope_no_auth", "text-embedding-3-small@OpenAI", 102, None, "Provider OpenAI not found for model text-embedding-3-small@OpenAI.", False),
     ],
     ids=[
         "builtin_baai",
-        "tenant_zhipu",
+        "scope_zhipu",
         "embedding_model_unset",
         "embedding_model_none",
         "unknown_llm_name",
         "unknown_llm_factory",
-        "tenant_no_auth_default_tenant_llm",
-        "tenant_no_auth",
+        "scope_no_auth_default_runtime_llm",
+        "scope_no_auth",
     ],
 )
 def test_dataset_create_embedding_model_contract(
@@ -1199,7 +1199,7 @@ def test_dataset_create_embedding_model_contract(
     assert res.status_code == 200
     payload = res.json()
     if unauthorized_is_xfail and payload["code"] == 102:
-        pytest.xfail(f"Environment has no authorized tenant model for {embedding_model}: {payload}")
+        pytest.xfail(f"Environment has no authorized scope model for {embedding_model}: {payload}")
     assert payload["code"] == expected_code, payload
     if expected_embedding_model is not None:
         assert payload["data"]["embedding_model"] == expected_embedding_model, payload
@@ -1720,7 +1720,7 @@ def test_dataset_create_parser_config_defaults_and_extra_fields_contract(rest_cl
 
     unsupported_field_payloads = [
         {"name": "id", "id": "id"},
-        {"name": "tenant_id", "tenant_id": "e57c1966f99211efb41e9e45646e0111"},
+        {"name": "scope_id", "scope_id": "e57c1966f99211efb41e9e45646e0111"},
         {"name": "created_by", "created_by": "created_by"},
         {"name": "create_date", "create_date": "Tue, 11 Mar 2025 13:37:23 GMT"},
         {"name": "create_time", "create_time": 1741671443322},
@@ -1839,13 +1839,13 @@ def test_dataset_delete_contract_matrix(rest_client, clear_datasets):
     assert id_not_uuid1_res.status_code == 200
     id_not_uuid1_payload = id_not_uuid1_res.json()
     assert id_not_uuid1_payload["code"] == 102, id_not_uuid1_payload
-    assert "lacks permission for dataset" in id_not_uuid1_payload["message"], id_not_uuid1_payload
+    assert "not found" in id_not_uuid1_payload["message"], id_not_uuid1_payload
 
     id_wrong_uuid_res = rest_client.delete("/datasets", json={"ids": ["d94a8dc02c9711f0930f7fbc369eab6d"]})
     assert id_wrong_uuid_res.status_code == 200
     id_wrong_uuid_payload = id_wrong_uuid_res.json()
     assert id_wrong_uuid_payload["code"] == 102, id_wrong_uuid_payload
-    assert "lacks permission for dataset" in id_wrong_uuid_payload["message"], id_wrong_uuid_payload
+    assert "not found" in id_wrong_uuid_payload["message"], id_wrong_uuid_payload
 
     list_res = rest_client.get("/datasets")
     assert list_res.status_code == 200
@@ -1862,7 +1862,7 @@ def test_dataset_delete_contract_matrix(rest_client, clear_datasets):
         assert partial_invalid_res.status_code == 200
         partial_invalid_payload = partial_invalid_res.json()
         assert partial_invalid_payload["code"] == 102, partial_invalid_payload
-        assert "lacks permission for dataset" in partial_invalid_payload["message"], partial_invalid_payload
+        assert "not found" in partial_invalid_payload["message"], partial_invalid_payload
 
     duplicate_ids_res = rest_client.delete("/datasets", json={"ids": remaining_ids + remaining_ids})
     assert duplicate_ids_res.status_code == 200
@@ -1880,7 +1880,7 @@ def test_dataset_delete_contract_matrix(rest_client, clear_datasets):
     assert second_delete_res.status_code == 200
     second_delete_payload = second_delete_res.json()
     assert second_delete_payload["code"] == 102, second_delete_payload
-    assert "lacks permission for dataset" in second_delete_payload["message"], second_delete_payload
+    assert "not found" in second_delete_payload["message"], second_delete_payload
 
     unsupported_field_res = rest_client.delete("/datasets", json={"unknown_field": "unknown_field"})
     assert unsupported_field_res.status_code == 200
@@ -2086,7 +2086,7 @@ def test_dataset_list_query_contract_matrix(rest_client, clear_datasets):
     assert name_wrong_res.status_code == 200
     name_wrong_payload = name_wrong_res.json()
     assert name_wrong_payload["code"] == 102, name_wrong_payload
-    assert "lacks permission for dataset" in name_wrong_payload["message"], name_wrong_payload
+    assert "not found" in name_wrong_payload["message"], name_wrong_payload
 
     name_empty_res = rest_client.get("/datasets", params={"name": ""})
     assert name_empty_res.status_code == 200
@@ -2117,13 +2117,13 @@ def test_dataset_list_query_contract_matrix(rest_client, clear_datasets):
     assert id_not_uuid1_res.status_code == 200
     id_not_uuid1_payload = id_not_uuid1_res.json()
     assert id_not_uuid1_payload["code"] == 102, id_not_uuid1_payload
-    assert "lacks permission for dataset" in id_not_uuid1_payload["message"], id_not_uuid1_payload
+    assert "not found" in id_not_uuid1_payload["message"], id_not_uuid1_payload
 
     id_wrong_uuid_res = rest_client.get("/datasets", params={"id": "d94a8dc02c9711f0930f7fbc369eab6d"})
     assert id_wrong_uuid_res.status_code == 200
     id_wrong_uuid_payload = id_wrong_uuid_res.json()
     assert id_wrong_uuid_payload["code"] == 102, id_wrong_uuid_payload
-    assert "lacks permission for dataset" in id_wrong_uuid_payload["message"], id_wrong_uuid_payload
+    assert "not found" in id_wrong_uuid_payload["message"], id_wrong_uuid_payload
 
     id_empty_res = rest_client.get("/datasets", params={"id": ""})
     assert id_empty_res.status_code == 200
@@ -2154,7 +2154,7 @@ def test_dataset_list_query_contract_matrix(rest_client, clear_datasets):
         assert name_id_wrong_res.status_code == 200
         name_id_wrong_payload = name_id_wrong_res.json()
         assert name_id_wrong_payload["code"] == 102, name_id_wrong_payload
-        assert "lacks permission for dataset" in name_id_wrong_payload["message"], name_id_wrong_payload
+        assert "not found" in name_id_wrong_payload["message"], name_id_wrong_payload
 
     unsupported_field_res = rest_client.get("/datasets", params={"unknown_field": "unknown_field"})
     assert unsupported_field_res.status_code == 200
@@ -2238,7 +2238,7 @@ def test_dataset_metadata_config_get_and_update_contract(rest_client, create_dat
     assert invalid_dataset_res.status_code == 200
     invalid_dataset_payload = invalid_dataset_res.json()
     assert invalid_dataset_payload["code"] == 102, invalid_dataset_payload
-    assert "lacks permission for dataset 'invalid_dataset_id'" in invalid_dataset_payload["message"], invalid_dataset_payload
+    assert "not found" in invalid_dataset_payload["message"], invalid_dataset_payload
 
     update_payload = {
         "metadata": [
@@ -2283,7 +2283,7 @@ def test_dataset_metadata_config_get_and_update_contract(rest_client, create_dat
     assert invalid_update_dataset_res.status_code == 200
     invalid_update_dataset_payload = invalid_update_dataset_res.json()
     assert invalid_update_dataset_payload["code"] == 102, invalid_update_dataset_payload
-    assert "lacks permission for dataset 'invalid_dataset_id'" in invalid_update_dataset_payload["message"], invalid_update_dataset_payload
+    assert "not found" in invalid_update_dataset_payload["message"], invalid_update_dataset_payload
 
 
 def test_dataset_metadata_summary_contract(rest_client, create_dataset, tmp_path):

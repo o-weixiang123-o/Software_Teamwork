@@ -19,10 +19,13 @@ import enum
 import json
 from common import settings
 from common.constants import ActiveStatusEnum, LLMType, MINERU_DEFAULT_CONFIG, MINERU_ENV_KEYS, OPENDATALOADER_DEFAULT_CONFIG, OPENDATALOADER_ENV_KEYS, PADDLEOCR_DEFAULT_CONFIG, PADDLEOCR_ENV_KEYS
-from api.db.services.tenant_llm_service import TenantService
-from api.db.services.tenant_model_provider_service import TenantModelProviderService
-from api.db.services.tenant_model_instance_service import TenantModelInstanceService
-from api.db.services.tenant_model_service import TenantModelService
+from api.db.services.runtime_model_provider_service import RuntimeModelProviderService
+from api.db.services.runtime_model_instance_service import RuntimeModelInstanceService
+from api.db.services.runtime_model_service import RuntimeModelService
+from api.utils.runtime_model_config import (
+    runtime_model_config,
+    split_model_reference,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,16 +54,16 @@ def _decode_api_key_config(raw_api_key: str) -> tuple[str, bool | None, str | No
     return parsed.get("api_key", raw_api_key), is_tools, raw_api_key
 
 
-def get_first_provider_model_name(tenant_id: str, provider_name: str, model_type: str | enum.Enum) -> str | None:
+def get_first_provider_model_name(scope_id: str, provider_name: str, model_type: str | enum.Enum) -> str | None:
     model_type_val = model_type if isinstance(model_type, str) else model_type.value
-    provider_obj = TenantModelProviderService.get_by_tenant_id_and_provider_name(tenant_id, provider_name)
+    provider_obj = RuntimeModelProviderService.get_by_scope_id_and_provider_name(scope_id, provider_name)
     if not provider_obj:
         return None
 
-    for instance_obj in TenantModelInstanceService.get_all_by_provider_id(provider_obj.id):
+    for instance_obj in RuntimeModelInstanceService.get_all_by_provider_id(provider_obj.id):
         if instance_obj.status != ActiveStatusEnum.ACTIVE.value:
             continue
-        for model_obj in TenantModelService.get_models_by_instance_id(instance_obj.id):
+        for model_obj in RuntimeModelService.get_models_by_instance_id(instance_obj.id):
             if model_obj.model_type == model_type_val and model_obj.status == ActiveStatusEnum.ACTIVE.value:
                 return f"{model_obj.model_name}@{instance_obj.instance_name}@{provider_name}"
     return None
@@ -77,33 +80,33 @@ def _collect_env_config(env_keys: list[str], default_config: dict) -> dict | Non
     return config if found else None
 
 
-def _ensure_ocr_provider_from_env(tenant_id: str, provider_name: str, model_name: str, config: dict | None) -> str | None:
+def _ensure_ocr_provider_from_env(scope_id: str, provider_name: str, model_name: str, config: dict | None) -> str | None:
     if not config:
         return None
 
-    provider_obj = TenantModelProviderService.get_by_tenant_id_and_provider_name(tenant_id, provider_name)
+    provider_obj = RuntimeModelProviderService.get_by_scope_id_and_provider_name(scope_id, provider_name)
     if not provider_obj:
-        TenantModelProviderService.insert(tenant_id=tenant_id, provider_name=provider_name)
-        provider_obj = TenantModelProviderService.get_by_tenant_id_and_provider_name(tenant_id, provider_name)
+        RuntimeModelProviderService.insert(scope_id=scope_id, provider_name=provider_name)
+        provider_obj = RuntimeModelProviderService.get_by_scope_id_and_provider_name(scope_id, provider_name)
 
     api_key = json.dumps(config)
-    instance_obj = TenantModelInstanceService.get_by_provider_id_and_api_key(provider_obj.id, api_key)
+    instance_obj = RuntimeModelInstanceService.get_by_provider_id_and_api_key(provider_obj.id, api_key)
     if not instance_obj:
-        instance_obj = TenantModelInstanceService.create_instance(
+        instance_obj = RuntimeModelInstanceService.create_instance(
             provider_id=provider_obj.id,
             instance_name=model_name,
             api_key=api_key,
             extra="{}",
         )
 
-    model_obj = TenantModelService.get_by_provider_id_and_instance_id_and_model_type_and_model_name(
+    model_obj = RuntimeModelService.get_by_provider_id_and_instance_id_and_model_type_and_model_name(
         provider_obj.id,
         instance_obj.id,
         LLMType.OCR.value,
         model_name,
     )
     if not model_obj:
-        TenantModelService.insert(
+        RuntimeModelService.insert(
             model_name=model_name,
             provider_id=provider_obj.id,
             instance_id=instance_obj.id,
@@ -114,26 +117,26 @@ def _ensure_ocr_provider_from_env(tenant_id: str, provider_name: str, model_name
     return f"{model_name}@{instance_obj.instance_name}@{provider_name}"
 
 
-def ensure_mineru_from_env(tenant_id: str) -> str | None:
+def ensure_mineru_from_env(scope_id: str) -> str | None:
     return _ensure_ocr_provider_from_env(
-        tenant_id,
+        scope_id,
         "MinerU",
         "mineru-from-env",
         _collect_env_config(MINERU_ENV_KEYS, MINERU_DEFAULT_CONFIG),
     )
 
 
-def ensure_paddleocr_from_env(tenant_id: str) -> str | None:
+def ensure_paddleocr_from_env(scope_id: str) -> str | None:
     return _ensure_ocr_provider_from_env(
-        tenant_id,
+        scope_id,
         "PaddleOCR",
         "paddleocr-from-env",
         _collect_env_config(PADDLEOCR_ENV_KEYS, PADDLEOCR_DEFAULT_CONFIG),
     )
 
 
-def ensure_paddleocr_from_config(tenant_id: str, config: dict | None, model_name: str | None = None) -> str | None:
-    """Provision a tenant PaddleOCR OCR model from protected parser credentials."""
+def ensure_paddleocr_from_config(scope_id: str, config: dict | None, model_name: str | None = None) -> str | None:
+    """Provision a scope PaddleOCR OCR model from protected parser credentials."""
     if not isinstance(config, dict):
         return None
 
@@ -161,64 +164,31 @@ def ensure_paddleocr_from_config(tenant_id: str, config: dict | None, model_name
         selected_model = PADDLEOCR_DEFAULT_CONFIG["PADDLEOCR_ALGORITHM"]
     normalized["PADDLEOCR_ALGORITHM"] = selected_model
 
-    return _ensure_ocr_provider_from_env(tenant_id, "PaddleOCR", selected_model, normalized)
+    return _ensure_ocr_provider_from_env(scope_id, "PaddleOCR", selected_model, normalized)
 
 
-def get_tenant_default_model_by_type(tenant_id: str, model_type: str|enum.Enum):
-    exist, tenant = TenantService.get_by_id(tenant_id)
-    if not exist:
-        raise LookupError("Tenant not found")
-    model_type_val = model_type if isinstance(model_type, str) else model_type.value
-    model_name: str = ""
-    match model_type_val:
-        case LLMType.EMBEDDING.value:
-            model_name = tenant.embd_id
-        case LLMType.SPEECH2TEXT.value:
-            model_name =  tenant.asr_id
-        case LLMType.IMAGE2TEXT.value:
-            model_name = tenant.img2txt_id
-        case LLMType.CHAT.value:
-            model_name = tenant.llm_id
-        case LLMType.RERANK.value:
-            model_name = tenant.rerank_id
-        case LLMType.TTS.value:
-            model_name = tenant.tts_id
-        case LLMType.OCR.value:
-            raise Exception("OCR model name is required")
-        case _:
-            raise Exception(f"Unknown model type {model_type}")
-    if not model_name:
-        raise Exception(f"No default {model_type} model is set.")
-    return get_model_config_from_provider_instance(tenant_id, model_type, model_name)
+def get_runtime_default_model_by_type(scope_id: str, model_type: str|enum.Enum):
+    runtime_config = runtime_model_config(model_type)
+    if runtime_config:
+        return runtime_config
+
+    raise LookupError(f"Default runtime model for {model_type} is not configured")
 
 
 def split_model_name(model_name: str):
     # Parse model_name: {model_name} or {model_name}@{factory_name} or {model_name}@{instance_name}@{factory_name}
-    parts = model_name.split("@")
-    if len(parts) == 1:
-        pure_model_name = parts[0]
-        provider_name = ""
-        instance_name = ""
-    elif len(parts) == 2:
-        pure_model_name = parts[0]
-        provider_name = parts[1]
-        instance_name = "default"
-    else:
-        pure_model_name = parts[0]
-        instance_name = parts[1]
-        provider_name = parts[2]
-    return pure_model_name, instance_name, provider_name
+    return split_model_reference(model_name)
 
 
 def _resolve_instance_for_model(provider_obj, instance_name: str, model_name: str):
-    instance_obj = TenantModelInstanceService.get_by_provider_id_and_instance_name(provider_obj.id, instance_name)
+    instance_obj = RuntimeModelInstanceService.get_by_provider_id_and_instance_name(provider_obj.id, instance_name)
     if instance_obj:
         return instance_obj
     if instance_name != "default":
         raise LookupError(f"Instance {instance_name} not found for model {model_name}.")
 
     active_instances = [
-        inst for inst in TenantModelInstanceService.get_all_by_provider_id(provider_obj.id)
+        inst for inst in RuntimeModelInstanceService.get_all_by_provider_id(provider_obj.id)
         if inst.status == ActiveStatusEnum.ACTIVE.value
     ]
     if len(active_instances) == 1:
@@ -236,7 +206,11 @@ def _resolve_instance_for_model(provider_obj, instance_name: str, model_name: st
     raise LookupError(f"Instance {instance_name} not found for model {model_name}.")
 
 
-def get_model_config_from_provider_instance(tenant_id, model_type: str|enum.Enum, model_name: str):
+def get_model_config_from_provider_instance(scope_id, model_type: str|enum.Enum, model_name: str):
+    runtime_config = runtime_model_config(model_type, model_name)
+    if runtime_config:
+        return runtime_config
+
     pure_model_name, instance_name, provider_name = split_model_name(model_name)
     model_type_val = model_type if isinstance(model_type, str) else model_type.value
     # Builtin embedding model
@@ -258,11 +232,11 @@ def get_model_config_from_provider_instance(tenant_id, model_type: str|enum.Enum
             "model_type": LLMType.EMBEDDING.value,
         }
 
-    provider_obj = TenantModelProviderService.get_by_tenant_id_and_provider_name(tenant_id, provider_name)
+    provider_obj = RuntimeModelProviderService.get_by_scope_id_and_provider_name(scope_id, provider_name)
     if not provider_obj:
         raise LookupError(f"Provider {provider_name} not found for model {model_name}.")
     instance_obj = _resolve_instance_for_model(provider_obj, instance_name, model_name)
-    model_obj = TenantModelService.get_by_provider_id_and_instance_id_and_model_type_and_model_name(provider_obj.id, instance_obj.id, model_type_val, pure_model_name)
+    model_obj = RuntimeModelService.get_by_provider_id_and_instance_id_and_model_type_and_model_name(provider_obj.id, instance_obj.id, model_type_val, pure_model_name)
 
     api_key, is_tool, api_key_payload = _decode_api_key_config(instance_obj.api_key)
     extra_fields = json.loads(instance_obj.extra) if instance_obj.extra else {}
@@ -316,25 +290,33 @@ def get_model_config_from_provider_instance(tenant_id, model_type: str|enum.Enum
         return model_config
 
 
-def get_api_key(tenant_id: str, model_name: str):
+def get_api_key(scope_id: str, model_name: str):
     _, instance_name, provider_name = split_model_name(model_name)
+    runtime_config = runtime_model_config("", model_name)
+    if runtime_config is not None:
+        return runtime_config.get("api_key", "")
 
     if not provider_name:
         raise LookupError("Provider name is required.")
-    provider_obj = TenantModelProviderService.get_by_tenant_id_and_provider_name(tenant_id, provider_name)
+    provider_obj = RuntimeModelProviderService.get_by_scope_id_and_provider_name(scope_id, provider_name)
     if not provider_obj:
         raise LookupError(f"Provider {provider_name} not found.")
     instance_obj = _resolve_instance_for_model(provider_obj, instance_name, model_name)
     return instance_obj.api_key
 
 
-def get_model_type_by_name(tenant_id: str, model_name: str):
+def get_model_type_by_name(scope_id: str, model_name: str):
     pure_model_name, instance_name, provider_name = split_model_name(model_name)
-    provider_obj = TenantModelProviderService.get_by_tenant_id_and_provider_name(tenant_id, provider_name)
+    for model_type in (LLMType.EMBEDDING.value, LLMType.RERANK.value, LLMType.CHAT.value, LLMType.IMAGE2TEXT.value, LLMType.SPEECH2TEXT.value):
+        config = runtime_model_config(model_type, model_name)
+        if config is not None:
+            return [model_type]
+
+    provider_obj = RuntimeModelProviderService.get_by_scope_id_and_provider_name(scope_id, provider_name)
     if not provider_obj:
         raise LookupError(f"Provider {provider_name} not found for model {model_name}.")
     instance_obj = _resolve_instance_for_model(provider_obj, instance_name, model_name)
-    model_objs = TenantModelService.get_by_provider_id_and_instance_id_and_model_name(provider_obj.id, instance_obj.id, pure_model_name)
+    model_objs = RuntimeModelService.get_by_provider_id_and_instance_id_and_model_name(provider_obj.id, instance_obj.id, pure_model_name)
     types_in_json = []
     if not model_objs:
         extra_fields = json.loads(instance_obj.extra) if instance_obj.extra else {}
@@ -354,37 +336,36 @@ def get_model_type_by_name(tenant_id: str, model_name: str):
 
 
 def delete_models_by_instance_ids(instance_ids: list[str]):
-    return TenantModelService.delete_by_instance_ids(instance_ids)
+    return RuntimeModelService.delete_by_instance_ids(instance_ids)
 
 
 def delete_instances_by_provider_ids(provider_ids: list[str]):
-    return TenantModelInstanceService.delete_by_provider_ids(provider_ids)
+    return RuntimeModelInstanceService.delete_by_provider_ids(provider_ids)
 
 
-def ensure_opendataloader_from_env(tenant_id: str) -> str | None:
+def ensure_opendataloader_from_env(scope_id: str) -> str | None:
     return _ensure_ocr_provider_from_env(
-        tenant_id,
+        scope_id,
         "OpenDataLoader",
         "opendataloader-from-env",
         _collect_env_config(OPENDATALOADER_ENV_KEYS, OPENDATALOADER_DEFAULT_CONFIG),
     )
 
 
-def get_models_by_tenant_and_provider_and_model_type(tenant_id: str, provider_name: str, model_type: str):
+def get_models_by_scope_and_provider_and_model_type(scope_id: str, provider_name: str, model_type: str):
     """
-    Query TenantModel records by tenant_id, provider_name and model_name.
+    Query RuntimeModel records by scope_id, provider_name and model_type.
     Returns all matching model records under all instances of the specified provider.
     """
-    provider_obj = TenantModelProviderService.get_by_tenant_id_and_provider_name(tenant_id, provider_name)
+    provider_obj = RuntimeModelProviderService.get_by_scope_id_and_provider_name(scope_id, provider_name)
     if not provider_obj:
         return []
-    instances = TenantModelInstanceService.get_all_by_provider_id(provider_obj.id)
+    instances = RuntimeModelInstanceService.get_all_by_provider_id(provider_obj.id)
     if not instances:
         return []
     results = []
     for inst in instances:
-        models = TenantModelService.get_by_provider_id_and_instance_id_and_model_type(provider_obj.id, inst.id, model_type)
-        supported = [model for model in models if model.status != ActiveStatusEnum.UNSUPPORTED.value]
-        if supported:
-            results.extend(supported)
+        model = RuntimeModelService.get_by_provider_id_and_instance_id_and_model_type(provider_obj.id, inst.id, model_type)
+        if model and model.status != ActiveStatusEnum.UNSUPPORTED.value:
+            results.append(model)
     return results

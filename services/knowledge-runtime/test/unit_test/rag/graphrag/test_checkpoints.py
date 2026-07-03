@@ -126,9 +126,9 @@ def test_checkpoint_keys_are_stable():
 @pytest.mark.p1
 @pytest.mark.asyncio
 async def test_load_checkpoints_reads_redis_index(fake_redis, monkeypatch):
-    await checkpoints.save_checkpoint("tenant-1", "kb-1", checkpoints.COMMUNITY_CHECKPOINT, "k1", {"value": 1})
-    await checkpoints.save_checkpoint("tenant-1", "kb-1", checkpoints.COMMUNITY_CHECKPOINT, "k2", {"value": 2})
-    await checkpoints.save_checkpoint("tenant-1", "kb-2", checkpoints.COMMUNITY_CHECKPOINT, "k3", {"value": 3})
+    await checkpoints.save_checkpoint("scope-1", "kb-1", checkpoints.COMMUNITY_CHECKPOINT, "k1", {"value": 1})
+    await checkpoints.save_checkpoint("scope-1", "kb-1", checkpoints.COMMUNITY_CHECKPOINT, "k2", {"value": 2})
+    await checkpoints.save_checkpoint("scope-1", "kb-2", checkpoints.COMMUNITY_CHECKPOINT, "k3", {"value": 3})
 
     thread_pool_calls = []
 
@@ -138,18 +138,18 @@ async def test_load_checkpoints_reads_redis_index(fake_redis, monkeypatch):
 
     monkeypatch.setattr(checkpoints, "thread_pool_exec", _fake_thread_pool_exec)
 
-    loaded = await checkpoints.load_checkpoints("tenant-1", "kb-1", checkpoints.COMMUNITY_CHECKPOINT, page_size=1)
+    loaded = await checkpoints.load_checkpoints("scope-1", "kb-1", checkpoints.COMMUNITY_CHECKPOINT, page_size=1)
 
     assert loaded == {"k1": {"value": 1}, "k2": {"value": 2}}
     assert thread_pool_calls == [
         (
             checkpoints._load_checkpoints_sync,
-            ("tenant-1", "kb-1", checkpoints.COMMUNITY_CHECKPOINT, 1),
+            ("scope-1", "kb-1", checkpoints.COMMUNITY_CHECKPOINT, 1),
             {},
         )
     ]
     assert fake_redis.REDIS.scan_counts[-1] == (
-        "graphrag:checkpoint:tenant-1:kb-1:graphrag_checkpoint_community:keys",
+        "graphrag:checkpoint:scope-1:kb-1:graphrag_checkpoint_community:keys",
         1,
     )
 
@@ -159,7 +159,7 @@ async def test_load_checkpoints_reads_redis_index(fake_redis, monkeypatch):
 async def test_save_checkpoint_degrades_on_redis_failure(fake_redis):
     fake_redis.fail_pipeline = True
 
-    saved = await checkpoints.save_checkpoint("tenant-1", "kb-1", checkpoints.RESOLUTION_CHECKPOINT, "key-1", {"ok": True})
+    saved = await checkpoints.save_checkpoint("scope-1", "kb-1", checkpoints.RESOLUTION_CHECKPOINT, "key-1", {"ok": True})
 
     assert saved is False
     assert fake_redis.values == {}
@@ -169,16 +169,16 @@ async def test_save_checkpoint_degrades_on_redis_failure(fake_redis):
 @pytest.mark.p2
 @pytest.mark.asyncio
 async def test_cleanup_checkpoints_deletes_redis_stage_keys(fake_redis):
-    await checkpoints.save_checkpoint("tenant-1", "kb-1", checkpoints.RESOLUTION_CHECKPOINT, "k1", {"value": 1})
-    await checkpoints.save_checkpoint("tenant-1", "kb-1", checkpoints.RESOLUTION_CHECKPOINT, "k2", {"value": 2})
-    await checkpoints.save_checkpoint("tenant-1", "kb-1", checkpoints.COMMUNITY_CHECKPOINT, "k3", {"value": 3})
+    await checkpoints.save_checkpoint("scope-1", "kb-1", checkpoints.RESOLUTION_CHECKPOINT, "k1", {"value": 1})
+    await checkpoints.save_checkpoint("scope-1", "kb-1", checkpoints.RESOLUTION_CHECKPOINT, "k2", {"value": 2})
+    await checkpoints.save_checkpoint("scope-1", "kb-1", checkpoints.COMMUNITY_CHECKPOINT, "k3", {"value": 3})
 
-    cleaned = await checkpoints.cleanup_checkpoints("tenant-1", "kb-1", checkpoints.RESOLUTION_CHECKPOINT, page_size=1)
+    cleaned = await checkpoints.cleanup_checkpoints("scope-1", "kb-1", checkpoints.RESOLUTION_CHECKPOINT, page_size=1)
 
     assert cleaned is True
-    assert await checkpoints.load_checkpoints("tenant-1", "kb-1", checkpoints.RESOLUTION_CHECKPOINT) == {}
-    assert await checkpoints.load_checkpoints("tenant-1", "kb-1", checkpoints.COMMUNITY_CHECKPOINT) == {"k3": {"value": 3}}
+    assert await checkpoints.load_checkpoints("scope-1", "kb-1", checkpoints.RESOLUTION_CHECKPOINT) == {}
+    assert await checkpoints.load_checkpoints("scope-1", "kb-1", checkpoints.COMMUNITY_CHECKPOINT) == {"k3": {"value": 3}}
     assert (
-        "graphrag:checkpoint:tenant-1:kb-1:graphrag_checkpoint_resolution:keys",
+        "graphrag:checkpoint:scope-1:kb-1:graphrag_checkpoint_resolution:keys",
         1,
     ) in fake_redis.REDIS.scan_counts

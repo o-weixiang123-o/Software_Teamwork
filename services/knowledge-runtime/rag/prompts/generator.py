@@ -211,19 +211,19 @@ async def question_proposal(chat_mdl, content, topn=3):
     return kwd
 
 
-async def cross_languages(tenant_id, llm_id, query, languages=[]):
+async def cross_languages(scope_id, llm_id, query, languages=[]):
     from common.constants import LLMType
     from api.db.services.llm_service import LLMBundle
-    from api.db.joint_services.tenant_model_service import get_model_config_from_provider_instance, get_tenant_default_model_by_type, get_model_type_by_name
+    from api.db.joint_services.runtime_model_service import get_model_config_from_provider_instance, get_runtime_default_model_by_type, get_model_type_by_name
 
-    if llm_id and "image2text" in get_model_type_by_name(tenant_id, llm_id) :
-        chat_model_config = get_model_config_from_provider_instance(tenant_id, LLMType.IMAGE2TEXT, llm_id)
+    if llm_id and "image2text" in get_model_type_by_name(scope_id, llm_id) :
+        chat_model_config = get_model_config_from_provider_instance(scope_id, LLMType.IMAGE2TEXT, llm_id)
     else:
         if not llm_id:
-            chat_model_config = get_tenant_default_model_by_type(tenant_id, LLMType.CHAT)
+            chat_model_config = get_runtime_default_model_by_type(scope_id, LLMType.CHAT)
         else:
-            chat_model_config = get_model_config_from_provider_instance(tenant_id, LLMType.CHAT, llm_id)
-    chat_mdl = LLMBundle(tenant_id, chat_model_config)
+            chat_model_config = get_model_config_from_provider_instance(scope_id, LLMType.CHAT, llm_id)
+    chat_mdl = LLMBundle(scope_id, chat_model_config)
     rendered_sys_prompt = PROMPT_JINJA_ENV.from_string(CROSS_LANGUAGES_SYS_PROMPT_TEMPLATE).render()
     rendered_user_prompt = PROMPT_JINJA_ENV.from_string(CROSS_LANGUAGES_USER_PROMPT_TEMPLATE).render(query=query,
                                                                                                      languages=languages)

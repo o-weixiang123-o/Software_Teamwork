@@ -20,11 +20,11 @@ import tempfile
 
 from common.constants import LLMType
 from api.db.services.llm_service import LLMBundle
-from api.db.joint_services.tenant_model_service import get_tenant_default_model_by_type
+from api.db.joint_services.runtime_model_service import get_runtime_default_model_by_type
 from rag.nlp import rag_tokenizer, tokenize
 
 
-def chunk(filename, binary, tenant_id, lang, callback=None, **kwargs):
+def chunk(filename, binary, scope_id, lang, callback=None, **kwargs):
     doc = {"docnm_kwd": filename, "title_tks": rag_tokenizer.tokenize(re.sub(r"\.[a-zA-Z]+$", "", filename))}
     doc["title_sm_tks"] = rag_tokenizer.fine_grained_tokenize(doc["title_tks"])
 
@@ -46,8 +46,8 @@ def chunk(filename, binary, tenant_id, lang, callback=None, **kwargs):
             tmp_path = os.path.abspath(tmpf.name)
 
         callback(0.1, "USE Sequence2Txt LLM to transcription the audio")
-        seq2txt_model_config = get_tenant_default_model_by_type(tenant_id, LLMType.SPEECH2TEXT)
-        seq2txt_mdl = LLMBundle(tenant_id, seq2txt_model_config, lang=lang)
+        seq2txt_model_config = get_runtime_default_model_by_type(scope_id, LLMType.SPEECH2TEXT)
+        seq2txt_mdl = LLMBundle(scope_id, seq2txt_model_config, lang=lang)
         ans = seq2txt_mdl.transcription(tmp_path)
         callback(0.8, "Sequence2Txt LLM respond: %s ..." % ans[:32])
 

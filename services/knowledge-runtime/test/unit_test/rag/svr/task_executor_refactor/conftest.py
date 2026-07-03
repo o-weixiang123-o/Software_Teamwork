@@ -82,7 +82,7 @@ def standard_task_dict() -> Dict[str, Any]:
     """Provide a minimal but complete task dict for standard chunking."""
     return {
         "id": f"task_{uuid.uuid4().hex[:8]}",
-        "tenant_id": "tenant_test",
+        "scope_id": "scope_test",
         "kb_id": "kb_test",
         "doc_id": "doc_test",
         "name": "test_document.pdf",
@@ -301,7 +301,7 @@ def create_patch_embedding_model(vectors=None, vector_size=128):
         "rag.svr.task_executor_refactor.task_handler.LLMBundle",
         return_value=mock_model,
     ), patch(
-        "rag.svr.task_executor_refactor.task_handler.get_tenant_default_model_by_type",
+        "rag.svr.task_executor_refactor.task_handler.get_runtime_default_model_by_type",
         return_value=MagicMock(),
     )
 
@@ -467,7 +467,7 @@ def make_task_context(**overrides):
     """
     defaults = {
         "id": "task_1",
-        "tenant_id": "tenant_1",
+        "scope_id": "scope_1",
         "kb_id": "kb_1",
         "doc_id": "doc_1",
         "name": "test.pdf",
@@ -537,7 +537,7 @@ class patch_embedding_binding:
     """Context manager that patches embedding model binding at the external boundary.
 
     Patches ``LLMBundle``, ``get_model_config_from_provider_instance``, and
-    ``get_tenant_default_model_by_type`` so that ``TaskHandler._bind_embedding_model``
+    ``get_runtime_default_model_by_type`` so that ``TaskHandler._bind_embedding_model``
     executes its real logic without making actual API calls.
 
     Usage::
@@ -574,7 +574,7 @@ class patch_embedding_binding:
                 return_value=mock_model,
             ),
             patch(
-                "rag.svr.task_executor_refactor.task_handler.get_tenant_default_model_by_type",
+                "rag.svr.task_executor_refactor.task_handler.get_runtime_default_model_by_type",
                 return_value=MagicMock(),
             ),
         ]
@@ -632,7 +632,7 @@ def make_task_dict(**overrides):
     """
     return {
         "id": f"task_{uuid.uuid4().hex[:8]}",
-        "tenant_id": "tenant_test",
+        "scope_id": "scope_test",
         "kb_id": "kb_test",
         "doc_id": "doc_test",
         "name": "test_document.pdf",
@@ -679,7 +679,7 @@ class patch_pipeline_mocks:
     _COMMON = [
         ("task_handler", "get_model_config_from_provider_instance", False),
         ("task_handler", "LLMBundle", False),
-        ("task_handler", "get_tenant_default_model_by_type", False),
+        ("task_handler", "get_runtime_default_model_by_type", False),
         ("task_handler", "search.index_name", False),
         ("task_handler", "thread_pool_exec", False),
         ("task_handler", "DocumentService", False),

@@ -17,7 +17,6 @@ func TestClientUsesKnowledgeRuntimeContractPaths(t *testing.T) {
 		method       string
 		path         string
 		query        string
-		tenant       string
 		serviceToken string
 	}
 
@@ -27,7 +26,6 @@ func TestClientUsesKnowledgeRuntimeContractPaths(t *testing.T) {
 			method:       r.Method,
 			path:         r.URL.Path,
 			query:        r.URL.RawQuery,
-			tenant:       r.Header.Get("X-Tenant-Id"),
 			serviceToken: r.Header.Get("X-Service-Token"),
 		})
 
@@ -85,51 +83,51 @@ func TestClientUsesKnowledgeRuntimeContractPaths(t *testing.T) {
 	if err := client.Ping(ctx); err != nil {
 		t.Fatalf("Ping: %v", err)
 	}
-	if status, err := client.RuntimeStatus(ctx, "tenant_1"); err != nil {
+	if status, err := client.RuntimeStatus(ctx, "runtime_scope_1"); err != nil {
 		t.Fatalf("RuntimeStatus: %v", err)
 	} else if status["task_executor_heartbeats"] == nil {
 		t.Fatalf("RuntimeStatus missing task_executor_heartbeats: %#v", status)
 	}
-	if _, _, err := client.ListDatasets(ctx, "tenant_1", 2, 10); err != nil {
+	if _, _, err := client.ListDatasets(ctx, "runtime_scope_1", 2, 10); err != nil {
 		t.Fatalf("ListDatasets: %v", err)
 	}
-	if _, err := client.CreateDataset(ctx, "tenant_1", []byte(`{"name":"Plain"}`)); err != nil {
+	if _, err := client.CreateDataset(ctx, "runtime_scope_1", []byte(`{"name":"Plain"}`)); err != nil {
 		t.Fatalf("CreateDataset plain: %v", err)
 	}
-	if _, err := client.CreateDataset(ctx, "tenant_1", []byte(`{"name":"Internal","parser_config_credentials":{"paddleocr_cloud":{"paddleocr_access_token":"sk-secret"}}}`)); err != nil {
+	if _, err := client.CreateDataset(ctx, "runtime_scope_1", []byte(`{"name":"Internal","parser_config_credentials":{"paddleocr_cloud":{"paddleocr_access_token":"sk-secret"}}}`)); err != nil {
 		t.Fatalf("CreateDataset internal credentials: %v", err)
 	}
-	if _, err := client.UploadDocument(ctx, "tenant_1", "kb_1", "notes.txt", "text/plain", strings.NewReader("hello")); err != nil {
+	if _, err := client.UploadDocument(ctx, "runtime_scope_1", "kb_1", "notes.txt", "text/plain", strings.NewReader("hello")); err != nil {
 		t.Fatalf("UploadDocument: %v", err)
 	}
-	if err := client.StartDocumentParse(ctx, "tenant_1", "kb_1", []string{"doc_1"}); err != nil {
+	if err := client.StartDocumentParse(ctx, "runtime_scope_1", "kb_1", []string{"doc_1"}); err != nil {
 		t.Fatalf("StartDocumentParse: %v", err)
 	}
-	if _, err := client.GetDatasetDocument(ctx, "tenant_1", "kb_1", "doc_1"); err != nil {
+	if _, err := client.GetDatasetDocument(ctx, "runtime_scope_1", "kb_1", "doc_1"); err != nil {
 		t.Fatalf("GetDatasetDocument: %v", err)
 	}
-	if _, _, err := client.ListChunks(ctx, "tenant_1", "kb_1", "doc_1", 1, 20); err != nil {
+	if _, _, err := client.ListChunks(ctx, "runtime_scope_1", "kb_1", "doc_1", 1, 20); err != nil {
 		t.Fatalf("ListChunks: %v", err)
 	}
-	if _, err := client.RetrievalSearch(ctx, "tenant_1", []byte(`{"question":"hello","dataset_ids":["kb_1"]}`)); err != nil {
+	if _, err := client.RetrievalSearch(ctx, "runtime_scope_1", []byte(`{"question":"hello","dataset_ids":["kb_1"]}`)); err != nil {
 		t.Fatalf("RetrievalSearch: %v", err)
 	}
-	if err := client.DeleteDocument(ctx, "tenant_1", "kb_1", "doc_1"); err != nil {
+	if err := client.DeleteDocument(ctx, "runtime_scope_1", "kb_1", "doc_1"); err != nil {
 		t.Fatalf("DeleteDocument: %v", err)
 	}
 
 	expected := []call{
 		{method: http.MethodGet, path: "/api/v1/system/ping"},
-		{method: http.MethodGet, path: "/api/v1/system/status", tenant: "tenant_1", serviceToken: "runtime-token"},
-		{method: http.MethodGet, path: "/api/v1/datasets", query: "page=2&page_size=10", tenant: "tenant_1", serviceToken: "runtime-token"},
-		{method: http.MethodPost, path: "/api/v1/datasets", tenant: "tenant_1", serviceToken: "runtime-token"},
-		{method: http.MethodPost, path: "/api/v1/internal/datasets", tenant: "tenant_1", serviceToken: "runtime-token"},
-		{method: http.MethodPost, path: "/api/v1/datasets/kb_1/documents", query: "type=local", tenant: "tenant_1", serviceToken: "runtime-token"},
-		{method: http.MethodPost, path: "/api/v1/datasets/kb_1/documents/parse", tenant: "tenant_1", serviceToken: "runtime-token"},
-		{method: http.MethodGet, path: "/api/v1/datasets/kb_1/documents", query: "page=1&page_size=100", tenant: "tenant_1", serviceToken: "runtime-token"},
-		{method: http.MethodGet, path: "/api/v1/datasets/kb_1/documents/doc_1/chunks", query: "page=1&page_size=20", tenant: "tenant_1", serviceToken: "runtime-token"},
-		{method: http.MethodPost, path: "/api/v1/datasets/search", tenant: "tenant_1", serviceToken: "runtime-token"},
-		{method: http.MethodDelete, path: "/api/v1/datasets/kb_1/documents", tenant: "tenant_1", serviceToken: "runtime-token"},
+		{method: http.MethodGet, path: "/api/v1/system/status", serviceToken: "runtime-token"},
+		{method: http.MethodGet, path: "/api/v1/datasets", query: "page=2&page_size=10", serviceToken: "runtime-token"},
+		{method: http.MethodPost, path: "/api/v1/datasets", serviceToken: "runtime-token"},
+		{method: http.MethodPost, path: "/api/v1/internal/datasets", serviceToken: "runtime-token"},
+		{method: http.MethodPost, path: "/api/v1/datasets/kb_1/documents", query: "type=local", serviceToken: "runtime-token"},
+		{method: http.MethodPost, path: "/api/v1/datasets/kb_1/documents/parse", serviceToken: "runtime-token"},
+		{method: http.MethodGet, path: "/api/v1/datasets/kb_1/documents", query: "page=1&page_size=100", serviceToken: "runtime-token"},
+		{method: http.MethodGet, path: "/api/v1/datasets/kb_1/documents/doc_1/chunks", query: "page=1&page_size=20", serviceToken: "runtime-token"},
+		{method: http.MethodPost, path: "/api/v1/datasets/search", serviceToken: "runtime-token"},
+		{method: http.MethodDelete, path: "/api/v1/datasets/kb_1/documents", serviceToken: "runtime-token"},
 	}
 
 	if len(calls) != len(expected) {
@@ -161,7 +159,7 @@ func TestGetDatasetDocumentScansAllPages(t *testing.T) {
 	defer server.Close()
 
 	client := New(server.URL, time.Second, "runtime-token")
-	doc, err := client.GetDatasetDocument(context.Background(), "tenant_1", "kb_1", "doc_101")
+	doc, err := client.GetDatasetDocument(context.Background(), "runtime_scope_1", "kb_1", "doc_101")
 	if err != nil {
 		t.Fatalf("GetDatasetDocument: %v", err)
 	}
@@ -192,7 +190,7 @@ func TestClientPropagatesRequestIDFromContext(t *testing.T) {
 
 	client := New(server.URL, time.Second, "runtime-token")
 	ctx := ContextWithRequestID(context.Background(), "req_trace")
-	if _, _, err := client.ListDatasets(ctx, "tenant_1", 1, 20); err != nil {
+	if _, _, err := client.ListDatasets(ctx, "runtime_scope_1", 1, 20); err != nil {
 		t.Fatalf("ListDatasets: %v", err)
 	}
 	if gotRequestID != "req_trace" {
@@ -210,7 +208,7 @@ func TestDeleteDocumentRejectsVendorEnvelopeError(t *testing.T) {
 	defer server.Close()
 
 	client := New(server.URL, time.Second, "runtime-token")
-	err := client.DeleteDocument(context.Background(), "tenant_1", "kb_1", "doc_1")
+	err := client.DeleteDocument(context.Background(), "runtime_scope_1", "kb_1", "doc_1")
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) {
 		t.Fatalf("DeleteDocument error = %v, want APIError", err)
@@ -231,7 +229,7 @@ func TestClientPreservesHTTPStatusOnVendorError(t *testing.T) {
 	defer server.Close()
 
 	client := New(server.URL, time.Second, "runtime-token")
-	_, err := client.GetDataset(context.Background(), "tenant_1", "missing")
+	_, err := client.GetDataset(context.Background(), "runtime_scope_1", "missing")
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) {
 		t.Fatalf("GetDataset error = %v, want APIError", err)
@@ -254,7 +252,7 @@ func TestDownloadDocumentRejectsJSONErrorEnvelope(t *testing.T) {
 	defer server.Close()
 
 	client := New(server.URL, time.Second, "runtime-token")
-	_, _, err := client.DownloadDocument(context.Background(), "tenant_1", "kb_1", "doc_1")
+	_, _, err := client.DownloadDocument(context.Background(), "runtime_scope_1", "kb_1", "doc_1")
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) {
 		t.Fatalf("DownloadDocument error = %v, want APIError", err)

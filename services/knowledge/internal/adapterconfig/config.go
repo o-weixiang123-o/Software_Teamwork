@@ -27,10 +27,9 @@ const (
 type Config struct {
 	HTTPAddr                  string
 	MCPAddr                   string
-	MCPUserID                 string
+	MCPCallerID               string
 	MCPRoles                  string
 	MCPPermissions            string
-	ProjectRuntimeUserID      string
 	ServiceVersion            string
 	Environment               string
 	ServiceToken              string
@@ -39,8 +38,8 @@ type Config struct {
 	VendorEmbeddingID         string
 	VendorRerankID            string
 	DatabaseURL               string
-	RuntimeReadinessMode      RuntimeReadinessMode
 	AutoStartIngestion        bool
+	RuntimeReadinessMode      RuntimeReadinessMode
 	RuntimeWorkerStartCommand string
 	RuntimeWorkerStartTimeout time.Duration
 	ShutdownTimeout           time.Duration
@@ -50,10 +49,9 @@ func Load() (Config, error) {
 	cfg := Config{
 		HTTPAddr:                  stringValue("KNOWLEDGE_HTTP_ADDR", DefaultHTTPAddr),
 		MCPAddr:                   strings.TrimSpace(os.Getenv("KNOWLEDGE_MCP_ADDR")),
-		MCPUserID:                 stringValue("KNOWLEDGE_MCP_USER_ID", "knowledge_mcp_service"),
+		MCPCallerID:               stringValue("KNOWLEDGE_MCP_CALLER_ID", "knowledge_mcp"),
 		MCPRoles:                  strings.TrimSpace(os.Getenv("KNOWLEDGE_MCP_ROLES")),
 		MCPPermissions:            stringValue("KNOWLEDGE_MCP_PERMISSIONS", "knowledge:read"),
-		ProjectRuntimeUserID:      stringValue("KNOWLEDGE_PROJECT_RUNTIME_USER_ID", stringValue("KNOWLEDGE_MCP_USER_ID", "knowledge_mcp_service")),
 		ServiceVersion:            stringValue("KNOWLEDGE_SERVICE_VERSION", DefaultServiceVersion),
 		Environment:               stringValue("KNOWLEDGE_ENV", DefaultEnvironment),
 		RuntimeReadinessMode:      RuntimeReadinessModeIngestion,
@@ -100,7 +98,6 @@ func Load() (Config, error) {
 	if strings.TrimSpace(cfg.VendorRuntimeToken) == "" {
 		return Config{}, fmt.Errorf("VENDOR_RUNTIME_SERVICE_TOKEN is required")
 	}
-
 	return cfg, nil
 }
 

@@ -23,7 +23,7 @@ from api.db.db_utils import bulk_insert_into_db
 from peewee import JOIN
 from api.db.db_models import DB, File2Document, File
 from api.db import FileType
-from api.db.db_models import Task, Document, Knowledgebase, Tenant
+from api.db.db_models import Task, Document, Knowledgebase
 from api.db.services.common_service import CommonService
 from api.db.services.document_service import DocumentService
 from common.misc_utils import get_uuid
@@ -32,6 +32,7 @@ from common.constants import StatusEnum, TaskStatus, MAXIMUM_PAGE_NUMBER, MAXIMU
 from rag.utils.redis_conn import REDIS_CONN
 from common import settings
 from rag.nlp import search
+from api.utils.runtime_model_config import default_model_id
 
 DATASET_SCOPE_TASK_DOC_ID = "graph_raptor_x"
 # Backward-compatible alias for existing imports. New code should use
@@ -93,7 +94,7 @@ class TaskService(CommonService):
         """Retrieve detailed task information by task ID.
 
         This method fetches comprehensive task details including associated document,
-        dataset, and tenant information. It also handles task retry logic and
+        dataset, and scope information. It also handles task retry logic and
         progress updates.
 
         Args:
@@ -119,26 +120,26 @@ class TaskService(CommonService):
             Document.type,
             Document.location,
             Document.size,
-            Knowledgebase.tenant_id,
+            Knowledgebase.scope_id,
             Knowledgebase.language,
             Knowledgebase.embd_id,
             Knowledgebase.pagerank,
             Knowledgebase.parser_config.alias("kb_parser_config"),
-            Tenant.img2txt_id,
-            Tenant.asr_id,
-            Tenant.llm_id,
             cls.model.update_time,
         ]
         docs = (
             cls.model.select(*fields)
                 .join(Document, on=doc_join)
                 .join(Knowledgebase, on=(Document.kb_id == Knowledgebase.id))
-                .join(Tenant, on=(Knowledgebase.tenant_id == Tenant.id))
                 .where(cls.model.id == task_id)
         )
         docs = list(docs.dicts())
         if not docs:
             return None
+
+        docs[0]["img2txt_id"] = default_model_id("image2text")
+        docs[0]["asr_id"] = default_model_id("speech2text")
+        docs[0]["llm_id"] = default_model_id("chat")
 
         msg = f"\n{datetime.now().strftime('%H:%M:%S')} Task has been received."
         prog = random.random() / 10.0
@@ -492,7 +493,7 @@ def queue_tasks(doc: dict, bucket: str, name: str, priority: int):
             if pre_task["chunk_ids"]:
                 pre_chunk_ids.extend(pre_task["chunk_ids"].split())
         if pre_chunk_ids:
-            settings.docStoreConn.delete({"id": pre_chunk_ids}, search.index_name(chunking_config["tenant_id"]),
+            settings.docStoreConn.delete({"id": pre_chunk_ids}, search.index_name(chunking_config["scope_id"]),
                                          chunking_config["kb_id"])
     DocumentService.update_by_id(doc["id"], {"chunk_num": ck_num})
 

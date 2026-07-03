@@ -9,7 +9,7 @@
 - 链路按主要工作流归类，不按每个 endpoint 穷举。
 - 每条链路都标出 owner service。拥有业务状态的服务负责校验业务规则和修改数据。
 - `gateway` 可以暴露公开路径、注入上下文和归一化响应，但不得承载领域业务流程。
-- `file`、Knowledge RAGFlow runtime、`ai-gateway`、Redis/asynq、runtime doc engine 和 File Service storage backend 等依赖只提供基础能力，不拥有调用方的领域状态。当前 Knowledge 主路径的对象、chunks 和索引归 RAGFlow runtime 边界。
+- `file`、Knowledge runtime、`ai-gateway`、Redis/asynq、runtime doc engine 和 File Service storage backend 等依赖只提供基础能力，不拥有调用方的领域状态。当前 Knowledge 主路径的对象、chunks 和索引归 Knowledge runtime 边界，不等同于 File Service 或 Go 侧索引客户端。
 - 标记“目标”或“缺口”的链路不能当作当前已实现能力宣传或验收。
 
 ## 全局不变量
@@ -18,10 +18,10 @@
 | --- | --- | --- |
 | G1 | 前端、管理端和其他公开 HTTP 调用方只能调用 `gateway` 的 `/api/v1/**`。 | 前端测试不得直连 `auth`、`file`、`knowledge`、`qa`、`document`、`ai-gateway`。 |
 | G2 | 用户身份由 `auth` 签发，`gateway` 基于 Redis session cache 注入 `X-User-*` 和 `X-Request-Id`。 | 下游服务不能信任前端自填身份 header，仍需在本服务边界校验权限。 |
-| G3 | PostgreSQL 是大多数 Go owner service 的业务事实来源。 | Redis/asynq 只做缓存、队列、短期协调；File Service 对象 bytes 由 File Service 封装；Knowledge 文档/chunks/索引由 RAGFlow runtime 管理并经 adapter 映射。 |
+| G3 | PostgreSQL 是大多数 Go owner service 的业务事实来源。 | Redis/asynq 只做缓存、队列、短期协调；File Service 对象 bytes 由 File Service 封装；Knowledge 文档/chunks/索引由 Knowledge runtime 管理并经 adapter 映射。 |
 | G4 | 领域服务必须通过 `ai-gateway` 调模型。 | `gateway`、`qa`、`knowledge`、`document` 不得直接保存 provider key 或直连 provider。 |
-| G5 | 通用文件对象通过 `file` 服务封装；Knowledge runtime 对象归 RAGFlow runtime 封装。 | Owner service 只保存不透明引用；公开响应不得暴露 bucket、object key、内部 URL、签名 URL 或存储凭据。 |
-| G6 | Knowledge RAGFlow runtime 是当前文档处理运行时。 | Knowledge Go 进程不得引入 PaddleOCR/PaddlePaddle/OpenCV/CUDA 运行时依赖。 |
+| G5 | 通用文件对象通过 `file` 服务封装；Knowledge runtime 对象归 Knowledge runtime 封装。 | Owner service 只保存不透明引用；公开响应不得暴露 bucket、object key、内部 URL、签名 URL 或存储凭据。 |
+| G6 | Knowledge runtime 是当前文档处理运行时。 | Knowledge Go 进程不得引入 PaddleOCR/PaddlePaddle/OpenCV/CUDA 运行时依赖。 |
 | G7 | OpenAPI active path 是协作契约，不等于全链路 smoke 已完成。 | 判断可演示能力时必须结合 implementation 文档和 runbook。 |
 
 ## 条件分类
@@ -159,15 +159,15 @@
 - `/internal/v1/files/**`、PostgreSQL metadata runtime、memory/local/MinIO adapter 和 service-token 校验已存在。
 - PostgreSQL + MinIO 联合 smoke 默认跳过；跨服务 smoke 仍缺。
 
-## 链路 4：Knowledge RAGFlow runtime 文档处理
+## 链路 4：Knowledge runtime 文档处理
 
 **Owner**：`knowledge` 拥有文档业务状态和 runtime 适配边界。
-**触发入口**：`knowledge` adapter 上传文档并调用 RAGFlow runtime API/worker。
+**触发入口**：`knowledge` adapter 上传文档并调用 Knowledge runtime API/worker。
 **参与方**：`knowledge`、`knowledge-runtime`、PostgreSQL、Redis、MinIO、Elasticsearch/索引后端。
 
 **正常路径**
 
-1. Knowledge adapter 创建 RAGFlow dataset，并把项目 parser config 映射为 RAGFlow `parser_config`。
+1. Knowledge adapter 创建 runtime dataset，并把项目 parser config 映射为 runtime `parser_config`。
 2. Knowledge adapter 上传文档到 runtime dataset。
 3. 宿主机 runtime worker 读取任务，执行 PDF 解析、版面/OCR、切块、embedding 和索引写入。
 4. Knowledge adapter 轮询 runtime 文档状态和 chunks，并把结果映射成项目内部文档/chunk/检索响应。
@@ -180,8 +180,8 @@
 | Request | 文件过大、content type 不支持、请求超时、runtime 返回非成功 code。 |
 | Dependency | Runtime API/worker 不可用、PostgreSQL/Redis/MinIO/Elasticsearch/provider 不可用、模型资源缺失。 |
 | Async | Runtime parse/index 任务 pending/running/succeeded/failed/retry。 |
-| Config | Parser config 缺失使用 fallback；管理员 parser config 由 Knowledge 管理并映射到 RAGFlow。 |
-| Resource | Runtime dataset/document 不存在、文档已删除或 tenant 不匹配。 |
+| Config | Parser config 缺失使用 fallback；管理员 parser config 由 Knowledge 管理并映射到 runtime。 |
+| Resource | Runtime dataset/document 不存在、文档已删除或 runtime namespace 不匹配。 |
 | Leakage | Knowledge 不返回 object key、bucket、内部路径、OCR debug output、prompt、provider body 或 secret。 |
 
 **输出/状态**
@@ -192,20 +192,20 @@
 **当前状态**
 
 - 旧 `services/parser` 已退役。
-- Knowledge RAGFlow runtime API/worker 已成为当前 PDF 解析、切块、embedding、索引和检索链路。
+- Knowledge runtime API/worker 已成为当前 PDF 解析、切块、embedding、索引和检索链路。
 - 真实 PDF E2E 需要本地 runtime、对象存储、索引后端和 provider credential。
 
 ## 链路 5：Knowledge 知识库与文档生命周期
 
 **Owner**：`knowledge`。
 **触发入口**：`/api/v1/knowledge-bases/**`、`/api/v1/documents/**`、`/api/v1/admin/parser-configs/**`。
-**参与方**：前端、`gateway`、`knowledge`、Knowledge adapter PostgreSQL（parser config）、RAGFlow runtime、runtime PostgreSQL、MinIO、Elasticsearch/索引后端。
+**参与方**：前端、`gateway`、`knowledge`、Knowledge adapter PostgreSQL（parser config）、Knowledge runtime、runtime PostgreSQL、MinIO、Elasticsearch/索引后端。
 
 **正常路径**
 
 1. 用户通过 Gateway 创建或维护知识库。
 2. 用户向知识库上传文档，Knowledge adapter 创建 runtime dataset/document 并上传文件。
-3. RAGFlow runtime 保存文档、metadata、tags、处理状态和索引所需运行时状态。
+3. Knowledge runtime 保存文档、metadata、tags、处理状态和索引所需运行时状态。
 4. runtime worker 推进文档到 ready，adapter 将状态/chunks/content 映射为项目契约。
 5. 用户可查询文档详情、列表、chunks、content，或更新 tags、软删除文档。
 6. 删除文档时 Knowledge adapter 执行 runtime 文档删除/软删除映射；runtime 内部对象和索引清理需要后续 smoke 证明。
@@ -218,31 +218,31 @@
 | Permission | 知识库可见性、parser config 管理权限和 forbidden 分支见 [Knowledge 权限矩阵](../services/knowledge/docs/permission-matrix.md)。 |
 | Request | 创建/更新知识库字段合法 vs validation_error；上传文件合法 vs multipart/大小/content type 错误。 |
 | Resource | knowledge base 存在、已删除；document 存在、已删除、processing、ready、failed。 |
-| Dependency | RAGFlow runtime API/worker 不可用、runtime PostgreSQL/MinIO/Elasticsearch/provider 失败、adapter PostgreSQL parser-config 管理不可用。 |
+| Dependency | Knowledge runtime API/worker 不可用、runtime PostgreSQL/MinIO/Elasticsearch/provider 失败、adapter PostgreSQL parser-config 管理不可用。 |
 | Async | runtime processing pending/running/succeeded/failed/retry；adapter 需要把 runtime 状态稳定映射为公开 `DocumentStatus`。 |
 | Current State | document lifecycle、chunks/content、`knowledge-queries` active routes 已转 owner proxy；真实 runtime/provider/MCP 端到端 smoke 仍缺。 |
 | Leakage | 不暴露 runtime object key、索引 payload、embedding model、provider body、内部 URL 或凭据。 |
 
 **输出/状态**
 
-- RAGFlow runtime 保存文档、chunks、embedding、索引和检索运行时事实。
+- Knowledge runtime 保存文档、chunks、embedding、索引和检索运行时事实。
 - Knowledge adapter 暴露项目契约，parser configs 可选保存在 adapter PostgreSQL。
 
 **当前状态**
 
 - Knowledge 知识库 CRUD、上传和 runtime 写入链路为“部分实现”。
-- 已有 KB CRUD、文档上传、RAGFlow runtime API/worker 适配、parser config 映射、document lifecycle、chunks/content、`knowledge-queries` 和 Knowledge MCP server 基础实现。
+- 已有 KB CRUD、文档上传、Knowledge runtime API/worker 适配、parser config 映射、document lifecycle、chunks/content、`knowledge-queries` 和 Knowledge MCP server 基础实现。
 - 完整 Gateway/MCP/#125 E2E、真实 provider 运维、QA 默认 MCP 接入和并发/外部副作用一致性仍需补齐。
 
 ## 链路 6：Knowledge 入库处理链路
 
 **Owner**：`knowledge`。
-**触发入口**：文档上传后 adapter 调 RAGFlow runtime 创建 document 并按配置触发 parse/index。
+**触发入口**：文档上传后 adapter 调 Knowledge runtime 创建 document 并按配置触发 parse/index。
 **参与方**：`knowledge`、`knowledge-runtime`、runtime Redis/worker、MinIO、Elasticsearch/索引后端、可选 `ai-gateway` provider、Knowledge adapter PostgreSQL（parser config）。
 
 **正常路径**
 
-1. Knowledge adapter 创建 RAGFlow dataset/document，并将业务 parser config 映射为 runtime `parser_config`。
+1. Knowledge adapter 创建 runtime dataset/document，并将业务 parser config 映射为 runtime `parser_config`。
 2. Adapter 上传文档到 runtime 并触发 parse/index。
 3. Runtime worker 读取任务，执行 PDF 解析、切块、embedding 和索引写入。
 4. Adapter 轮询 runtime 文档状态和 chunks。
@@ -258,7 +258,7 @@
 | Config | parser config 匹配 vs fallback；runtime provider/索引配置可用 vs 缺失；AI profile missing/disabled/model mismatch。 |
 | Dependency | Knowledge runtime、runtime PostgreSQL、MinIO、Elasticsearch/索引后端、AI Gateway provider 任一失败。 |
 | Request | 原文件类型支持 vs 不支持；parsed content 为空或质量不足。 |
-| Current State | RAGFlow runtime adapter、runtime route/contract tests 和真实 PDF E2E 路径已落地；完整 Gateway/MCP/#125 E2E 和真实 provider 运维仍未闭环。 |
+| Current State | Knowledge runtime adapter、runtime route/contract tests 和真实 PDF E2E 路径已落地；完整 Gateway/MCP/#125 E2E 和真实 provider 运维仍未闭环。 |
 | Leakage | worker 日志和 job error 不得包含完整文档全文、object key、prompt、API key、向量 payload。 |
 
 **输出/状态**
@@ -276,13 +276,13 @@
 
 **Owner**：`knowledge`。
 **触发入口**：`POST /api/v1/knowledge-queries`，也可由 QA 检索测试或后续报告上下文间接调用。
-**参与方**：前端或领域服务、`gateway`、`knowledge`、RAGFlow runtime、runtime PostgreSQL、Elasticsearch/索引后端、可选 `ai-gateway` provider。
+**参与方**：前端或领域服务、`gateway`、`knowledge`、Knowledge runtime、runtime PostgreSQL、Elasticsearch/索引后端、可选 `ai-gateway` provider。
 
 **正常路径**
 
 1. 调用方提交 query、knowledgeBaseIds、topK、scoreThreshold、tags、metadataFilter 和 rerank 配置。
 2. Knowledge 校验用户对知识库的可见性。
-3. Knowledge adapter 调 RAGFlow runtime 执行检索。
+3. Knowledge adapter 调 Knowledge runtime 执行检索。
 4. Runtime 使用配置的 embedding/索引后端召回候选。
 5. Adapter 将 runtime 结果映射为项目 chunks、documents、knowledge bases。
 6. Knowledge 过滤未 ready、已删除或不可见文档。
@@ -310,7 +310,7 @@
 **当前状态**
 
 - Knowledge 检索为“部分实现”。
-- 最新 develop 已包含 `knowledge-queries` 和 RAGFlow runtime adapter，但真实 provider/rerank/QA MCP 闭环仍未证明。
+- 最新 develop 已包含 `knowledge-queries` 和 Knowledge runtime adapter，但真实 provider/rerank/QA MCP 闭环仍未证明。
 
 ## 链路 8：AI Gateway 模型配置和模型调用
 
@@ -357,12 +357,12 @@
 
 **Owner**：`qa`。
 **触发入口**：`/api/v1/qa-sessions/**`（含 session attachments）、`/api/v1/response-runs/**`、`/api/v1/messages/{messageId}/citations`、`/api/v1/citations/**`、配置、检索测试和指标路径。
-**参与方**：前端、`gateway`、`qa`、QA PostgreSQL、`file`、Knowledge RAGFlow runtime、`ai-gateway`、MCP Client/MCP servers、`knowledge`、可选 `document` MCP server。
+**参与方**：前端、`gateway`、`qa`、QA PostgreSQL、`file`、Knowledge runtime、`ai-gateway`、MCP Client/MCP servers、`knowledge`、可选 `document` MCP server。
 
 **正常路径**
 
 1. 用户创建或选择 QA session。
-2. 用户可上传会话临时附件；QA 保存附件 metadata/状态，内部调用 file 保存原始 bytes，解析时走 Knowledge/RAGFlow runtime 边界，并保存临时 chunk。
+2. 用户可上传会话临时附件；QA 保存附件 metadata/状态，内部调用 file 保存原始 bytes，解析时走 Knowledge runtime 边界，并保存临时 chunk。
 3. 用户创建 message，可关联 ready attachments，并可请求 JSON 或 `text/event-stream`。
 4. QA 创建用户消息、助手占位、response run、初始事件。
 5. QA 加载 QA/LLM config，准备工具白名单、会话附件上下文、知识库检索上下文、全局 `systemPrompt` snapshot 和模型上下文；长期 Knowledge RAG 和本会话附件检索均可被模型选择，二者不互斥。
@@ -561,7 +561,7 @@ Knowledge 长期知识库。长期知识库检索通过内置 `search_knowledge`
 
 **Owner**：各服务负责自己的 ready；跨服务 smoke 仍是当前缺口。
 **触发入口**：`deploy/docker-compose.yml`、host-run migrations/seed、`/readyz`、env-gated tests。
-**参与方**：所有 host-run 服务、PostgreSQL、Redis、MinIO、Knowledge RAGFlow runtime、runtime Elasticsearch/索引后端、AI Gateway/provider。
+**参与方**：所有 host-run 服务、PostgreSQL、Redis、MinIO、Elasticsearch（本地 infra）、Knowledge runtime、AI Gateway/provider。
 
 **正常路径**
 
@@ -579,7 +579,7 @@ Knowledge 长期知识库。长期知识库检索通过内置 `search_knowledge`
 | Dependency | 根级 Compose 只启动 PostgreSQL、Redis、MinIO、`minio-init` 和 Elasticsearch，业务服务必须 host-run；该依赖基线不证明完整 E2E。 |
 | Config | `deploy/.env.example` / `deploy/.env`、service token hash、AI profile seed、NO_PROXY/proxy、host-run 端口设置。 |
 | Resource | seed data 只覆盖本地登录、基础报告类型、示例知识库、QA 会话样例和 AI profile placeholder。 |
-| Current State | File PostgreSQL + MinIO smoke、Knowledge RAGFlow runtime PDF E2E、Gateway -> Knowledge -> QA RAG smoke、QA -> Document MCP report tools smoke 和 Issue #125 smoke slices 可显式启用；AI Gateway real provider smoke env-gated。 |
+| Current State | File PostgreSQL + MinIO smoke、Knowledge runtime PDF E2E、Gateway -> Knowledge -> QA RAG smoke、QA -> Document MCP report tools smoke 和 Issue #125 smoke slices 可显式启用；AI Gateway real provider smoke env-gated。 |
 | Leakage | 本地日志和失败输出不应包含 token、API key、数据库连接串、object key、完整 prompt。 |
 
 **输出/状态**
@@ -619,14 +619,14 @@ Knowledge 长期知识库。长期知识库检索通过内置 `search_knowledge`
 
 以下链路在需求或目标设计中存在，但当前不能作为已完成能力验收：
 
-- 一键前端到 Auth/Gateway/File/Knowledge/RAGFlow runtime/runtime doc engine/AI Gateway/QA/Document 的完整 E2E smoke。
+- 一键前端到 Auth/Gateway/File/Knowledge runtime/runtime doc engine/AI Gateway/QA/Document 的完整 E2E smoke。
 - Knowledge 上传到真实 runtime、真实索引后端、真实 AI Gateway embedding/rerank provider 和 Gateway/MCP 总入口的端到端验收；当前 PDF E2E、ingestion real deps 和 Gateway RAG smoke 是显式 opt-in，不能替代完整 #125。
 - QA 完整 RAG/citation 闭环，包括真实 provider、`systemPrompt` 生效且不向普通 QA 返回面泄漏、真实 Knowledge retrieval/rerank trace、citation snapshot/detail/batch query、artifact 持久化回放恢复、前端和跨 Gateway/Auth smoke。
 - Document `coal_inventory_audit` 等更多报告类型的 AI 生成业务策略。
 - Document 未配置 AI Gateway profile、Redis、File Service、worker 时的 AI 生成或 DOCX 生成链路。
 - Document MCP 已有服务内工具适配层、Streamable HTTP server 和 QA env-gated report tools smoke；仍不能承诺真实 provider 触发的 QA Agent 端到端、共享环境 Gateway/Auth/worker/download 完整验收或 #125 一键 smoke 已完成。
 - Pandoc 富 DOCX 工具链运行时接入；`pandoc/core:3.10` 只是已固定选型，不代表当前导出链路已使用 Pandoc。
-- Knowledge RAGFlow runtime OCR/版面模型在普通 CI 中运行。
+- Knowledge runtime OCR/版面模型在普通 CI 中运行。
 - AI Gateway 真实 provider chat/embedding/rerank smoke 的稳定运行记录。
 - 管理后台概览和跨服务指标聚合的完整运行证据；公开契约已是 active。
 

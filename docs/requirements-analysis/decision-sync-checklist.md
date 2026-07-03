@@ -29,7 +29,7 @@
 | D3 | 异步任务机制 | 首期采用 `asynq` over Redis + PostgreSQL 持久化状态。Redis/asynq 用于队列、调度和执行；PostgreSQL 保存可追溯业务状态、最终状态和失败摘要。 | 文档处理、向量化、报告生成任务；任务状态查询 API；基础设施职责 |
 | D4 | 会话历史持久化 | 智能问答会话、消息、Agent Run、工具调用摘要、引用和处理过程摘要以服务端 PostgreSQL 为权威数据源。前端只缓存 `sessionId` 等恢复信息。 | QA 会话/消息 API；刷新恢复说明；前端缓存边界 |
 | D5 | 报告支撑材料归属 | 报告支撑材料是独立业务资源，复用 `file` service 处理上传、下载和 MinIO 相关能力；需要检索时复用 `knowledge` 能力。 | 知识管理支撑材料 API；报告生成材料引用；file service 边界 |
-| D6 | OCR 与文档解析后端 | 当前方案已调整为 Knowledge 通过 `services/knowledge-runtime` 的 RAGFlow runtime API/worker 完成解析、切块、embedding、索引和检索；旧内部 Parser HTTP 服务不再作为独立边界。 | 文档解析配置；失败重试；RAGFlow runtime 演进 |
+| D6 | OCR 与文档解析后端 | 当前方案已调整为 Knowledge 通过 `services/knowledge-runtime` 的 Knowledge runtime API/worker 完成解析、切块、embedding、索引和检索；旧内部 Parser HTTP 服务不再作为独立边界。 | 文档解析配置；失败重试；Knowledge runtime 演进 |
 | D7 | 模型供应商与配置 | 抽象到专门的 AI gateway。业务服务通过 OpenAI-compatible API 调用，首期各组无需各自实现供应商适配层；业务配置只引用 AI Gateway `profileId`、模型名和超时等参数，provider `baseUrl` 与 `apiKey` 由 AI Gateway 管理。AI Gateway 只透传 Function Calling 字段，不执行 MCP 工具。 | 知识、QA、报告配置 API；模型调用边界；后续 `ai-gateway` 服务设计 |
 | D8 | 数据分析工具 | 统计指标本期做；智能问答中的 Excel/表格“数据分析”工具本期不开放，不进入工具白名单。 | QA Agent 工具白名单；统计 API；P2 范围说明 |
 | D9 | 数据权限粒度 | 首期只做角色级 RBAC。暂不做组织、电厂、专业多维数据权限。 | 权限表述；知识库过滤策略；QA 检索过滤 |
@@ -41,12 +41,12 @@
 
 | 编号 | 原问题 | 同步结果 |
 | --- | --- | --- |
-| K1 | 知识库删除是软删除还是硬删除？ | 首期软删除；删除动作标记资源为 `deleted`，当前 RAGFlow runtime adapter 负责内部文档、chunk 和索引生命周期，旧 `file_ref` cleanup 只作为历史路径。 |
+| K1 | 知识库删除是软删除还是硬删除？ | 首期软删除；删除动作标记资源为 `deleted`，当前 Knowledge runtime adapter 负责内部文档、chunk 和索引生命周期，旧 `file_ref`/Qdrant cleanup 只作为历史路径。 |
 | K2 | embedding 维度变化后如何处理索引版本？ | 由 Knowledge runtime/doc engine 维护可追溯的索引版本；embedding 维度或模型族变化时通过 runtime 重建或切换索引，旧索引保留到切换完成后清理。 |
 | K3 | 文档处理失败后保留几次错误历史？ | PostgreSQL job 保存最近 10 次尝试摘要，包含阶段、错误码、错误信息、开始/结束时间和耗时。 |
 | K4 | 文档标签是自由键值对还是预定义字典？ | 首期自由键值对；键和值都按字符串保存，管理端可后续增加字典约束。 |
-| K5 | 队列失败重试如何处理？ | 当前 Knowledge 解析、切片、embedding 和索引任务由 RAGFlow runtime API/worker 承载；Go adapter 不恢复旧 asynq ingestion worker。 |
-| K6 | 原始文件和生成文件放在哪些 bucket？ | Owner service 不依赖 bucket 分类。Knowledge 文档对象存储细节由 RAGFlow runtime 独占；Document/QA 等 file-backed 资源只保存不透明 `file_ref`，bucket、object key、storage backend 和凭据由 File Service 独占。 |
+| K5 | 队列失败重试如何处理？ | 当前 Knowledge 解析、切片、embedding 和索引任务由 Knowledge runtime API/worker 承载；Go adapter 不恢复旧 asynq ingestion worker。 |
+| K6 | 原始文件和生成文件放在哪些 bucket？ | Owner service 不依赖 bucket 分类。Knowledge 文档对象存储细节由 Knowledge runtime 独占；Document/QA 等 file-backed 资源只保存不透明 `file_ref`，bucket、object key、storage backend 和凭据由 File Service 独占。 |
 
 ### 3.2 智能问答
 
@@ -77,7 +77,7 @@
 以下事项不再阻塞首期实现；首期按上表默认方案执行，后续只做能力增强：
 
 - AI gateway 首期只要求 OpenAI-compatible provider `baseUrl`、`apiKey`、模型名、超时配置；业务服务侧只保存 `profileId`、模型名和业务默认参数。健康检查可通过后续运维接口增强。
-- OCR/文档解析当前接入 Knowledge RAGFlow runtime API/worker；旧内部 Parser HTTP 服务已被替代。
+- OCR/文档解析当前接入 Knowledge runtime API/worker；旧内部 Parser HTTP 服务已被替代。
 - `asynq` over Redis 首期配合 PostgreSQL job、3 次自动重试和手动 retry；死信队列和可视化运维台作为后续演进。
 - Knowledge runtime/doc engine 首期使用可追溯索引版本；跨版本迁移和旧索引清理由 runtime 生命周期任务处理。
 - 审计日志首期不做独立服务；需要合规查询时再补独立审计服务和管理端页面。

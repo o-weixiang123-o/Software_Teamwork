@@ -140,8 +140,8 @@ class ESConnectionBase(DocStoreConnection):
         """
         Create a document metadata index.
 
-        Index name pattern: ragflow_doc_meta_{tenant_id}
-        - Per-tenant metadata index for storing document metadata fields
+        Index name pattern: ragflow_doc_meta_{scope_id}
+        - Per-scope metadata index for storing document metadata fields
         """
         if self.index_exist(index_name, ""):
             return True
@@ -179,7 +179,7 @@ class ESConnectionBase(DocStoreConnection):
     def count_idx(self, index_name: str) -> int:
         """
         Return the document count for an index, or -1 if the call fails.
-        Used to decide whether a per-tenant metadata index is empty without
+        Used to decide whether a per-scope metadata index is empty without
         paying a full search.
         """
         try:
@@ -216,7 +216,7 @@ class ESConnectionBase(DocStoreConnection):
 
     def delete_idx(self, index_name: str, dataset_id: str):
         if len(dataset_id) > 0:
-            # The index need to be alive after any kb deletion since all kb under this tenant are in one index.
+            # The index need to be alive after any kb deletion since all kb under this scope are in one index.
             return
         try:
             self.es.indices.delete(index=index_name, allow_no_indices=True)

@@ -11,22 +11,20 @@ import (
 
 type knowledgeQueryTarget struct {
 	ID          string
-	TenantID    string
 	EmbeddingID string
 }
 
 type retrievalGroup struct {
-	tenantID    string
 	embeddingID string
 	ids         []string
 }
 
-func (s *Server) runKnowledgeQuery(ctx context.Context, userID string, body knowledgeQueryRequest, opts retrievalBuildOptions) (*vendorclient.RetrievalData, error) {
+func (s *Server) runKnowledgeQuery(ctx context.Context, runtimeScopeID string, body knowledgeQueryRequest, opts retrievalBuildOptions) (*vendorclient.RetrievalData, error) {
 	if strings.TrimSpace(body.Query) == "" {
 		return nil, service.ValidationError("request validation failed", map[string]string{"query": "is required"})
 	}
 
-	targets, err := s.resolveKnowledgeQueryTargets(ctx, userID, body.KnowledgeBaseIDs)
+	targets, err := s.resolveKnowledgeQueryTargets(ctx, runtimeScopeID, body.KnowledgeBaseIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +40,7 @@ func (s *Server) runKnowledgeQuery(ctx context.Context, userID string, body know
 		if err != nil {
 			return nil, err
 		}
-		data, err := s.vendor.RetrievalSearch(ctx, group.tenantID, payload)
+		data, err := s.vendor.RetrievalSearch(ctx, runtimeScopeID, payload)
 		if err != nil {
 			return nil, mapVendorError(err)
 		}
@@ -52,7 +50,7 @@ func (s *Server) runKnowledgeQuery(ctx context.Context, userID string, body know
 	return merged, nil
 }
 
-func (s *Server) resolveKnowledgeQueryTargets(ctx context.Context, userID string, rawIDs []string) ([]knowledgeQueryTarget, error) {
+func (s *Server) resolveKnowledgeQueryTargets(ctx context.Context, runtimeScopeID string, rawIDs []string) ([]knowledgeQueryTarget, error) {
 	requestedIDs := normalizeKnowledgeQueryIDs(rawIDs)
 	if s.knowledgeBases != nil {
 		items, err := s.knowledgeBases.ListRuntimeKnowledgeBases(ctx, requestedIDs)
@@ -64,11 +62,11 @@ func (s *Server) resolveKnowledgeQueryTargets(ctx context.Context, userID string
 	if len(requestedIDs) > 0 {
 		targets := make([]knowledgeQueryTarget, 0, len(requestedIDs))
 		for _, id := range requestedIDs {
-			targets = append(targets, knowledgeQueryTarget{ID: id, TenantID: userID})
+			targets = append(targets, knowledgeQueryTarget{ID: id})
 		}
 		return targets, nil
 	}
-	return s.vendorQueryTargets(ctx, userID)
+	return s.vendorQueryTargets(ctx, runtimeScopeID)
 }
 
 func catalogQueryTargets(requestedIDs []string, items []service.RuntimeKnowledgeBase) ([]knowledgeQueryTarget, error) {
@@ -80,8 +78,7 @@ func catalogQueryTargets(requestedIDs []string, items []service.RuntimeKnowledge
 	targets := make([]knowledgeQueryTarget, 0, len(items))
 	for _, item := range items {
 		id := strings.TrimSpace(item.ID)
-		tenantID := strings.TrimSpace(item.TenantID)
-		if id == "" || tenantID == "" {
+		if id == "" {
 			continue
 		}
 		if len(requestedIDs) == 0 && item.ChunkCount <= 0 {
@@ -90,7 +87,6 @@ func catalogQueryTargets(requestedIDs []string, items []service.RuntimeKnowledge
 		seen[id] = struct{}{}
 		targets = append(targets, knowledgeQueryTarget{
 			ID:          id,
-			TenantID:    tenantID,
 			EmbeddingID: strings.TrimSpace(item.EmbeddingID),
 		})
 	}
@@ -104,11 +100,11 @@ func catalogQueryTargets(requestedIDs []string, items []service.RuntimeKnowledge
 	return targets, nil
 }
 
-func (s *Server) vendorQueryTargets(ctx context.Context, userID string) ([]knowledgeQueryTarget, error) {
+func (s *Server) vendorQueryTargets(ctx context.Context, runtimeScopeID string) ([]knowledgeQueryTarget, error) {
 	const pageSize = 100
 	targets := []knowledgeQueryTarget{}
 	for page := 1; ; page++ {
-		items, total, err := s.vendor.ListDatasets(ctx, userID, page, pageSize)
+		items, total, err := s.vendor.ListDatasets(ctx, runtimeScopeID, page, pageSize)
 		if err != nil {
 			return nil, mapVendorError(err)
 		}
@@ -117,10 +113,8 @@ func (s *Server) vendorQueryTargets(ctx context.Context, userID string) ([]knowl
 			if id == "" || int64Field(item, "chunk_num", "chunk_count") <= 0 {
 				continue
 			}
-			tenantID := firstNonEmpty(stringField(item, "tenant_id"), userID)
 			targets = append(targets, knowledgeQueryTarget{
 				ID:          id,
-				TenantID:    tenantID,
 				EmbeddingID: stringField(item, "embd_id", "embedding_id"),
 			})
 		}
@@ -134,10 +128,10 @@ func (s *Server) vendorQueryTargets(ctx context.Context, userID string) ([]knowl
 func retrievalGroups(targets []knowledgeQueryTarget) []retrievalGroup {
 	groupMap := map[string]*retrievalGroup{}
 	for _, target := range targets {
-		key := target.TenantID + "\x00" + target.EmbeddingID
+		key := target.EmbeddingID
 		group := groupMap[key]
 		if group == nil {
-			group = &retrievalGroup{tenantID: target.TenantID, embeddingID: target.EmbeddingID}
+			group = &retrievalGroup{embeddingID: target.EmbeddingID}
 			groupMap[key] = group
 		}
 		group.ids = append(group.ids, target.ID)
@@ -147,10 +141,7 @@ func retrievalGroups(targets []knowledgeQueryTarget) []retrievalGroup {
 		groups = append(groups, *group)
 	}
 	sort.Slice(groups, func(i, j int) bool {
-		if groups[i].tenantID == groups[j].tenantID {
-			return groups[i].embeddingID < groups[j].embeddingID
-		}
-		return groups[i].tenantID < groups[j].tenantID
+		return groups[i].embeddingID < groups[j].embeddingID
 	})
 	return groups
 }

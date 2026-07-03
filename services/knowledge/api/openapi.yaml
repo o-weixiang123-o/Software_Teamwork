@@ -148,7 +148,7 @@ paths:
       tags: [knowledge]
       summary: Upload a knowledge-base document
       operationId: internalUploadKnowledgeBaseDocument
-      description: Requires knowledge:write, knowledge:admin, or system:admin. The RAGFlow runtime stores the original bytes and parsing/index lifecycle.
+      description: Requires knowledge:write, knowledge:admin, or system:admin. The Knowledge runtime stores the original bytes and parsing/index lifecycle.
       requestBody:
         required: true
         content:
@@ -301,7 +301,7 @@ paths:
     get:
       tags: [knowledge]
       summary: Get knowledge base and document counts
-      description: Returns knowledge base and document totals for the supplied runtime user context. Authenticated via X-Service-Token; when user context is supplied, knowledge:read permission is required. When no user context is supplied, the adapter returns zero counts because the vendored runtime is tenant-scoped.
+      description: Returns project knowledge base and document totals from the global Knowledge runtime scope. Authenticated via X-Service-Token; when user context is supplied, knowledge:read permission is required. When no user context is supplied, the adapter returns zero counts.
       operationId: internalGetKnowledgeStatistics
       responses:
         "200":

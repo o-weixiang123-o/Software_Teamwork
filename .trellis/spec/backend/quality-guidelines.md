@@ -259,9 +259,9 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
 ### 3. Contracts
 
 - The root local Compose path stays infrastructure-only. Business services and
-  the RAGFlow Knowledge runtime API/worker run on the host. Local
-  Elasticsearch is part of the default Compose infrastructure for Knowledge
-  runtime doc-engine support.
+  the Knowledge runtime API/worker run on the host. Local Elasticsearch is part
+  of the default Compose infrastructure for Knowledge runtime doc-engine
+  support.
 - Docs must provide host-run commands for Auth, File, Knowledge, AI Gateway,
   QA, Document, Gateway, and frontend.
 - Frontend and browser-facing documentation must route traffic through gateway;
@@ -276,7 +276,7 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
   Do not remove this default unless the worker timeout mechanism is replaced
   and the runbook documents the accepted risk or replacement behavior.
 - `run-backend.sh` must not prepare or start the retired standalone Parser.
-  Knowledge parsing runs through the RAGFlow runtime API/worker path.
+  Knowledge parsing runs through the Knowledge runtime API/worker path.
 - Host-run uv package downloads should use `UV_DEFAULT_INDEX` from
   `deploy/.env.example`, with official PyPI as the committed default. Mainland
   China mirror usage must be explicit, preferably through `dev-up.sh --china`
@@ -330,7 +330,7 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
   `minio-init` must run separately and use their own exit code so a normal
   `Exited (0)` does not skip migrations or seed.
 - `dev-up.sh` must not initialize retired vector-store collections. Current
-  Knowledge ingestion uses RAGFlow runtime and its configured doc engine.
+  Knowledge ingestion uses Knowledge runtime and its configured doc engine.
 - Compose must include practical health checks for infrastructure containers.
 - PostgreSQL health checks must probe TCP readiness, e.g.
   `pg_isready -h localhost -U postgres -d postgres`.

@@ -13,48 +13,48 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 #
-from api.db.db_models import DB, TenantModelProvider
+from api.db.db_models import DB, RuntimeModelProvider
 from api.db.services.common_service import CommonService
 
 
-class TenantModelProviderService(CommonService):
-    model = TenantModelProvider
+class RuntimeModelProviderService(CommonService):
+    model = RuntimeModelProvider
 
     @classmethod
     @DB.connection_context()
-    def get_by_tenant_id_and_provider_name(cls, tenant_id, provider_name):
+    def get_by_scope_id_and_provider_name(cls, scope_id, provider_name):
         return cls.model.get_or_none(
-            cls.model.tenant_id == tenant_id,
+            cls.model.scope_id == scope_id,
             cls.model.provider_name == provider_name,
         )
 
     @classmethod
     @DB.connection_context()
-    def get_by_tenant_id_and_provider_id(cls, tenant_id, provider_id):
+    def get_by_scope_id_and_provider_id(cls, scope_id, provider_id):
         return cls.model.get_or_none(
-            cls.model.tenant_id == tenant_id,
+            cls.model.scope_id == scope_id,
             cls.model.id == provider_id,
         )
 
     @classmethod
     @DB.connection_context()
-    def get_by_tenant_id(cls, tenant_id):
-        return list(cls.model.select().where(cls.model.tenant_id == tenant_id))
+    def get_by_scope_id(cls, scope_id):
+        return list(cls.model.select().where(cls.model.scope_id == scope_id))
 
     @classmethod
     @DB.connection_context()
-    def delete_by_tenant_id(cls, tenant_id):
-        return cls.model.delete().where(cls.model.tenant_id == tenant_id).execute()
+    def delete_by_scope_id(cls, scope_id):
+        return cls.model.delete().where(cls.model.scope_id == scope_id).execute()
 
     @classmethod
     @DB.connection_context()
-    def delete_by_tenant_id_and_provider_name(cls, tenant_id, provider_name):
+    def delete_by_scope_id_and_provider_name(cls, scope_id, provider_name):
         return cls.model.delete().where(
-            cls.model.tenant_id == tenant_id,
+            cls.model.scope_id == scope_id,
             cls.model.provider_name == provider_name,
         ).execute()
 
     @classmethod
     @DB.connection_context()
-    def list_provider_names_by_tenant_id(cls, tenant_id):
-        return [row.provider_name for row in cls.model.select(cls.model.provider_name).where(cls.model.tenant_id == tenant_id)]
+    def list_provider_names_by_scope_id(cls, scope_id):
+        return [row.provider_name for row in cls.model.select(cls.model.provider_name).where(cls.model.scope_id == scope_id)]

@@ -1,6 +1,6 @@
 -- Local integration contract: keep QA's default knowledge-base list empty.
 --
--- The RAGFlow runtime is the retrieval source of truth. An empty
+-- Knowledge runtime is the retrieval source of truth. An empty
 -- defaultKnowledgeBaseIds list lets QA/Knowledge MCP search all indexed
 -- knowledge bases. Older local volumes may still contain the retired
 -- kb_local_demo binding, so this seed removes that legacy default instead of

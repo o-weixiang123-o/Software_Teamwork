@@ -103,7 +103,7 @@ class TestStandardChunkingPipelineIntegration:
              patch("rag.svr.task_executor_refactor.chunk_service.settings", mock_settings), \
              patch("rag.svr.task_executor_refactor.task_handler.get_model_config_from_provider_instance") as mock_get_config, \
              patch("rag.svr.task_executor_refactor.task_handler.LLMBundle") as mock_bundle, \
-             patch("rag.svr.task_executor_refactor.task_handler.get_tenant_default_model_by_type") as mock_get_default, \
+             patch("rag.svr.task_executor_refactor.task_handler.get_runtime_default_model_by_type") as mock_get_default, \
              patch("rag.svr.task_executor_refactor.task_handler.File2DocumentService") as mock_file_service, \
              patch("rag.svr.task_executor_refactor.task_handler.thread_pool_exec") as mock_thread_exec, \
              patch("rag.svr.task_executor_refactor.chunk_service.thread_pool_exec") as mock_chunk_thread_exec, \
@@ -145,7 +145,7 @@ class TestStandardChunkingPipelineIntegration:
              patch("rag.svr.task_executor_refactor.chunk_service.settings", mock_settings), \
              patch("rag.svr.task_executor_refactor.task_handler.get_model_config_from_provider_instance") as mock_get_config, \
              patch("rag.svr.task_executor_refactor.task_handler.LLMBundle") as mock_bundle, \
-             patch("rag.svr.task_executor_refactor.task_handler.get_tenant_default_model_by_type") as mock_get_default, \
+             patch("rag.svr.task_executor_refactor.task_handler.get_runtime_default_model_by_type") as mock_get_default, \
              patch("rag.svr.task_executor_refactor.task_handler.File2DocumentService") as mock_file_service, \
              patch("rag.svr.task_executor_refactor.task_handler.thread_pool_exec") as mock_thread_exec, \
              patch("rag.svr.task_executor_refactor.chunk_service.thread_pool_exec") as mock_chunk_thread_exec, \
@@ -188,7 +188,7 @@ class TestStandardChunkingPipelineIntegration:
              patch("rag.svr.task_executor_refactor.chunk_service.settings", mock_settings), \
              patch("rag.svr.task_executor_refactor.task_handler.get_model_config_from_provider_instance") as mock_get_config, \
              patch("rag.svr.task_executor_refactor.task_handler.LLMBundle") as mock_bundle, \
-             patch("rag.svr.task_executor_refactor.task_handler.get_tenant_default_model_by_type") as mock_get_default, \
+             patch("rag.svr.task_executor_refactor.task_handler.get_runtime_default_model_by_type") as mock_get_default, \
              patch("rag.svr.task_executor_refactor.task_handler.File2DocumentService") as mock_file_service, \
              patch("rag.svr.task_executor_refactor.task_handler.thread_pool_exec") as mock_thread_exec, \
              patch("rag.svr.task_executor_refactor.chunk_service.thread_pool_exec") as mock_chunk_thread_exec, \
@@ -233,7 +233,7 @@ class TestStandardChunkingPipelineIntegration:
              patch("rag.svr.task_executor_refactor.chunk_service.settings", mock_settings), \
              patch("rag.svr.task_executor_refactor.task_handler.get_model_config_from_provider_instance") as mock_get_config, \
              patch("rag.svr.task_executor_refactor.task_handler.LLMBundle") as mock_bundle, \
-             patch("rag.svr.task_executor_refactor.task_handler.get_tenant_default_model_by_type") as mock_get_default, \
+             patch("rag.svr.task_executor_refactor.task_handler.get_runtime_default_model_by_type") as mock_get_default, \
              patch("rag.svr.task_executor_refactor.task_handler.File2DocumentService") as mock_file_service, \
              patch("rag.svr.task_executor_refactor.task_handler.thread_pool_exec") as mock_thread_exec, \
              patch("rag.svr.task_executor_refactor.chunk_service.thread_pool_exec") as mock_chunk_thread_exec, \
@@ -279,7 +279,7 @@ class TestStandardChunkingPipelineIntegration:
              patch("rag.svr.task_executor_refactor.chunk_service.settings", mock_settings), \
              patch("rag.svr.task_executor_refactor.task_handler.get_model_config_from_provider_instance") as mock_get_config, \
              patch("rag.svr.task_executor_refactor.task_handler.LLMBundle") as mock_bundle, \
-             patch("rag.svr.task_executor_refactor.task_handler.get_tenant_default_model_by_type") as mock_get_default, \
+             patch("rag.svr.task_executor_refactor.task_handler.get_runtime_default_model_by_type") as mock_get_default, \
              patch("rag.svr.task_executor_refactor.task_handler.File2DocumentService") as mock_file_service, \
              patch("rag.svr.task_executor_refactor.task_handler.thread_pool_exec") as mock_thread_exec, \
              patch("rag.svr.task_executor_refactor.chunk_service.thread_pool_exec") as mock_chunk_thread_exec, \
@@ -392,7 +392,7 @@ class TestTaskCancellationCleanupIntegration:
              patch("rag.svr.task_executor_refactor.task_handler.thread_pool_exec") as mock_thread_exec, \
              patch("rag.svr.task_executor_refactor.task_handler.get_model_config_from_provider_instance") as mock_get_config, \
              patch("rag.svr.task_executor_refactor.task_handler.LLMBundle") as mock_bundle, \
-             patch("rag.svr.task_executor_refactor.task_handler.get_tenant_default_model_by_type") as mock_get_default:
+             patch("rag.svr.task_executor_refactor.task_handler.get_runtime_default_model_by_type") as mock_get_default:
 
             mock_index_name.return_value = "test_index"
             mock_settings.docStoreConn.index_exist.return_value = True
@@ -429,7 +429,7 @@ class TestRaptorPipelineIntegration:
              patch("rag.svr.task_executor_refactor.chunk_service.settings", mock_settings), \
              patch("rag.svr.task_executor_refactor.task_handler.get_model_config_from_provider_instance") as mock_get_config, \
              patch("rag.svr.task_executor_refactor.task_handler.LLMBundle") as mock_bundle, \
-             patch("rag.svr.task_executor_refactor.task_handler.get_tenant_default_model_by_type") as mock_get_default, \
+             patch("rag.svr.task_executor_refactor.task_handler.get_runtime_default_model_by_type") as mock_get_default, \
              patch("rag.svr.task_executor_refactor.task_handler.search.index_name") as mock_index_name, \
              patch("rag.svr.task_executor_refactor.task_handler.thread_pool_exec") as mock_thread_exec, \
              patch("rag.svr.task_executor_refactor.task_handler.KnowledgebaseService") as mock_kb_service, \
@@ -471,7 +471,7 @@ class TestRaptorPipelineIntegration:
              patch("rag.svr.task_executor_refactor.chunk_service.settings", mock_settings), \
              patch("rag.svr.task_executor_refactor.task_handler.get_model_config_from_provider_instance") as mock_get_config, \
              patch("rag.svr.task_executor_refactor.task_handler.LLMBundle") as mock_bundle, \
-             patch("rag.svr.task_executor_refactor.task_handler.get_tenant_default_model_by_type") as mock_get_default, \
+             patch("rag.svr.task_executor_refactor.task_handler.get_runtime_default_model_by_type") as mock_get_default, \
              patch("rag.svr.task_executor_refactor.task_handler.search.index_name") as mock_index_name, \
              patch("rag.svr.task_executor_refactor.task_handler.thread_pool_exec") as mock_thread_exec, \
              patch("rag.svr.task_executor_refactor.task_handler.KnowledgebaseService") as mock_kb_service, \
@@ -512,7 +512,7 @@ class TestEmbeddingModelBindingFailureIntegration:
         ctx = create_task_context(task_dict)
 
         with patch("rag.svr.task_executor_refactor.task_handler.get_model_config_from_provider_instance") as mock_get_config, \
-             patch("rag.svr.task_executor_refactor.task_handler.get_tenant_default_model_by_type") as mock_get_default:
+             patch("rag.svr.task_executor_refactor.task_handler.get_runtime_default_model_by_type") as mock_get_default:
 
             mock_get_config.side_effect = Exception("Model not found")
             mock_get_default.side_effect = Exception("Model not found")
@@ -529,7 +529,7 @@ class TestEmbeddingModelBindingFailureIntegration:
         ctx = create_task_context(task_dict)
 
         with patch("rag.svr.task_executor_refactor.task_handler.get_model_config_from_provider_instance") as mock_get_config, \
-             patch("rag.svr.task_executor_refactor.task_handler.get_tenant_default_model_by_type") as mock_get_default:
+             patch("rag.svr.task_executor_refactor.task_handler.get_runtime_default_model_by_type") as mock_get_default:
 
             mock_get_config.side_effect = Exception("Model not found")
             mock_get_default.side_effect = Exception("Model not found")
@@ -560,7 +560,7 @@ class TestTocAsyncFlowIntegration:
              patch("rag.svr.task_executor_refactor.chunk_service.settings", mock_settings), \
              patch("rag.svr.task_executor_refactor.task_handler.get_model_config_from_provider_instance") as mock_get_config, \
              patch("rag.svr.task_executor_refactor.task_handler.LLMBundle") as mock_bundle, \
-             patch("rag.svr.task_executor_refactor.task_handler.get_tenant_default_model_by_type") as mock_get_default, \
+             patch("rag.svr.task_executor_refactor.task_handler.get_runtime_default_model_by_type") as mock_get_default, \
              patch("rag.svr.task_executor_refactor.task_handler.File2DocumentService") as mock_file_service, \
              patch("rag.svr.task_executor_refactor.task_handler.thread_pool_exec") as mock_thread_exec, \
              patch("rag.svr.task_executor_refactor.chunk_service.thread_pool_exec") as mock_chunk_thread_exec, \
@@ -623,7 +623,7 @@ class TestTocAsyncFlowIntegration:
              patch("rag.svr.task_executor_refactor.chunk_service.settings", mock_settings), \
              patch("rag.svr.task_executor_refactor.task_handler.get_model_config_from_provider_instance") as mock_get_config, \
              patch("rag.svr.task_executor_refactor.task_handler.LLMBundle") as mock_bundle, \
-             patch("rag.svr.task_executor_refactor.task_handler.get_tenant_default_model_by_type") as mock_get_default, \
+             patch("rag.svr.task_executor_refactor.task_handler.get_runtime_default_model_by_type") as mock_get_default, \
              patch("rag.svr.task_executor_refactor.task_handler.File2DocumentService") as mock_file_service, \
              patch("rag.svr.task_executor_refactor.task_handler.thread_pool_exec") as mock_thread_exec, \
              patch("rag.svr.task_executor_refactor.chunk_service.thread_pool_exec") as mock_chunk_thread_exec, \
@@ -684,7 +684,7 @@ class TestRecordingContextDataFlowAssertions:
              patch("rag.svr.task_executor_refactor.chunk_service.settings", mock_settings), \
              patch("rag.svr.task_executor_refactor.task_handler.get_model_config_from_provider_instance") as mock_get_config, \
              patch("rag.svr.task_executor_refactor.task_handler.LLMBundle") as mock_bundle, \
-             patch("rag.svr.task_executor_refactor.task_handler.get_tenant_default_model_by_type") as mock_get_default, \
+             patch("rag.svr.task_executor_refactor.task_handler.get_runtime_default_model_by_type") as mock_get_default, \
              patch("rag.svr.task_executor_refactor.task_handler.File2DocumentService") as mock_file_service, \
              patch("rag.svr.task_executor_refactor.task_handler.thread_pool_exec") as mock_thread_exec, \
              patch("rag.svr.task_executor_refactor.chunk_service.thread_pool_exec") as mock_chunk_thread_exec, \
@@ -727,7 +727,7 @@ class TestRecordingContextDataFlowAssertions:
              patch("rag.svr.task_executor_refactor.chunk_service.settings", mock_settings), \
              patch("rag.svr.task_executor_refactor.task_handler.get_model_config_from_provider_instance") as mock_get_config, \
              patch("rag.svr.task_executor_refactor.task_handler.LLMBundle") as mock_bundle, \
-             patch("rag.svr.task_executor_refactor.task_handler.get_tenant_default_model_by_type") as mock_get_default, \
+             patch("rag.svr.task_executor_refactor.task_handler.get_runtime_default_model_by_type") as mock_get_default, \
              patch("rag.svr.task_executor_refactor.task_handler.File2DocumentService") as mock_file_service, \
              patch("rag.svr.task_executor_refactor.task_handler.thread_pool_exec") as mock_thread_exec, \
              patch("rag.svr.task_executor_refactor.chunk_service.thread_pool_exec") as mock_chunk_thread_exec, \
@@ -778,7 +778,7 @@ class TestGraphragPipelineIntegration:
              patch("rag.svr.task_executor_refactor.chunk_service.settings", mock_settings), \
              patch("rag.svr.task_executor_refactor.task_handler.get_model_config_from_provider_instance") as mock_get_config, \
              patch("rag.svr.task_executor_refactor.task_handler.LLMBundle") as mock_bundle, \
-             patch("rag.svr.task_executor_refactor.task_handler.get_tenant_default_model_by_type") as mock_get_default, \
+             patch("rag.svr.task_executor_refactor.task_handler.get_runtime_default_model_by_type") as mock_get_default, \
              patch("rag.svr.task_executor_refactor.task_handler.search.index_name") as mock_index_name, \
              patch("rag.svr.task_executor_refactor.task_handler.thread_pool_exec") as mock_thread_exec, \
              patch("rag.svr.task_executor_refactor.task_handler.KnowledgebaseService") as mock_kb_service, \

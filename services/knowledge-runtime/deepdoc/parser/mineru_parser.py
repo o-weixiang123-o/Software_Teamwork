@@ -709,7 +709,7 @@ class MinerUParser(RAGFlowPdfParser):
         return []
 
     def _enhance_images_with_vlm(self, outputs: list[dict[str, Any]], vision_model, callback: Optional[Callable] = None):
-        """Generate semantic descriptions for image blocks via the tenant's
+        """Generate semantic descriptions for image blocks via the scope's
         IMAGE2TEXT model, mirroring deepdoc's VisionFigureParser. Each
         IMAGE block with a readable img_path gets a ``vlm_description``
         field that ``_transfer_to_sections`` then folds into the chunk

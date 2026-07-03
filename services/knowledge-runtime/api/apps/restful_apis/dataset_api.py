@@ -19,7 +19,7 @@ from peewee import OperationalError
 from quart import request
 from common.constants import RetCode
 from api.apps import login_required, current_user
-from api.utils.api_utils import get_error_argument_result, get_error_data_result, get_json_result, get_result, add_tenant_id_to_kwargs
+from api.utils.api_utils import get_error_argument_result, get_error_data_result, get_json_result, get_result, add_scope_id_to_kwargs
 from api.utils.pagination_utils import validate_rest_api_page_size
 from api.utils.validation_utils import (
     CreateDatasetReq,
@@ -35,15 +35,15 @@ from api.utils.validation_utils import (
 from api.apps.services import dataset_api_service
 
 
-async def _create_dataset_with_validator(tenant_id: str | None, validator):
+async def _create_dataset_with_validator(scope_id: str | None, validator):
     req, err = await validate_and_parse_json_request(request, validator)
     if err is not None:
         return get_error_argument_result(err)
 
     try:
-        if not tenant_id:
-            tenant_id = current_user.id
-        success, result = await dataset_api_service.create_dataset(tenant_id, req)
+        if not scope_id:
+            scope_id = current_user.id
+        success, result = await dataset_api_service.create_dataset(scope_id, req)
         if success:
             return get_result(data=result)
         else:
@@ -78,15 +78,15 @@ def _get_search_dependency_error_result(message="Internal server error"):
 
 @manager.route("/datasets/tags/aggregation", methods=["GET"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-def aggregate_tags(tenant_id):
+@add_scope_id_to_kwargs
+def aggregate_tags(scope_id):
     dataset_ids = request.args.get("dataset_ids", "").split(",")
     dataset_ids = [d for d in dataset_ids if d]
     if not dataset_ids:
         return get_error_data_result(message="Lack of dataset_ids in query parameters")
 
     try:
-        success, result = dataset_api_service.aggregate_tags(dataset_ids, tenant_id)
+        success, result = dataset_api_service.aggregate_tags(dataset_ids, scope_id)
         if success:
             return get_result(data=result)
         else:
@@ -100,15 +100,15 @@ def aggregate_tags(tenant_id):
 
 @manager.route("/datasets/metadata/flattened", methods=["GET"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-def get_flattened_metadata(tenant_id):
+@add_scope_id_to_kwargs
+def get_flattened_metadata(scope_id):
     dataset_ids = request.args.get("dataset_ids", "").split(",")
     dataset_ids = [d for d in dataset_ids if d]
     if not dataset_ids:
         return get_error_data_result(message="Lack of dataset_ids in query parameters")
 
     try:
-        success, result = dataset_api_service.get_flattened_metadata(dataset_ids, tenant_id)
+        success, result = dataset_api_service.get_flattened_metadata(dataset_ids, scope_id)
         if success:
             return get_result(data=result)
         else:
@@ -122,8 +122,8 @@ def get_flattened_metadata(tenant_id):
 
 @manager.route("/datasets", methods=["POST"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-async def create(tenant_id: str = None):
+@add_scope_id_to_kwargs
+async def create(scope_id: str = None):
     """
     Create a new dataset.
     ---
@@ -157,7 +157,7 @@ async def create(tenant_id: str = None):
               description: Optional dataset description.
             embedding_model:
               type: string
-              description: Optional embedding model name; if omitted, the tenant's default embedding model is used.
+              description: Optional embedding model name; if omitted, the scope's default embedding model is used.
             permission:
               type: string
               enum: ['me', 'team']
@@ -179,21 +179,21 @@ async def create(tenant_id: str = None):
             data:
               type: object
     """
-    return await _create_dataset_with_validator(tenant_id, CreateDatasetReq)
+    return await _create_dataset_with_validator(scope_id, CreateDatasetReq)
 
 
 @manager.route("/internal/datasets", methods=["POST"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-async def create_internal(tenant_id: str = None):
+@add_scope_id_to_kwargs
+async def create_internal(scope_id: str = None):
     """Create a dataset from trusted internal services."""
-    return await _create_dataset_with_validator(tenant_id, InternalCreateDatasetReq)
+    return await _create_dataset_with_validator(scope_id, InternalCreateDatasetReq)
 
 
 @manager.route("/datasets", methods=["DELETE"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-async def delete(tenant_id):
+@add_scope_id_to_kwargs
+async def delete(scope_id):
     """
     Delete datasets.
     ---
@@ -236,7 +236,7 @@ async def delete(tenant_id):
         return get_error_argument_result(err)
 
     try:
-        success, result = await dataset_api_service.delete_datasets(tenant_id, req.get("ids"), req.get("delete_all", False))
+        success, result = await dataset_api_service.delete_datasets(scope_id, req.get("ids"), req.get("delete_all", False))
         if success:
             return get_result(data=result)
         else:
@@ -251,8 +251,8 @@ async def delete(tenant_id):
 
 @manager.route("/datasets/<dataset_id>", methods=["PUT"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-async def update(tenant_id, dataset_id):
+@add_scope_id_to_kwargs
+async def update(scope_id, dataset_id):
     """
     Update a dataset.
     ---
@@ -323,7 +323,7 @@ async def update(tenant_id, dataset_id):
         return get_error_argument_result(err)
 
     try:
-        success, result = await dataset_api_service.update_dataset(tenant_id, dataset_id, req)
+        success, result = await dataset_api_service.update_dataset(scope_id, dataset_id, req)
         if success:
             return get_result(data=result)
         else:
@@ -338,8 +338,8 @@ async def update(tenant_id, dataset_id):
 
 @manager.route("/datasets", methods=["GET"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-def list_datasets(tenant_id):
+@add_scope_id_to_kwargs
+def list_datasets(scope_id):
     """
     List datasets.
     ---
@@ -400,7 +400,7 @@ def list_datasets(tenant_id):
         return get_error_argument_result(err)
 
     try:
-        success, result = dataset_api_service.list_datasets(tenant_id, args)
+        success, result = dataset_api_service.list_datasets(scope_id, args)
         if success:
             return get_result(data=result.get("data"), total=result.get("total"))
         else:
@@ -415,10 +415,10 @@ def list_datasets(tenant_id):
 
 @manager.route("/datasets/<dataset_id>", methods=["GET"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-def get_dataset(tenant_id, dataset_id):
+@add_scope_id_to_kwargs
+def get_dataset(scope_id, dataset_id):
     try:
-        success, result = dataset_api_service.get_dataset(dataset_id, tenant_id)
+        success, result = dataset_api_service.get_dataset(dataset_id, scope_id)
         if success:
             return get_result(data=result)
         else:
@@ -432,10 +432,10 @@ def get_dataset(tenant_id, dataset_id):
 
 @manager.route("/datasets/<dataset_id>/ingestions/summary", methods=["GET"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-def get_ingestion_summary(tenant_id, dataset_id):
+@add_scope_id_to_kwargs
+def get_ingestion_summary(scope_id, dataset_id):
     try:
-        success, result = dataset_api_service.get_ingestion_summary(dataset_id, tenant_id)
+        success, result = dataset_api_service.get_ingestion_summary(dataset_id, scope_id)
         if success:
             return get_result(data=result)
         else:
@@ -449,10 +449,10 @@ def get_ingestion_summary(tenant_id, dataset_id):
 
 @manager.route("/datasets/<dataset_id>/tags", methods=["GET"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-def list_tags(tenant_id, dataset_id):
+@add_scope_id_to_kwargs
+def list_tags(scope_id, dataset_id):
     try:
-        success, result = dataset_api_service.list_tags(dataset_id, tenant_id)
+        success, result = dataset_api_service.list_tags(dataset_id, scope_id)
         if success:
             return get_result(data=result)
         else:
@@ -466,8 +466,8 @@ def list_tags(tenant_id, dataset_id):
 
 @manager.route("/datasets/<dataset_id>/tags", methods=["DELETE"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-async def delete_tags(tenant_id, dataset_id):
+@add_scope_id_to_kwargs
+async def delete_tags(scope_id, dataset_id):
     req = await request.get_json()
     if not req or "tags" not in req:
         return get_error_data_result(message="Lack of tags in request body")
@@ -475,7 +475,7 @@ async def delete_tags(tenant_id, dataset_id):
         return get_error_argument_result("tags must be a list of strings")
 
     try:
-        success, result = dataset_api_service.delete_tags(dataset_id, tenant_id, req["tags"])
+        success, result = dataset_api_service.delete_tags(dataset_id, scope_id, req["tags"])
         if success:
             return get_result(data=result)
         else:
@@ -489,8 +489,8 @@ async def delete_tags(tenant_id, dataset_id):
 
 @manager.route("/datasets/<dataset_id>/tags", methods=["PUT"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-async def rename_tag(tenant_id, dataset_id):
+@add_scope_id_to_kwargs
+async def rename_tag(scope_id, dataset_id):
     req = await request.get_json()
     if not req or "from_tag" not in req or "to_tag" not in req:
         return get_error_data_result(message="Lack of from_tag or to_tag in request body")
@@ -501,7 +501,7 @@ async def rename_tag(tenant_id, dataset_id):
         return get_error_argument_result("from_tag and to_tag must not be empty")
 
     try:
-        success, result = dataset_api_service.rename_tag(dataset_id, tenant_id, req["from_tag"], req["to_tag"])
+        success, result = dataset_api_service.rename_tag(dataset_id, scope_id, req["from_tag"], req["to_tag"])
         if success:
             return get_result(data=result)
         else:
@@ -515,8 +515,8 @@ async def rename_tag(tenant_id, dataset_id):
 
 @manager.route("/datasets/search", methods=["POST"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-async def search_datasets(tenant_id):
+@add_scope_id_to_kwargs
+async def search_datasets(scope_id):
     """Search (retrieval test) across multiple datasets.
 
     POST /api/v1/datasets/search
@@ -532,7 +532,7 @@ async def search_datasets(tenant_id):
     if err is not None:
         return _get_search_argument_error_result(err)
     try:
-        success, result = await dataset_api_service.search_datasets(tenant_id, req)
+        success, result = await dataset_api_service.search_datasets(scope_id, req)
         if success:
             return get_result(data=result)
         else:
@@ -544,8 +544,8 @@ async def search_datasets(tenant_id):
 
 @manager.route("/datasets/<dataset_id>/search", methods=["POST"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-async def search(tenant_id, dataset_id):
+@add_scope_id_to_kwargs
+async def search(scope_id, dataset_id):
     """Search (retrieval test) within a dataset.
 
     POST /api/v1/datasets/<dataset_id>/search
@@ -562,7 +562,7 @@ async def search(tenant_id, dataset_id):
         return _get_search_argument_error_result(err)
     req['dataset_ids'] = [dataset_id]
     try:
-        success, result = await dataset_api_service.search_datasets(tenant_id, req)
+        success, result = await dataset_api_service.search_datasets(scope_id, req)
         if success:
             return get_result(data=result)
         else:
@@ -574,8 +574,8 @@ async def search(tenant_id, dataset_id):
 
 @manager.route("/datasets/<dataset_id>/graph", methods=["GET"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-async def get_knowledge_graph(tenant_id, dataset_id):
+@add_scope_id_to_kwargs
+async def get_knowledge_graph(scope_id, dataset_id):
     """Get the knowledge graph of a dataset.
 
     GET /api/v1/datasets/<dataset_id>/graph
@@ -584,7 +584,7 @@ async def get_knowledge_graph(tenant_id, dataset_id):
     Errors: AUTHENTICATION_ERROR for access denied; DATA_ERROR for internal errors.
     """
     try:
-        success, result = await dataset_api_service.get_knowledge_graph(dataset_id, tenant_id)
+        success, result = await dataset_api_service.get_knowledge_graph(dataset_id, scope_id)
         if success:
             return get_result(data=result)
         else:
@@ -596,12 +596,12 @@ async def get_knowledge_graph(tenant_id, dataset_id):
 
 @manager.route("/datasets/<dataset_id>/index", methods=["POST"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-async def run_index(tenant_id, dataset_id):
+@add_scope_id_to_kwargs
+async def run_index(scope_id, dataset_id):
     index_type = request.args.get("type", "")
     index_type = index_type.lower()
     try:
-        success, result = dataset_api_service.run_index(dataset_id, tenant_id, index_type)
+        success, result = dataset_api_service.run_index(dataset_id, scope_id, index_type)
         if success:
             return get_result(data=result)
         else:
@@ -615,12 +615,12 @@ async def run_index(tenant_id, dataset_id):
 
 @manager.route("/datasets/<dataset_id>/index", methods=["GET"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-def trace_index(tenant_id, dataset_id):
+@add_scope_id_to_kwargs
+def trace_index(scope_id, dataset_id):
     index_type = request.args.get("type", "")
     index_type = index_type.lower()
     try:
-        success, result = dataset_api_service.trace_index(dataset_id, tenant_id, index_type)
+        success, result = dataset_api_service.trace_index(dataset_id, scope_id, index_type)
         if success:
             return get_result(data=result)
         else:
@@ -635,8 +635,8 @@ def trace_index(tenant_id, dataset_id):
 @manager.route("/datasets/<dataset_id>/<index_type>", methods=["DELETE"])  # noqa: F821
 @manager.route("/datasets/<dataset_id>/index", methods=["DELETE"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-def delete_index(tenant_id, dataset_id, index_type=None):
+@add_scope_id_to_kwargs
+def delete_index(scope_id, dataset_id, index_type=None):
     index_type = (index_type or request.args.get("type", "")).lower()
     if index_type not in dataset_api_service._VALID_INDEX_TYPES:
         return get_error_argument_result(f"Invalid index type '{index_type}'")
@@ -647,7 +647,7 @@ def delete_index(tenant_id, dataset_id, index_type=None):
     wipe_arg = (request.args.get("wipe", "true") or "true").strip().lower()
     wipe = wipe_arg not in ("false", "0", "no", "off")
     try:
-        success, result = dataset_api_service.delete_index(dataset_id, tenant_id, index_type, wipe=wipe)
+        success, result = dataset_api_service.delete_index(dataset_id, scope_id, index_type, wipe=wipe)
         if success:
             return get_result(data=result)
         else:
@@ -661,10 +661,10 @@ def delete_index(tenant_id, dataset_id, index_type=None):
 
 @manager.route("/datasets/<dataset_id>/embedding", methods=["POST"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-async def run_embedding(tenant_id, dataset_id):
+@add_scope_id_to_kwargs
+async def run_embedding(scope_id, dataset_id):
     try:
-        success, result = dataset_api_service.run_embedding(dataset_id, tenant_id)
+        success, result = dataset_api_service.run_embedding(dataset_id, scope_id)
         if success:
             return get_result(data=result)
         else:
@@ -676,13 +676,13 @@ async def run_embedding(tenant_id, dataset_id):
 
 @manager.route("/datasets/<dataset_id>/embedding/check", methods=["POST"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-async def check_embedding(tenant_id, dataset_id):
+@add_scope_id_to_kwargs
+async def check_embedding(scope_id, dataset_id):
     try:
         req = await request.get_json()
         if not req or not req.get("embd_id"):
             return get_error_data_result(message="`embd_id` is required.")
-        status, result = dataset_api_service.check_embedding(dataset_id, tenant_id, req)
+        status, result = dataset_api_service.check_embedding(dataset_id, scope_id, req)
         if status is True:
             return get_result(data=result)
         elif status == "not_effective":
@@ -696,8 +696,8 @@ async def check_embedding(tenant_id, dataset_id):
 
 @manager.route("/datasets/<dataset_id>/ingestions", methods=["GET"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-def list_ingestion_logs(tenant_id, dataset_id):
+@add_scope_id_to_kwargs
+def list_ingestion_logs(scope_id, dataset_id):
     try:
         page = int(request.args.get("page", 0))
         page_size = validate_rest_api_page_size(int(request.args.get("page_size", 0)))
@@ -708,7 +708,7 @@ def list_ingestion_logs(tenant_id, dataset_id):
         create_date_to = request.args.get("create_date_to", None)
         log_type = request.args.get("log_type", "dataset")
         keywords = request.args.get("keywords", None)
-        success, result = dataset_api_service.list_ingestion_logs(dataset_id, tenant_id, page, page_size, orderby, desc, operation_status, create_date_from, create_date_to, log_type, keywords)
+        success, result = dataset_api_service.list_ingestion_logs(dataset_id, scope_id, page, page_size, orderby, desc, operation_status, create_date_from, create_date_to, log_type, keywords)
         if success:
             return get_result(data=result)
         else:
@@ -722,10 +722,10 @@ def list_ingestion_logs(tenant_id, dataset_id):
 
 @manager.route("/datasets/<dataset_id>/ingestions/<log_id>", methods=["GET"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-def get_ingestion_log(tenant_id, dataset_id, log_id):
+@add_scope_id_to_kwargs
+def get_ingestion_log(scope_id, dataset_id, log_id):
     try:
-        success, result = dataset_api_service.get_ingestion_log(dataset_id, tenant_id, log_id)
+        success, result = dataset_api_service.get_ingestion_log(dataset_id, scope_id, log_id)
         if success:
             return get_result(data=result)
         else:
@@ -739,8 +739,8 @@ def get_ingestion_log(tenant_id, dataset_id, log_id):
 
 @manager.route("/datasets/<dataset_id>/metadata/config", methods=["GET"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-def get_auto_metadata(tenant_id, dataset_id):
+@add_scope_id_to_kwargs
+def get_auto_metadata(scope_id, dataset_id):
     """
     Get auto-metadata configuration for a dataset.
     ---
@@ -766,7 +766,7 @@ def get_auto_metadata(tenant_id, dataset_id):
           type: object
     """
     try:
-        success, result = dataset_api_service.get_auto_metadata(dataset_id, tenant_id)
+        success, result = dataset_api_service.get_auto_metadata(dataset_id, scope_id)
         if success:
             return get_result(data=result)
         else:
@@ -780,8 +780,8 @@ def get_auto_metadata(tenant_id, dataset_id):
 
 @manager.route("/datasets/<dataset_id>/metadata/config", methods=["PUT"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-async def update_auto_metadata(tenant_id, dataset_id):
+@add_scope_id_to_kwargs
+async def update_auto_metadata(scope_id, dataset_id):
     """
     Update auto-metadata configuration for a dataset.
     ---
@@ -819,7 +819,7 @@ async def update_auto_metadata(tenant_id, dataset_id):
         return get_error_argument_result(err)
 
     try:
-        success, result = await dataset_api_service.update_auto_metadata(dataset_id, tenant_id, cfg)
+        success, result = await dataset_api_service.update_auto_metadata(dataset_id, scope_id, cfg)
         if success:
             return get_result(data=result)
         else:

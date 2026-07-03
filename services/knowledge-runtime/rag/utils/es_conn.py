@@ -555,7 +555,7 @@ class ESConnection(ESConnectionBase):
             elif v is not None:
                 raise Exception("Condition value must be int, str or list.")
 
-        # If no filters were added, use match_all (for tenant-wide operations)
+        # If no filters were added, use match_all (for runtime-scope-wide operations)
         if not bool_query.filter and not bool_query.must and not bool_query.must_not:
             qry = Q("match_all")
         else:

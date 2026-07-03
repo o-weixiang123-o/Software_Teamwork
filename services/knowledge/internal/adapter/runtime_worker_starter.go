@@ -95,7 +95,7 @@ func (s *Server) startRuntimeWorkerForIngestion(ctx context.Context) error {
 }
 
 func (s *Server) runtimeWorkerReady(ctx context.Context) bool {
-	status, err := s.vendor.RuntimeStatus(ctx, s.runtimeStatusUserID())
+	status, err := s.vendor.RuntimeStatus(ctx, s.runtimeScopeID())
 	if err != nil {
 		s.logger.WarnContext(ctx, "knowledge runtime status unavailable before worker start",
 			"service", "knowledge-adapter",

@@ -24,8 +24,9 @@ deploy/docker-compose.yml
 ```
 
 Current Docker target: local infrastructure Compose only. Business services and
-the RAGFlow Knowledge runtime API/worker run on the host. Local Elasticsearch is
-part of the default Compose infrastructure for the Knowledge runtime doc engine.
+the Knowledge runtime API/worker run on the host. Local Elasticsearch is
+the only optional Compose profile service, used as Knowledge runtime
+infrastructure when explicitly enabled from local env.
 
 ---
 
@@ -919,7 +920,7 @@ Runtime rules:
   `*_IMAGE` mirror defaults while allowing commented examples and local
   untracked overrides.
 - `run-backend.sh` must not prepare or start the retired standalone Parser.
-  Knowledge parsing runs through the RAGFlow runtime API/worker path.
+  Knowledge parsing runs through the Knowledge runtime API/worker path.
 - Keep `UV_DEFAULT_INDEX` in `deploy/.env.example` as the default host-run uv
   package index, using official PyPI by default. Mainland China mirror usage
   must be explicit, preferably through `dev-up.sh --china` which prepares

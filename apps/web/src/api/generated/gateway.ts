@@ -287,7 +287,7 @@ export interface paths {
         post?: never;
         /**
          * Delete document
-         * @description Delete the knowledge-owned document resource. Knowledge service coordinates RAGFlow runtime document, chunk, and index lifecycle through its document adapter; no File reference is exposed in the public contract.
+         * @description Delete the knowledge-owned document resource. Knowledge service coordinates Knowledge runtime document, chunk, and index lifecycle through its document adapter; no File reference is exposed in the public contract.
          */
         delete: operations["deleteDocument"];
         options?: never;

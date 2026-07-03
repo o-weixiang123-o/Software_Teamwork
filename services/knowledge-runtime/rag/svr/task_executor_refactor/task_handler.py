@@ -30,8 +30,8 @@ from typing import Callable, Dict, List, Optional
 
 from api.db.services.document_service import DocumentService
 from api.db.services.knowledgebase_service import KnowledgebaseService
-from api.db.joint_services.tenant_model_service import (
-    get_tenant_default_model_by_type,
+from api.db.joint_services.runtime_model_service import (
+    get_runtime_default_model_by_type,
     get_model_config_from_provider_instance
 )
 from api.db.services.llm_service import LLMBundle
@@ -87,21 +87,21 @@ class TaskHandler:
             await self.handle()
         finally:
             task_id = self._task_context.id
-            task_tenant_id = self._task_context.tenant_id
+            task_scope_id = self._task_context.scope_id
             task_dataset_id = self._task_context.kb_id
             task_doc_id = self._task_context.doc_id
             if self._task_context.has_canceled_func(task_id):
                 try:
                     exists = await thread_pool_exec(
                         settings.docStoreConn.index_exist,
-                        search.index_name(task_tenant_id),
+                        search.index_name(task_scope_id),
                         task_dataset_id,
                     )
                     if exists:
                         ret = await thread_pool_exec(
                             settings.docStoreConn.delete,
                             {"doc_id": task_doc_id},
-                            search.index_name(task_tenant_id),
+                            search.index_name(task_scope_id),
                             task_dataset_id,
                         )
                         self._task_context.recording_context.save_func_return_value("docStoreConn.delete", ret)
@@ -151,7 +151,7 @@ class TaskHandler:
     def _init_kb(self, vector_size: int) -> None:
         """Initialize knowledge base index."""
         ctx = self._task_context
-        idxnm = search.index_name(ctx.tenant_id)
+        idxnm = search.index_name(ctx.scope_id)
         parser_id = ctx.parser_id
         # Create index if not exists
         settings.docStoreConn.create_idx(idxnm, ctx.kb_id, vector_size, parser_id)
@@ -178,20 +178,20 @@ class TaskHandler:
             Tuple of (embedding_model, vector_size) on success, or None on failure.
         """
         ctx = self._task_context
-        task_tenant_id = ctx.tenant_id
+        task_scope_id = ctx.scope_id
         task_embedding_id = ctx.embd_id
         task_language = ctx.language
 
         try:
             if task_embedding_id:
                 embd_model_config = get_model_config_from_provider_instance(
-                    task_tenant_id, LLMType.EMBEDDING, task_embedding_id
+                    task_scope_id, LLMType.EMBEDDING, task_embedding_id
                 )
             else:
-                embd_model_config = get_tenant_default_model_by_type(
-                    task_tenant_id, LLMType.EMBEDDING
+                embd_model_config = get_runtime_default_model_by_type(
+                    task_scope_id, LLMType.EMBEDDING
                 )
-            embedding_model = LLMBundle(task_tenant_id, embd_model_config, lang=task_language)
+            embedding_model = LLMBundle(task_scope_id, embd_model_config, lang=task_language)
             vts, _ = embedding_model.encode(["ok"])
             return embedding_model, len(vts[0])
         except Exception as e:
@@ -207,7 +207,7 @@ class TaskHandler:
     ) -> None:
         """Run RAPTOR summary generation."""
         ctx = self._task_context
-        task_tenant_id = ctx.tenant_id
+        task_scope_id = ctx.scope_id
         task_dataset_id = ctx.kb_id
         kb_task_llm_id = ctx.kb_parser_config.get("llm_id") or ctx.llm_id
 
@@ -242,9 +242,9 @@ class TaskHandler:
 
         # Bind LLM for raptor
         chat_model_config = get_model_config_from_provider_instance(
-            task_tenant_id, LLMType.CHAT, kb_task_llm_id
+            task_scope_id, LLMType.CHAT, kb_task_llm_id
         )
-        with LLMBundle(task_tenant_id, chat_model_config, lang=ctx.language) as chat_model:
+        with LLMBundle(task_scope_id, chat_model_config, lang=ctx.language) as chat_model:
 
             # Run RAPTOR
             raptor_service = RaptorService(ctx=ctx)
@@ -265,7 +265,7 @@ class TaskHandler:
             if chunks:
                 task_doc_id = (ctx.doc_ids or [GRAPH_RAPTOR_FAKE_DOC_ID])[0]
                 chunk_service = ChunkService(ctx=ctx)
-                insert_result = await chunk_service.insert_chunks(ctx.id, task_tenant_id, task_dataset_id, chunks)
+                insert_result = await chunk_service.insert_chunks(ctx.id, task_scope_id, task_dataset_id, chunks)
                 if insert_result:
                     ctx.recording_context.record("insertion_result", "success")
                 else:
@@ -275,7 +275,7 @@ class TaskHandler:
                 cleaned_chunks = 0
                 for cleanup_doc_id, keep_method in raptor_cleanup_chunks:
                     ret = await self._delete_raptor_chunks(
-                        cleanup_doc_id, task_tenant_id, task_dataset_id, keep_method
+                        cleanup_doc_id, task_scope_id, task_dataset_id, keep_method
                     )
                     cleaned_chunks += ret
 
@@ -297,7 +297,7 @@ class TaskHandler:
     ) -> None:
         """Run GraphRAG."""
         ctx = self._task_context
-        task_tenant_id = ctx.tenant_id
+        task_scope_id = ctx.scope_id
         task_dataset_id = ctx.kb_id
         kb_task_llm_id = ctx.kb_parser_config.get("llm_id") or ctx.llm_id
         task_language = ctx.language
@@ -343,9 +343,9 @@ class TaskHandler:
         graphrag_conf = kb_parser_config.get("graphrag", {})
         start_ts = timer()
         chat_model_config = get_model_config_from_provider_instance(
-            task_tenant_id, LLMType.CHAT, kb_task_llm_id
+            task_scope_id, LLMType.CHAT, kb_task_llm_id
         )
-        with LLMBundle(task_tenant_id, chat_model_config, lang=task_language) as chat_model:
+        with LLMBundle(task_scope_id, chat_model_config, lang=task_language) as chat_model:
 
             with_resolution = graphrag_conf.get("resolution", False)
             with_community = graphrag_conf.get("community", False)
@@ -374,7 +374,7 @@ class TaskHandler:
         """Run standard chunking pipeline."""
         ctx = self._task_context
         task_id = ctx.id
-        task_tenant_id = ctx.tenant_id
+        task_scope_id = ctx.scope_id
         task_dataset_id = ctx.kb_id
         task_doc_id = ctx.doc_id
         task_start_ts = timer()
@@ -448,7 +448,7 @@ class TaskHandler:
             return
 
         insert_result = await chunk_service.insert_chunks(
-            task_id, task_tenant_id, task_dataset_id, chunks
+            task_id, task_scope_id, task_dataset_id, chunks
         )
 
         if not insert_result:
@@ -510,9 +510,9 @@ class TaskHandler:
         """Build table of contents."""
         progress_cb(msg="Start to generate table of content ...")
         chat_model_config = get_model_config_from_provider_instance(
-            ctx.tenant_id, LLMType.CHAT, ctx.llm_id
+            ctx.scope_id, LLMType.CHAT, ctx.llm_id
         )
-        with LLMBundle(ctx.tenant_id, chat_model_config, lang=ctx.language) as chat_mdl:
+        with LLMBundle(ctx.scope_id, chat_model_config, lang=ctx.language) as chat_mdl:
 
             docs = sorted(docs, key=lambda d: (
                 d.get("page_num_int", 0)[0] if isinstance(d.get("page_num_int", 0), list) else d.get("page_num_int", 0),
@@ -564,10 +564,10 @@ class TaskHandler:
             return None
 
     async def _delete_raptor_chunks(
-        self, doc_id: str, tenant_id: str, kb_id: str, keep_method: Optional[str]
+        self, doc_id: str, scope_id: str, kb_id: str, keep_method: Optional[str]
     ) -> int:
         """Delete RAPTOR chunks."""
         if self._task_context.write_interceptor:
             return self._task_context.write_interceptor.intercept("delete_raptor_chunks")
         else:
-            return await delete_raptor_chunks(doc_id, tenant_id, kb_id, keep_method)
+            return await delete_raptor_chunks(doc_id, scope_id, kb_id, keep_method)

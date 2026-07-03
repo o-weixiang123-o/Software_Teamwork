@@ -11,7 +11,7 @@
 | --- | --- | --- |
 | 本地自动化 | 不依赖外部凭据或长期环境，开发者和 PR reviewer 可重复执行。 | 记录命令、commit、环境和结果。 |
 | CI 自动化 | GitHub Actions 可稳定执行，适合作为 required check 候选。 | 链接 workflow run 或 PR check，并说明覆盖边界。 |
-| env-gated smoke | 需要显式环境变量、数据库、Redis、Elasticsearch/runtime doc engine、MinIO、Knowledge RAGFlow runtime 或 Compose 服务。 | 记录缺失环境、跳过条件、日志位置和 request id。 |
+| env-gated smoke | 需要显式环境变量、数据库、Redis、MinIO、Elasticsearch、Knowledge runtime 或 Compose 服务。 | 记录缺失环境、跳过条件、日志位置和 request id。 |
 | 真实 provider smoke | 需要真实外部模型 provider key 或受保护环境。 | 不提交 key、完整 prompt、payload 或 provider raw body；只记录脱敏结果和 request id。 |
 | 人工验收 | 需要人工账号、截图、演示环境或逐步操作。 | 记录 checklist、截图/trace、输入摘要、预期/实际结果和失败定位入口。 |
 
@@ -19,7 +19,7 @@
 
 | Issue | 测试领域与层级 | 主责 / 协作 | 状态 | 依赖与同步对象 | 必跑命令或操作 | 证据位置 | 残余风险口径 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| [#372](https://github.com/Sakayori-Iroha-168/Software_Teamwork/issues/372) `F-018` 知识库文档上传单元测试 | 前端本地自动化、mock-backed 单元/组件测试。 | 主责 `@AKTNL`；协作同步 #401。 | Closed；任务正文仍为 In Progress，最终以 GitHub closed 为准。 | 无上游依赖。 | `bun run --cwd apps/web check`；`bun run --cwd apps/web build`；`bun run --cwd apps/web test:unit`。 | Issue/PR 记录；如测试组复验，归档到 `docs/testing/reports/YYYY-MM-DD/frontend-upload-test-report.md`。 | 只能证明前端 mock 层行为，不等价于 File/Knowledge/RAGFlow runtime 真实链路。 |
+| [#372](https://github.com/Sakayori-Iroha-168/Software_Teamwork/issues/372) `F-018` 知识库文档上传单元测试 | 前端本地自动化、mock-backed 单元/组件测试。 | 主责 `@AKTNL`；协作同步 #401。 | Closed；任务正文仍为 In Progress，最终以 GitHub closed 为准。 | 无上游依赖。 | `bun run --cwd apps/web check`；`bun run --cwd apps/web build`；`bun run --cwd apps/web test:unit`。 | Issue/PR 记录；如测试组复验，归档到 `docs/testing/reports/YYYY-MM-DD/frontend-upload-test-report.md`。 | 只能证明前端 mock 层行为，不等价于 File/Knowledge runtime 真实链路。 |
 | [#375](https://github.com/Sakayori-Iroha-168/Software_Teamwork/issues/375) `C-018` Document AI 非法 JSON 容错测试 | Document 后端单元测试、fake AI 响应。 | 主责 `@Tsuki-CARAT`；协作同步 #379、#398。 | Closed。 | 依赖 #102。 | `cd services/document && go test ./...`；`cd services/document && go build ./cmd/server`。 | Issue/PR 记录；如复验，归档到 `docs/testing/reports/YYYY-MM-DD/document-ai-malformed-json-test-report.md`。 | 不证明真实 AI Gateway provider 或跨服务报告文件链路。 |
 | [#388](https://github.com/Sakayori-Iroha-168/Software_Teamwork/issues/388) `C-021` Document 检索失败与空结果容错 | Document 后端单元/集成边界测试。 | 主责 `@Tina-jwt`；协作同步 #379、#402。 | Closed。 | 依赖 #101，并行 #375。 | `cd services/document && go test ./...`；`cd services/document && go build ./cmd/server`。 | Issue/PR 记录；如复验，归档到 `docs/testing/reports/YYYY-MM-DD/document-retrieval-fallback-test-report.md`。 | fake Knowledge 或空结果只能覆盖服务容错，不证明 Knowledge retrieval 质量。 |
 | [#389](https://github.com/Sakayori-Iroha-168/Software_Teamwork/issues/389) `C-022` Document AI Gateway client 单元测试 | Document HTTP client 单元测试、fake provider。 | 主责 `@Tina-jwt`；协作同步 #378、#398。 | Closed。 | 无上游依赖。 | `cd services/document && go test ./...`；`cd services/document && go build ./cmd/server`。 | Issue/PR 记录；如复验，归档到 `docs/testing/reports/YYYY-MM-DD/document-aigatewayclient-test-report.md`。 | 不证明真实 provider key、AI Gateway profile 或跨服务鉴权。 |

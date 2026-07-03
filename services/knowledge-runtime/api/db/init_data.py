@@ -19,16 +19,10 @@ import os
 import time
 
 from api.db.db_models import init_database_tables
-from api.db.services.tenant_model_instance_service import TenantModelInstanceService
-from api.db.services.tenant_model_provider_service import TenantModelProviderService
-from api.db.services.tenant_model_service import TenantModelService
 from api.db.services.document_service import DocumentService
 from api.db.services.knowledgebase_service import KnowledgebaseService
 from api.db.services.system_settings_service import SystemSettingsService
-from api.db.services.user_service import TenantService
-from common.constants import LLMType
 from common.file_utils import get_project_base_directory
-from common.misc_utils import get_uuid
 
 
 def update_document_number_in_init():
@@ -50,91 +44,13 @@ def init_runtime_data():
 
 
 def init_env_default_models():
-    _init_env_default_models_for_tenants(None)
+    # Runtime model configuration is read from KNOWLEDGE_RUNTIME_* environment
+    # variables at call time. No per-runtime-scope model records are provisioned.
+    return None
 
 
-def init_env_default_models_for_tenant(tenant_id):
-    _init_env_default_models_for_tenants([tenant_id])
-
-
-def _init_env_default_models_for_tenants(tenant_ids):
-    embedding_model = os.getenv("KNOWLEDGE_RUNTIME_EMBEDDING_MODEL", "").strip()
-    embedding_factory = os.getenv("KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY", "").strip()
-    embedding_base_url = os.getenv("KNOWLEDGE_RUNTIME_EMBEDDING_BASE_URL", "").strip()
-    _ensure_env_default_model(
-        model_name=embedding_model,
-        provider_name=embedding_factory,
-        model_type=LLMType.EMBEDDING.value,
-        api_key=_env_model_key_for_factory(embedding_factory),
-        base_url=embedding_base_url,
-        tenant_field="embd_id",
-        tenant_ids=tenant_ids,
-    )
-
-    rerank_model = os.getenv("KNOWLEDGE_RUNTIME_RERANK_MODEL", "").strip()
-    rerank_factory = os.getenv("KNOWLEDGE_RUNTIME_RERANK_FACTORY", "").strip()
-    rerank_base_url = os.getenv("KNOWLEDGE_RUNTIME_RERANK_BASE_URL", "").strip()
-    _ensure_env_default_model(
-        model_name=rerank_model,
-        provider_name=rerank_factory,
-        model_type=LLMType.RERANK.value,
-        api_key=_env_model_key_for_factory(rerank_factory),
-        base_url=rerank_base_url,
-        tenant_field="rerank_id",
-        tenant_ids=tenant_ids,
-    )
-
-
-def _env_model_key_for_factory(provider_name):
-    if provider_name == "AI_GATEWAY":
-        return ""
-    return os.getenv("KNOWLEDGE_RUNTIME_MODEL_API_KEY", "").strip()
-
-
-def _ensure_env_default_model(model_name, provider_name, model_type, api_key, base_url, tenant_field, tenant_ids=None):
-    if not model_name or not provider_name or provider_name == "Builtin":
-        return
-
-    tenants = TenantService.model.select()
-    if tenant_ids:
-        tenants = tenants.where(TenantService.model.id.in_(tenant_ids))
-
-    for tenant in tenants:
-        provider = TenantModelProviderService.get_by_tenant_id_and_provider_name(tenant.id, provider_name)
-        if not provider:
-            TenantModelProviderService.insert(tenant_id=tenant.id, provider_name=provider_name)
-            provider = TenantModelProviderService.get_by_tenant_id_and_provider_name(tenant.id, provider_name)
-
-        instance = TenantModelInstanceService.get_by_provider_id_and_instance_name(provider.id, "default")
-        extra = json.dumps({"base_url": base_url})
-        if not instance:
-            TenantModelInstanceService.insert(
-                id=get_uuid(),
-                provider_id=provider.id,
-                instance_name="default",
-                api_key=api_key,
-                extra=extra,
-            )
-            instance = TenantModelInstanceService.get_by_provider_id_and_instance_name(provider.id, "default")
-        else:
-            TenantModelInstanceService.update_by_id(instance.id, {"api_key": api_key, "extra": extra})
-
-        model = TenantModelService.get_by_provider_id_and_instance_id_and_model_type_and_model_name(
-            provider.id,
-            instance.id,
-            model_type,
-            model_name,
-        )
-        if not model:
-            TenantModelService.insert(
-                model_name=model_name,
-                provider_id=provider.id,
-                instance_id=instance.id,
-                model_type=model_type,
-                extra="{}",
-            )
-
-        TenantService.update_by_id(tenant.id, {tenant_field: f"{model_name}@default@{provider_name}"})
+def init_env_default_models_for_scope(scope_id):
+    return init_env_default_models()
 
 
 def init_table():

@@ -24,7 +24,7 @@ from quart import request, make_response, send_file
 from peewee import OperationalError
 from pydantic import ValidationError
 
-from api.apps import AUTH_JWT, AUTH_API, AUTH_BETA, current_user, login_required
+from api.apps import current_user, login_required
 from api.constants import FILE_NAME_LEN_LIMIT, IMG_BASE64_PREFIX
 from api.apps.services.document_api_service import validate_document_update_fields, map_doc_keys, \
     map_doc_keys_with_run_status, update_document_name_only, update_chunk_method, update_document_status_only, \
@@ -38,10 +38,9 @@ from api.db.services.document_service import DocumentService
 from api.db.services.file2document_service import File2DocumentService
 from api.db.services.file_service import FileService
 from api.db.services.knowledgebase_service import KnowledgebaseService
-from api.common.check_team_permission import check_kb_team_permission
 from api.db.services.task_service import TaskService, cancel_all_task_of
 from api.utils.api_utils import construct_json_result, get_data_error_result, get_error_data_result, get_result, get_json_result, \
-    server_error_response, add_tenant_id_to_kwargs, get_request_json, get_error_argument_result, check_duplicate_ids
+    server_error_response, add_scope_id_to_kwargs, get_request_json, get_error_argument_result, check_duplicate_ids
 from api.utils.pagination_utils import validate_rest_api_page_size
 from api.utils.validation_utils import (
     UpdateDocumentReq, format_validation_error_message, validate_and_parse_json_request, DeleteDocumentReq,
@@ -59,8 +58,8 @@ from rag.nlp import search
 
 @manager.route("/documents/upload", methods=["POST"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-async def upload_info(tenant_id: str):
+@add_scope_id_to_kwargs
+async def upload_info(scope_id: str):
     """
     Upload a document and get its parsed info.
     ---
@@ -106,14 +105,14 @@ async def upload_info(tenant_id: str):
                 logging.warning("upload_info: rejected unsafe url: %s", ve)
                 return get_error_argument_result(str(ve))
 
-            data = await thread_pool_exec(FileService.upload_info, tenant_id, None, url)
+            data = await thread_pool_exec(FileService.upload_info, scope_id, None, url)
             return get_result(data=data)
 
         if len(file_objs) == 1:
-            data = await thread_pool_exec(FileService.upload_info, tenant_id, file_objs[0], None)
+            data = await thread_pool_exec(FileService.upload_info, scope_id, file_objs[0], None)
             return get_result(data=data)
 
-        results = [await thread_pool_exec(FileService.upload_info, tenant_id, f, None) for f in file_objs]
+        results = [await thread_pool_exec(FileService.upload_info, scope_id, f, None) for f in file_objs]
         return get_result(data=results)
     except Exception as e:
         logging.exception("upload_info failed")
@@ -122,8 +121,8 @@ async def upload_info(tenant_id: str):
 
 @manager.route("/datasets/<dataset_id>/documents/<document_id>", methods=["PATCH"]) # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-async def update_document(tenant_id, dataset_id, document_id):
+@add_scope_id_to_kwargs
+async def update_document(scope_id, dataset_id, document_id):
     """
     Update a document within a dataset.
     ---
@@ -175,10 +174,8 @@ async def update_document(tenant_id, dataset_id, document_id):
     req = await get_request_json()
 
     # Verify ownership and existence of dataset and document
-    if not KnowledgebaseService.query(id=dataset_id, tenant_id=tenant_id):
-        return get_error_data_result(message="You don't own the dataset.")
     e, kb = KnowledgebaseService.get_by_id(dataset_id)
-    if not e:
+    if not e or not KnowledgebaseService.accessible(dataset_id, scope_id):
         return get_error_data_result(message="Can't find this dataset!")
 
     # Prepare data for validation
@@ -221,11 +218,11 @@ async def update_document(tenant_id, dataset_id, document_id):
 
     # pipeline_id provided - reset document for reparse
     if update_doc_req.pipeline_id:
-        if error := reset_document_for_reparse(doc, tenant_id, pipeline_id=update_doc_req.pipeline_id):
+        if error := reset_document_for_reparse(doc, scope_id, pipeline_id=update_doc_req.pipeline_id):
             return error
     # chunk method provided - the update method will check if it's different with existing one
     elif update_doc_req.chunk_method:
-        if error := update_chunk_method(req, doc, tenant_id):
+        if error := update_chunk_method(req, doc, scope_id):
             return error
 
     if "enabled" in req: # already checked in UpdateDocumentReq - it's int if present
@@ -247,8 +244,8 @@ async def update_document(tenant_id, dataset_id, document_id):
 
 @manager.route("/datasets/<dataset_id>/metadata/summary", methods=["GET"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-async def metadata_summary(dataset_id, tenant_id):
+@add_scope_id_to_kwargs
+async def metadata_summary(dataset_id, scope_id):
     """
     Get metadata summary for a dataset.
     ---
@@ -271,7 +268,7 @@ async def metadata_summary(dataset_id, tenant_id):
       200:
         description: Metadata summary retrieved successfully.
     """
-    if not KnowledgebaseService.accessible(kb_id=dataset_id, user_id=tenant_id):
+    if not KnowledgebaseService.accessible(kb_id=dataset_id, user_id=scope_id):
         return get_error_data_result(message=f"You don't own the dataset {dataset_id}. ")
     # Get doc_ids from query parameters (comma-separated string)
     doc_ids_param = request.args.get("doc_ids", "")
@@ -285,8 +282,8 @@ async def metadata_summary(dataset_id, tenant_id):
 
 @manager.route("/datasets/<dataset_id>/metadata/update", methods=["POST"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-async def metadata_batch_update(dataset_id, tenant_id):
+@add_scope_id_to_kwargs
+async def metadata_batch_update(dataset_id, scope_id):
     """
     Batch update metadata for documents in a dataset.
     ---
@@ -317,7 +314,7 @@ async def metadata_batch_update(dataset_id, tenant_id):
       200:
         description: Metadata updated successfully.
     """
-    if not KnowledgebaseService.accessible(kb_id=dataset_id, user_id=tenant_id):
+    if not KnowledgebaseService.accessible(kb_id=dataset_id, user_id=scope_id):
         return get_error_data_result(message=f"You don't own the dataset {dataset_id}. ")
 
     req = await get_request_json()
@@ -367,8 +364,8 @@ async def metadata_batch_update(dataset_id, tenant_id):
 
 @manager.route("/datasets/<dataset_id>/documents", methods=["POST"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-async def upload_document(dataset_id, tenant_id):
+@add_scope_id_to_kwargs
+async def upload_document(dataset_id, scope_id):
     """
     Upload documents to a dataset.
     ---
@@ -441,15 +438,11 @@ async def upload_document(dataset_id, tenant_id):
         logging.error(f"Can't find the dataset with ID {dataset_id}!")
         return get_error_data_result(message=f"Can't find the dataset with ID {dataset_id}!", code=RetCode.DATA_ERROR)
 
-    if not check_kb_team_permission(kb, tenant_id):
-        logging.error("No authorization.")
-        return get_error_data_result(message="No authorization.", code=RetCode.AUTHENTICATION_ERROR)
-
     if upload_type == "web":
-        return await _upload_web_document(dataset_id, kb, tenant_id)
+        return await _upload_web_document(dataset_id, kb, scope_id)
 
     if upload_type == "empty":
-        return await _upload_empty_document(dataset_id, kb, tenant_id)
+        return await _upload_empty_document(dataset_id, kb, scope_id)
 
     if upload_type != "local":
         return get_error_data_result(
@@ -457,10 +450,10 @@ async def upload_document(dataset_id, tenant_id):
             code=RetCode.ARGUMENT_ERROR,
         )
 
-    return await _upload_local_documents(kb, tenant_id)
+    return await _upload_local_documents(kb, scope_id)
 
 
-async def _upload_web_document(dataset_id, kb, tenant_id):
+async def _upload_web_document(dataset_id, kb, scope_id):
     form = await request.form
     name = (form.get("name") or "").strip()
     url = form.get("url")
@@ -483,10 +476,10 @@ async def _upload_web_document(dataset_id, kb, tenant_id):
     if not blob:
         return server_error_response(ValueError("Download failure."))
 
-    root_folder = FileService.get_root_folder(tenant_id)
-    FileService.init_knowledgebase_docs(root_folder["id"], tenant_id)
-    kb_root_folder = FileService.get_kb_folder(tenant_id)
-    kb_folder = FileService.new_a_file_from_kb(kb.tenant_id, kb.name, kb_root_folder["id"])
+    root_folder = FileService.get_root_folder(scope_id)
+    FileService.init_knowledgebase_docs(root_folder["id"], scope_id)
+    kb_root_folder = FileService.get_kb_folder(scope_id)
+    kb_folder = FileService.new_a_file_from_kb(kb.scope_id, kb.name, kb_root_folder["id"])
 
     try:
         filename = duplicate_name(DocumentService.query, name=f"{name}.pdf", kb_id=kb.id)
@@ -505,7 +498,7 @@ async def _upload_web_document(dataset_id, kb, tenant_id):
             "parser_id": kb.parser_id,
             "pipeline_id": kb.pipeline_id,
             "parser_config": kb.parser_config,
-            "created_by": tenant_id,
+            "created_by": scope_id,
             "type": filetype,
             "name": filename,
             "location": location,
@@ -523,13 +516,13 @@ async def _upload_web_document(dataset_id, kb, tenant_id):
             doc["parser_id"] = ParserType.EMAIL.value
 
         DocumentService.insert(doc)
-        FileService.add_file_from_kb(doc, kb_folder["id"], kb.tenant_id)
+        FileService.add_file_from_kb(doc, kb_folder["id"], kb.scope_id)
         return get_result(data=map_doc_keys_with_run_status(doc, run_status="0"))
     except Exception as e:
         return server_error_response(e)
 
 
-async def _upload_empty_document(dataset_id, kb, tenant_id):
+async def _upload_empty_document(dataset_id, kb, scope_id):
     req = await get_request_json()
     name = (req.get("name") or "").strip()
 
@@ -544,10 +537,10 @@ async def _upload_empty_document(dataset_id, kb, tenant_id):
         return get_error_data_result(message="Duplicated document name in the same dataset.")
 
     try:
-        kb_root_folder = FileService.get_kb_folder(kb.tenant_id)
+        kb_root_folder = FileService.get_kb_folder(kb.scope_id)
         if not kb_root_folder:
             return get_error_data_result(message="Cannot find the root folder.")
-        kb_folder = FileService.new_a_file_from_kb(kb.tenant_id, kb.name, kb_root_folder["id"])
+        kb_folder = FileService.new_a_file_from_kb(kb.scope_id, kb.name, kb_root_folder["id"])
         if not kb_folder:
             return get_error_data_result(message="Cannot find the kb folder for this file.")
 
@@ -558,7 +551,7 @@ async def _upload_empty_document(dataset_id, kb, tenant_id):
                 "parser_id": kb.parser_id,
                 "pipeline_id": kb.pipeline_id,
                 "parser_config": kb.parser_config,
-                "created_by": tenant_id,
+                "created_by": scope_id,
                 "type": FileType.VIRTUAL,
                 "name": name,
                 "suffix": Path(name).suffix.lstrip("."),
@@ -566,13 +559,13 @@ async def _upload_empty_document(dataset_id, kb, tenant_id):
                 "size": 0,
             }
         )
-        FileService.add_file_from_kb(doc.to_dict(), kb_folder["id"], kb.tenant_id)
+        FileService.add_file_from_kb(doc.to_dict(), kb_folder["id"], kb.scope_id)
         return get_result(data=map_doc_keys(doc))
     except Exception as e:
         return server_error_response(e)
 
 
-async def _upload_local_documents(kb, tenant_id):
+async def _upload_local_documents(kb, scope_id):
     form = await request.form
     files = await request.files
     if "file" not in files:
@@ -605,7 +598,7 @@ async def _upload_local_documents(kb, tenant_id):
             parser_config_override = None
 
     err, files = await thread_pool_exec(
-        FileService.upload_document, kb, file_objs, tenant_id,
+        FileService.upload_document, kb, file_objs, scope_id,
         parent_path=form.get("parent_path"),
         parser_config_override=parser_config_override,
     )
@@ -642,8 +635,8 @@ async def _upload_local_documents(kb, tenant_id):
 
 @manager.route("/datasets/<dataset_id>/documents", methods=["GET"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-def list_docs(dataset_id, tenant_id):
+@add_scope_id_to_kwargs
+def list_docs(dataset_id, scope_id):
     """
     List documents in a dataset.
     ---
@@ -748,7 +741,7 @@ def list_docs(dataset_id, tenant_id):
                     type: string
                     description: Processing status.
     """
-    if not KnowledgebaseService.accessible(kb_id=dataset_id, user_id=tenant_id):
+    if not KnowledgebaseService.accessible(kb_id=dataset_id, user_id=scope_id):
         logging.error(f"You don't own the dataset {dataset_id}. ")
         return get_error_data_result(message=f"You don't own the dataset {dataset_id}. ")
 
@@ -1040,8 +1033,8 @@ def _parse_doc_id_filter_with_metadata(req, kb_id):
 
 @manager.route("/datasets/<dataset_id>/documents", methods=["DELETE"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-async def delete_documents(tenant_id, dataset_id):
+@add_scope_id_to_kwargs
+async def delete_documents(scope_id, dataset_id):
     """
     Delete documents from a dataset.
     ---
@@ -1090,7 +1083,7 @@ async def delete_documents(tenant_id, dataset_id):
 
     try:
         # Validate dataset exists and user has permission
-        if not KnowledgebaseService.accessible(kb_id=dataset_id, user_id=tenant_id):
+        if not KnowledgebaseService.accessible(kb_id=dataset_id, user_id=scope_id):
             return get_error_data_result(message=f"You don't own the dataset {dataset_id}. ")
 
         # Get documents to delete
@@ -1119,7 +1112,7 @@ async def delete_documents(tenant_id, dataset_id):
             doc_ids = unique_doc_ids
 
         # Delete documents using existing FileService.delete_docs
-        errors = await thread_pool_exec(FileService.delete_docs, doc_ids, tenant_id)
+        errors = await thread_pool_exec(FileService.delete_docs, doc_ids, scope_id)
 
         if errors:
             return get_error_data_result(message=str(errors))
@@ -1131,8 +1124,8 @@ async def delete_documents(tenant_id, dataset_id):
 
 @manager.route("/datasets/<dataset_id>/documents/<document_id>/metadata/config", methods=["PUT"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-async def update_metadata_config(tenant_id, dataset_id, document_id):
+@add_scope_id_to_kwargs
+async def update_metadata_config(scope_id, dataset_id, document_id):
     """
     Update document metadata configuration.
     ---
@@ -1171,7 +1164,7 @@ async def update_metadata_config(tenant_id, dataset_id, document_id):
         description: Document updated successfully.
     """
     # Verify ownership and existence of dataset
-    if not KnowledgebaseService.query(id=dataset_id, tenant_id=tenant_id):
+    if not KnowledgebaseService.query(id=dataset_id, scope_id=scope_id):
         return get_error_data_result(message="You don't own the dataset.")
 
     # Verify document exists in the dataset
@@ -1205,7 +1198,7 @@ async def update_metadata_config(tenant_id, dataset_id, document_id):
 
 
 @manager.route("/thumbnails", methods=["GET"])  # noqa: F821
-@login_required(auth_types=[AUTH_JWT, AUTH_API, AUTH_BETA])
+@login_required
 def list_thumbnails():
     """
     Get thumbnails for documents.
@@ -1245,8 +1238,8 @@ def list_thumbnails():
 
 @manager.route("/datasets/<dataset_id>/documents/metadatas", methods=["PATCH"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-async def update_metadata(tenant_id, dataset_id):
+@add_scope_id_to_kwargs
+async def update_metadata(scope_id, dataset_id):
     """
     Update document metadata in batch.
     ---
@@ -1307,7 +1300,7 @@ async def update_metadata(tenant_id, dataset_id):
         description: Metadata updated successfully.
     """
     # Verify ownership of dataset
-    if not KnowledgebaseService.accessible(kb_id=dataset_id, user_id=tenant_id):
+    if not KnowledgebaseService.accessible(kb_id=dataset_id, user_id=scope_id):
         return get_error_data_result(message=f"You don't own the dataset {dataset_id}.")
 
     # Get request body
@@ -1373,11 +1366,11 @@ async def update_metadata(tenant_id, dataset_id):
 
 @manager.route("/documents/ingest", methods=["POST"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-async def ingest(tenant_id):
+@add_scope_id_to_kwargs
+async def ingest(scope_id):
     req = await get_request_json()
     try:
-        user_id = tenant_id
+        user_id = scope_id
 
         error_code, error_message = await thread_pool_exec(_run_sync, user_id, req)
 
@@ -1393,7 +1386,7 @@ async def ingest(tenant_id):
 def _run_sync(user_id:str, req):
     for doc_id in req["doc_ids"]:
         if not DocumentService.accessible(doc_id, user_id):
-            return RetCode.AUTHENTICATION_ERROR, "No authorization."
+            return RetCode.NOT_FOUND, f"Document '{doc_id}' not found"
 
     kb_table_num_map = {}
     for doc_id in req["doc_ids"]:
@@ -1404,9 +1397,9 @@ def _run_sync(user_id:str, req):
             info["chunk_num"] = 0
             info["token_num"] = 0
 
-        doc_tenant_id = DocumentService.get_tenant_id(doc_id)
-        if not doc_tenant_id:
-            return RetCode.DATA_ERROR, "Tenant not found!"
+        doc_scope_id = DocumentService.get_scope_id(doc_id)
+        if not doc_scope_id:
+            return RetCode.DATA_ERROR, "Runtime scope not found!"
         e, doc = DocumentService.get_by_id(doc_id)
         if not e:
             return RetCode.DATA_ERROR, "Document not found!"
@@ -1424,8 +1417,8 @@ def _run_sync(user_id:str, req):
         DocumentService.update_by_id(doc_id, info)
         if req.get("delete", False):
             TaskService.filter_delete([Task.doc_id == doc_id])
-            if settings.docStoreConn.index_exist(search.index_name(doc_tenant_id), doc.kb_id):
-                settings.docStoreConn.delete({"doc_id": doc_id}, search.index_name(doc_tenant_id), doc.kb_id)
+            if settings.docStoreConn.index_exist(search.index_name(doc_scope_id), doc.kb_id):
+                settings.docStoreConn.delete({"doc_id": doc_id}, search.index_name(doc_scope_id), doc.kb_id)
 
         if str(req["run"]) == TaskStatus.RUNNING.value:
             if req.get("apply_kb"):
@@ -1437,15 +1430,15 @@ def _run_sync(user_id:str, req):
                 doc.parser_config["metadata"] = kb.parser_config.get("metadata", {})
                 DocumentService.update_parser_config(doc.id, doc.parser_config)
             doc_dict = doc.to_dict()
-            DocumentService.run(doc_tenant_id, doc_dict, kb_table_num_map)
+            DocumentService.run(doc_scope_id, doc_dict, kb_table_num_map)
 
     return None, None
 
 
 @manager.route("/datasets/<dataset_id>/documents/parse", methods=["POST"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-async def parse_documents(tenant_id, dataset_id):
+@add_scope_id_to_kwargs
+async def parse_documents(scope_id, dataset_id):
     """
     Start parsing documents in a dataset.
     ---
@@ -1480,7 +1473,7 @@ async def parse_documents(tenant_id, dataset_id):
       200:
         description: Successful operation.
     """
-    if not KnowledgebaseService.accessible(kb_id=dataset_id, user_id=tenant_id):
+    if not KnowledgebaseService.accessible(kb_id=dataset_id, user_id=scope_id):
         return get_error_data_result(message=f"You don't own the dataset {dataset_id}.")
 
     req = await get_request_json()
@@ -1533,11 +1526,11 @@ async def parse_documents(tenant_id, dataset_id):
 
                 DocumentService.update_by_id(doc_id, info)
                 TaskService.filter_delete([Task.doc_id == doc_id])
-                if settings.docStoreConn.index_exist(search.index_name(tenant_id), doc.kb_id):
-                    settings.docStoreConn.delete({"doc_id": doc_id}, search.index_name(tenant_id), doc.kb_id)
+                if settings.docStoreConn.index_exist(search.index_name(scope_id), doc.kb_id):
+                    settings.docStoreConn.delete({"doc_id": doc_id}, search.index_name(scope_id), doc.kb_id)
 
                 doc_dict = doc.to_dict()
-                DocumentService.run(tenant_id, doc_dict, kb_table_num_map)
+                DocumentService.run(scope_id, doc_dict, kb_table_num_map)
                 success_count += 1
 
             result = {"success_count": success_count}
@@ -1556,8 +1549,8 @@ async def parse_documents(tenant_id, dataset_id):
 
 @manager.route("/datasets/<dataset_id>/documents/stop", methods=["POST"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-async def stop_parse_documents(tenant_id, dataset_id):
+@add_scope_id_to_kwargs
+async def stop_parse_documents(scope_id, dataset_id):
     """
     Stop parsing documents in a dataset.
     ---
@@ -1592,7 +1585,7 @@ async def stop_parse_documents(tenant_id, dataset_id):
       200:
         description: Successful operation.
     """
-    if not KnowledgebaseService.accessible(kb_id=dataset_id, user_id=tenant_id):
+    if not KnowledgebaseService.accessible(kb_id=dataset_id, user_id=scope_id):
         return get_error_data_result(message=f"You don't own the dataset {dataset_id}.")
 
     req = await get_request_json()
@@ -1647,7 +1640,7 @@ async def stop_parse_documents(tenant_id, dataset_id):
                         "chunk_num": 0,
                     },
                 )
-                index_name = search.index_name(tenant_id)
+                index_name = search.index_name(scope_id)
                 if settings.docStoreConn.index_exist(index_name, doc.kb_id):
                     settings.docStoreConn.delete({"doc_id": doc.id}, index_name, doc.kb_id)
                 success_count += 1
@@ -1712,7 +1705,7 @@ def _content_type_for_document_image(object_name, data):
 
 
 @manager.route("/documents/images/<image_id>", methods=["GET"])  # noqa: F821
-@login_required(auth_types=[AUTH_JWT, AUTH_API, AUTH_BETA])
+@login_required
 async def get_document_image(image_id):
     """
     Get a document image by ID.
@@ -1753,8 +1746,8 @@ async def get_document_image(image_id):
 
 @manager.route("/datasets/<dataset_id>/documents/batch-update-status", methods=["POST"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-async def batch_update_document_status(tenant_id, dataset_id):
+@add_scope_id_to_kwargs
+async def batch_update_document_status(scope_id, dataset_id):
     """
     Batch update status of documents within a dataset.
     ---
@@ -1809,7 +1802,7 @@ async def batch_update_document_status(tenant_id, dataset_id):
         return get_error_argument_result(message=f'"Status" must be either 0 or 1:{status}!')
 
     # Verify dataset ownership
-    if not KnowledgebaseService.query(id=dataset_id, tenant_id=tenant_id):
+    if not KnowledgebaseService.query(id=dataset_id, scope_id=scope_id):
         return get_error_data_result(message="You don't own the dataset.")
 
     e, kb = KnowledgebaseService.get_by_id(dataset_id)
@@ -1847,7 +1840,7 @@ async def batch_update_document_status(tenant_id, dataset_id):
                     ok = settings.docStoreConn.update(
                         {"doc_id": doc_id},
                         {"available_int": status_int},
-                        search.index_name(kb.tenant_id),
+                        search.index_name(kb.scope_id),
                         doc.kb_id,
                     )
                 except Exception as exc:
@@ -1872,13 +1865,12 @@ async def batch_update_document_status(tenant_id, dataset_id):
     return get_json_result(data=result)
 
 @manager.route("/documents/<doc_id>/preview", methods=["GET"])  # noqa: F821
-@login_required(auth_types=[AUTH_JWT, AUTH_API, AUTH_BETA])
+@login_required
 async def get(doc_id):
-    """Return the raw file bytes for a document the requesting user is authorized to read.
+    """Return raw file bytes for a document in the global runtime scope.
 
-    The user must belong to the tenant that owns the document's knowledge base; otherwise
-    the response is indistinguishable from a missing document to avoid cross-tenant ID
-    enumeration.
+    The runtime uses a single internal namespace; product-level authorization is enforced by
+    the Knowledge adapter before this endpoint is called.
     """
     try:
         if not DocumentService.accessible(doc_id, current_user.id):

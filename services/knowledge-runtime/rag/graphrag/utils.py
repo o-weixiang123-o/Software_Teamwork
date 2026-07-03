@@ -50,7 +50,7 @@ _INSERT_BULK_SIZE = max(1, int(os.environ.get("GRAPHRAG_INSERT_BULK_SIZE", 64)))
 _INSERT_CONCURRENCY = max(1, int(os.environ.get("GRAPHRAG_INSERT_CONCURRENCY", 4)))
 
 
-async def insert_chunks_bounded(chunks, tenant_id, kb_id, *, callback=None, label="Insert chunks"):
+async def insert_chunks_bounded(chunks, scope_id, kb_id, *, callback=None, label="Insert chunks"):
     """Insert ``chunks`` into the doc store in batches with bounded concurrency and retries.
 
     Batch size is controlled by ``GRAPHRAG_INSERT_BULK_SIZE`` (default 64) and
@@ -80,7 +80,7 @@ async def insert_chunks_bounded(chunks, tenant_id, kb_id, *, callback=None, labe
                         thread_pool_exec(
                             settings.docStoreConn.insert,
                             batch,
-                            search.index_name(tenant_id),
+                            search.index_name(scope_id),
                             kb_id,
                         ),
                         timeout=timeout_s,
@@ -409,7 +409,7 @@ async def graph_node_to_chunk(kb_id, embd_mdl, ent_name, meta, chunks, nhop_neig
 
 
 @timeout(3, 3)
-async def get_relation(tenant_id, kb_id, from_ent_name, to_ent_name, size=1):
+async def get_relation(scope_id, kb_id, from_ent_name, to_ent_name, size=1):
     ents = from_ent_name
     if isinstance(ents, str):
         ents = [from_ent_name]
@@ -419,7 +419,7 @@ async def get_relation(tenant_id, kb_id, from_ent_name, to_ent_name, size=1):
     ents = list(set(ents))
     conds = {"fields": ["content_with_weight"], "size": size, "from_entity_kwd": ents, "to_entity_kwd": ents, "knowledge_graph_kwd": ["relation"]}
     res = []
-    es_res = await settings.retriever.search(conds, search.index_name(tenant_id), [kb_id] if isinstance(kb_id, str) else kb_id)
+    es_res = await settings.retriever.search(conds, search.index_name(scope_id), [kb_id] if isinstance(kb_id, str) else kb_id)
     for id in es_res.ids:
         try:
             if size == 1:
@@ -465,7 +465,7 @@ async def graph_edge_to_chunk(kb_id, embd_mdl, from_ent_name, to_ent_name, meta,
     chunks.append(chunk)
 
 
-async def does_graph_contains(tenant_id, kb_id, doc_id):
+async def does_graph_contains(scope_id, kb_id, doc_id):
     # Get doc_ids of graph
     fields = ["source_id"]
     condition = {
@@ -475,7 +475,7 @@ async def does_graph_contains(tenant_id, kb_id, doc_id):
     res = await thread_pool_exec(
         settings.docStoreConn.search,
         fields, [], condition, [], OrderByExpr(),
-        0, 1, search.index_name(tenant_id), [kb_id]
+        0, 1, search.index_name(scope_id), [kb_id]
     )
     fields2 = settings.docStoreConn.get_fields(res, fields)
     graph_doc_ids = set()
@@ -484,9 +484,9 @@ async def does_graph_contains(tenant_id, kb_id, doc_id):
     return doc_id in graph_doc_ids
 
 
-async def get_graph_doc_ids(tenant_id, kb_id) -> list[str]:
+async def get_graph_doc_ids(scope_id, kb_id) -> list[str]:
     conds = {"fields": ["source_id"], "removed_kwd": "N", "size": 1, "knowledge_graph_kwd": ["graph"]}
-    res = await settings.retriever.search(conds, search.index_name(tenant_id), [kb_id])
+    res = await settings.retriever.search(conds, search.index_name(scope_id), [kb_id])
     doc_ids = []
     if res.total == 0:
         return doc_ids
@@ -495,9 +495,9 @@ async def get_graph_doc_ids(tenant_id, kb_id) -> list[str]:
     return doc_ids
 
 
-async def get_graph(tenant_id, kb_id, exclude_rebuild=None):
+async def get_graph(scope_id, kb_id, exclude_rebuild=None):
     conds = {"fields": ["content_with_weight", "removed_kwd", "source_id"], "size": 1, "knowledge_graph_kwd": ["graph"]}
-    res = await settings.retriever.search(conds, search.index_name(tenant_id), [kb_id])
+    res = await settings.retriever.search(conds, search.index_name(scope_id), [kb_id])
     if not res.total == 0:
         for id in res.ids:
             try:
@@ -506,7 +506,7 @@ async def get_graph(tenant_id, kb_id, exclude_rebuild=None):
                     if "source_id" not in g.graph:
                         g.graph["source_id"] = res.field[id]["source_id"]
                 else:
-                    g = await rebuild_graph(tenant_id, kb_id, exclude_rebuild)
+                    g = await rebuild_graph(scope_id, kb_id, exclude_rebuild)
                 return g
             except Exception:
                 continue
@@ -514,7 +514,7 @@ async def get_graph(tenant_id, kb_id, exclude_rebuild=None):
     return result
 
 
-async def set_graph(tenant_id: str, kb_id: str, embd_mdl, graph: nx.Graph, change: GraphChange, callback):
+async def set_graph(scope_id: str, kb_id: str, embd_mdl, graph: nx.Graph, change: GraphChange, callback):
     global chat_limiter
     start = asyncio.get_running_loop().time()
 
@@ -600,7 +600,7 @@ async def set_graph(tenant_id: str, kb_id: str, embd_mdl, graph: nx.Graph, chang
     await thread_pool_exec(
         settings.docStoreConn.delete,
         {"knowledge_graph_kwd": ["graph", "subgraph"]},
-        search.index_name(tenant_id),
+        search.index_name(scope_id),
         kb_id
     )
 
@@ -612,7 +612,7 @@ async def set_graph(tenant_id: str, kb_id: str, embd_mdl, graph: nx.Graph, chang
             await thread_pool_exec(
                 settings.docStoreConn.delete,
                 {"knowledge_graph_kwd": ["entity"], "entity_kwd": batch},
-                search.index_name(tenant_id),
+                search.index_name(scope_id),
                 kb_id
             )
 
@@ -626,7 +626,7 @@ async def set_graph(tenant_id: str, kb_id: str, embd_mdl, graph: nx.Graph, chang
                         await thread_pool_exec(
                             settings.docStoreConn.delete,
                             {"knowledge_graph_kwd": ["relation"], "from_entity_kwd": from_node, "to_entity_kwd": to_node},
-                            search.index_name(tenant_id),
+                            search.index_name(scope_id),
                             kb_id
                         )
                     return
@@ -656,7 +656,7 @@ async def set_graph(tenant_id: str, kb_id: str, embd_mdl, graph: nx.Graph, chang
         callback(msg=f"set_graph removed {len(change.removed_nodes)} nodes and {len(change.removed_edges)} edges from index in {del_now - start:.2f}s.")
     start = del_now
 
-    await insert_chunks_bounded(chunks, tenant_id, kb_id, callback=callback, label="Insert chunks")
+    await insert_chunks_bounded(chunks, scope_id, kb_id, callback=callback, label="Insert chunks")
     now = asyncio.get_running_loop().time()
     if callback:
         callback(msg=f"set_graph added/updated {len(change.added_updated_nodes)} nodes and {len(change.added_updated_edges)} edges from index in {now - start:.2f}s.")
@@ -768,7 +768,7 @@ def flat_uniq_list(arr, key):
     return list(set(res))
 
 
-async def rebuild_graph(tenant_id, kb_id, exclude_rebuild=None):
+async def rebuild_graph(scope_id, kb_id, exclude_rebuild=None):
     graph = nx.Graph()
     flds = ["knowledge_graph_kwd", "content_with_weight", "source_id"]
     bs = 256
@@ -776,7 +776,7 @@ async def rebuild_graph(tenant_id, kb_id, exclude_rebuild=None):
         es_res = await thread_pool_exec(
             settings.docStoreConn.search,
             flds, [], {"kb_id": kb_id, "knowledge_graph_kwd": ["subgraph"]},
-            [], OrderByExpr(), i, bs, search.index_name(tenant_id), [kb_id]
+            [], OrderByExpr(), i, bs, search.index_name(scope_id), [kb_id]
         )
         # tot = settings.docStoreConn.get_total(es_res)
         es_res = settings.docStoreConn.get_fields(es_res, flds)

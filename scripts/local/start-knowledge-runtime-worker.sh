@@ -218,8 +218,6 @@ worker_heartbeat_ready() {
   base_url="$(runtime_api_url)"
   curl --noproxy '*' -sS --max-time 5 \
     -H "X-Service-Token: ${VENDOR_RUNTIME_SERVICE_TOKEN:-}" \
-    -H "X-User-Id: knowledge_adapter_ready" \
-    -H "X-Tenant-Id: knowledge_adapter_ready" \
     "$base_url/api/v1/system/status" 2>/dev/null | python3 -c '
 import json
 import sys

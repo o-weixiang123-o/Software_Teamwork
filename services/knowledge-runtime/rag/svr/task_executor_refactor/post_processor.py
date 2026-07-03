@@ -131,7 +131,7 @@ class PostProcessor:
             self._task_context.progress_cb(-1, msg="Task has been canceled.")
             return False
 
-        insert_result = await chunk_service.insert_chunks(ctx.id, ctx.tenant_id, ctx.kb_id, [toc_chunk])
+        insert_result = await chunk_service.insert_chunks(ctx.id, ctx.scope_id, ctx.kb_id, [toc_chunk])
 
         if not insert_result:
             self._task_context.recording_context.record("toc_inserted", False)

@@ -31,13 +31,13 @@ from common.token_utils import num_tokens_from_string
 
 from common.constants import LLMType, MAXIMUM_PAGE_NUMBER
 from api.db.services.llm_service import LLMBundle
-from api.db.joint_services.tenant_model_service import (
+from api.db.joint_services.runtime_model_service import (
     ensure_mineru_from_env,
     ensure_opendataloader_from_env,
     ensure_paddleocr_from_env,
     get_first_provider_model_name,
     get_model_config_from_provider_instance,
-    get_tenant_default_model_by_type,
+    get_runtime_default_model_by_type,
 )
 from rag.utils.file_utils import extract_embed_file, extract_links_from_pdf, extract_links_from_docx, extract_html
 from deepdoc.parser import DocxParser, EpubParser, ExcelParser, HtmlParser, JsonParser, MarkdownElementExtractor, MarkdownParser, PdfParser, TxtParser
@@ -137,34 +137,34 @@ def by_mineru(
     pdf_cls=None,
     parse_method: str = "raw",
     mineru_llm_name: str | None = None,
-    tenant_id: str | None = None,
+    scope_id: str | None = None,
     **kwargs,
 ):
     pdf_parser = None
-    if tenant_id:
+    if scope_id:
         if not mineru_llm_name:
             try:
-                mineru_llm_name = get_first_provider_model_name(tenant_id, "MinerU", LLMType.OCR) or ensure_mineru_from_env(tenant_id)
+                mineru_llm_name = get_first_provider_model_name(scope_id, "MinerU", LLMType.OCR) or ensure_mineru_from_env(scope_id)
             except Exception as e:  # best-effort fallback
                 logging.warning(f"fallback to env mineru: {e}")
 
         if mineru_llm_name:
             try:
-                ocr_model_config = get_model_config_from_provider_instance(tenant_id, LLMType.OCR, mineru_llm_name)
-                ocr_model = LLMBundle(tenant_id=tenant_id, model_config=ocr_model_config, lang=lang)
+                ocr_model_config = get_model_config_from_provider_instance(scope_id, LLMType.OCR, mineru_llm_name)
+                ocr_model = LLMBundle(scope_id=scope_id, model_config=ocr_model_config, lang=lang)
                 pdf_parser = ocr_model.mdl
 
-                # Closes #14869: when the tenant has an IMAGE2TEXT model
+                # Closes #14869: when the scope has an IMAGE2TEXT model
                 # configured, let the MinerU parser enrich image chunks with
                 # VLM-generated semantic descriptions (parity with deepdoc's
                 # VisionFigureParser). Best-effort — fall back silently if
                 # no vision model is available.
                 if "vision_model" not in kwargs:
                     try:
-                        vision_model_config = get_tenant_default_model_by_type(tenant_id, LLMType.IMAGE2TEXT)
-                        kwargs["vision_model"] = LLMBundle(tenant_id=tenant_id, model_config=vision_model_config, lang=lang)
+                        vision_model_config = get_runtime_default_model_by_type(scope_id, LLMType.IMAGE2TEXT)
+                        kwargs["vision_model"] = LLMBundle(scope_id=scope_id, model_config=vision_model_config, lang=lang)
                     except Exception as vlm_err:
-                        logging.info(f"[MinerU] no IMAGE2TEXT model for tenant; skipping image VLM enhancement: {vlm_err}")
+                        logging.info(f"[MinerU] no IMAGE2TEXT model for runtime scope; skipping image VLM enhancement: {vlm_err}")
 
                 sections, tables = pdf_parser.parse_pdf(
                     filepath=filename,
@@ -214,20 +214,20 @@ def by_opendataloader(
     pdf_cls=None,
     parse_method: str = "raw",
     opendataloader_llm_name: str | None = None,
-    tenant_id: str | None = None,
+    scope_id: str | None = None,
     **kwargs,
 ):
-    if tenant_id:
+    if scope_id:
         if not opendataloader_llm_name:
             try:
-                opendataloader_llm_name = get_first_provider_model_name(tenant_id, "OpenDataLoader", LLMType.OCR) or ensure_opendataloader_from_env(tenant_id)
+                opendataloader_llm_name = get_first_provider_model_name(scope_id, "OpenDataLoader", LLMType.OCR) or ensure_opendataloader_from_env(scope_id)
             except Exception as e:  # best-effort fallback
                 logging.warning(f"fallback to env opendataloader: {e}")
 
         if opendataloader_llm_name:
             try:
-                ocr_model_config = get_model_config_from_provider_instance(tenant_id, LLMType.OCR, opendataloader_llm_name)
-                ocr_model = LLMBundle(tenant_id=tenant_id, model_config=ocr_model_config, lang=lang)
+                ocr_model_config = get_model_config_from_provider_instance(scope_id, LLMType.OCR, opendataloader_llm_name)
+                ocr_model = LLMBundle(scope_id=scope_id, model_config=ocr_model_config, lang=lang)
                 pdf_parser = ocr_model.mdl
                 parse_options = {k: kwargs[k] for k in ("hybrid", "image_output", "sanitize") if k in kwargs}
                 sections, tables = pdf_parser.parse_pdf(
@@ -267,21 +267,21 @@ def by_paddleocr(
     pdf_cls=None,
     parse_method: str = "raw",
     paddleocr_llm_name: str | None = None,
-    tenant_id: str | None = None,
+    scope_id: str | None = None,
     **kwargs,
 ):
     pdf_parser = None
-    if tenant_id:
+    if scope_id:
         if not paddleocr_llm_name:
             try:
-                paddleocr_llm_name = get_first_provider_model_name(tenant_id, "PaddleOCR", LLMType.OCR) or ensure_paddleocr_from_env(tenant_id)
+                paddleocr_llm_name = get_first_provider_model_name(scope_id, "PaddleOCR", LLMType.OCR) or ensure_paddleocr_from_env(scope_id)
             except Exception as e:  # best-effort fallback
                 logging.warning(f"fallback to env paddleocr: {e}")
 
         if paddleocr_llm_name:
             try:
-                ocr_model_config = get_model_config_from_provider_instance(tenant_id, LLMType.OCR, paddleocr_llm_name)
-                ocr_model = LLMBundle(tenant_id=tenant_id, model_config=ocr_model_config, lang=lang)
+                ocr_model_config = get_model_config_from_provider_instance(scope_id, LLMType.OCR, paddleocr_llm_name)
+                ocr_model = LLMBundle(scope_id=scope_id, model_config=ocr_model_config, lang=lang)
                 pdf_parser = ocr_model.mdl
                 sections, tables = pdf_parser.parse_pdf(
                     filepath=filename,
@@ -311,12 +311,12 @@ def by_plaintext(filename, binary=None, from_page=0, to_page=MAXIMUM_PAGE_NUMBER
     if (not layout_recognizer) or (layout_recognizer == "Plain Text"):
         pdf_parser = PlainParser()
     else:
-        tenant_id = kwargs.get("tenant_id")
-        if not tenant_id:
-            raise ValueError("tenant_id is required when using vision layout recognizer")
-        vision_model_config = get_model_config_from_provider_instance(tenant_id, LLMType.IMAGE2TEXT, layout_recognizer)
+        scope_id = kwargs.get("scope_id")
+        if not scope_id:
+            raise ValueError("scope_id is required when using vision layout recognizer")
+        vision_model_config = get_model_config_from_provider_instance(scope_id, LLMType.IMAGE2TEXT, layout_recognizer)
         vision_model = LLMBundle(
-            tenant_id,
+            scope_id,
             model_config=vision_model_config,
             lang=kwargs.get("lang", "Chinese"),
         )
@@ -1028,8 +1028,8 @@ def chunk(filename, binary=None, from_page=0, to_page=MAXIMUM_PAGE_NUMBER, lang=
         is_markdown = True
 
         try:
-            vision_model_config = get_tenant_default_model_by_type(kwargs["tenant_id"], LLMType.IMAGE2TEXT)
-            vision_model = LLMBundle(kwargs["tenant_id"], vision_model_config)
+            vision_model_config = get_runtime_default_model_by_type(kwargs["scope_id"], LLMType.IMAGE2TEXT)
+            vision_model = LLMBundle(kwargs["scope_id"], vision_model_config)
             callback(0.2, "Visual model detected. Attempting to enhance figure extraction...")
         except Exception as e:
             logging.warning(f"Failed to detect figure extraction: {e}")

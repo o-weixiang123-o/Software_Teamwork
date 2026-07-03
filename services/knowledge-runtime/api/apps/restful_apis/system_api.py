@@ -24,7 +24,7 @@ from quart import jsonify
 from api.apps import login_required, current_user
 from api.utils.api_utils import get_json_result, get_data_error_result, server_error_response
 from api.utils.health_utils import run_health_checks
-from common.versions import get_ragflow_version
+from common.versions import get_runtime_version
 from api.db.services.knowledgebase_service import KnowledgebaseService
 from common.log_utils import get_log_levels, set_log_level
 from common import settings
@@ -53,7 +53,7 @@ def version():
               type: string
               description: Version number.
     """
-    return get_json_result(data=get_ragflow_version())
+    return get_json_result(data=get_runtime_version())
 
 
 @manager.route("/system/status", methods=["GET"])  # noqa: F821

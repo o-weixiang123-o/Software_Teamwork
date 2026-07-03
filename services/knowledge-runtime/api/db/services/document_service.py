@@ -18,24 +18,25 @@ import random
 from datetime import datetime
 
 import xxhash
-from peewee import fn, Case, JOIN
+from peewee import fn, Case
 
 from api.constants import IMG_BASE64_PREFIX, FILE_NAME_LEN_LIMIT
-from api.db import PIPELINE_SPECIAL_PROGRESS_FREEZE_TASK_TYPES, FileType, UserTenantRole
-from api.db.db_models import DB, Document, Knowledgebase, Task, Tenant, UserTenant, File2Document, File, User
+from api.db import PIPELINE_SPECIAL_PROGRESS_FREEZE_TASK_TYPES, FileType
+from api.db.db_models import DB, Document, Knowledgebase, Task, File2Document, File
 from api.db.db_utils import bulk_insert_into_db
 from api.db.services.common_service import CommonService, retry_deadlock_operation
 from api.db.services.knowledgebase_service import KnowledgebaseService
 from api.db.services.doc_metadata_service import DocMetadataService
 
 from common import settings
-from common.constants import ParserType, StatusEnum, TaskStatus, SVR_CONSUMER_GROUP_NAME, MAXIMUM_TASK_PAGE_NUMBER
+from common.constants import LLMType, ParserType, StatusEnum, TaskStatus, SVR_CONSUMER_GROUP_NAME, MAXIMUM_TASK_PAGE_NUMBER
 from common.doc_store.doc_store_base import OrderByExpr
 from common.misc_utils import get_uuid
 from common.time_utils import current_timestamp, get_format_time
 
 from rag.nlp import search
 from rag.utils.redis_conn import REDIS_CONN
+from api.utils.runtime_model_config import default_model_id
 
 
 class DocumentService(CommonService):
@@ -110,11 +111,11 @@ class DocumentService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def check_doc_health(cls, tenant_id: str, filename):
+    def check_doc_health(cls, scope_id: str, filename):
         import os
 
         MAX_FILE_NUM_PER_USER = int(os.environ.get("MAX_FILE_NUM_PER_USER", 0))
-        if 0 < MAX_FILE_NUM_PER_USER <= DocumentService.get_doc_count(tenant_id):
+        if 0 < MAX_FILE_NUM_PER_USER <= DocumentService.get_doc_count(scope_id):
             raise RuntimeError("Exceed the maximum file number of a free user!")
         if len(filename.encode("utf-8")) > FILE_NAME_LEN_LIMIT:
             raise RuntimeError("Exceed the maximum length of file name!")
@@ -126,18 +127,16 @@ class DocumentService(CommonService):
         fields = cls.get_cls_model_fields()
         if keywords:
             docs = (
-                cls.model.select(*[*fields, User.nickname])
+                cls.model.select(*fields)
                 .join(File2Document, on=(File2Document.document_id == cls.model.id))
                 .join(File, on=(File.id == File2Document.file_id))
-                .join(User, on=(cls.model.created_by == User.id), join_type=JOIN.LEFT_OUTER)
                 .where((cls.model.kb_id == kb_id), (fn.LOWER(cls.model.name).contains(keywords.lower())))
             )
         else:
             docs = (
-                cls.model.select(*[*fields, User.nickname])
+                cls.model.select(*fields)
                 .join(File2Document, on=(File2Document.document_id == cls.model.id))
                 .join(File, on=(File.id == File2Document.file_id))
-                .join(User, on=(cls.model.created_by == User.id), join_type=JOIN.LEFT_OUTER)
                 .where(cls.model.kb_id == kb_id)
             )
         if doc_ids is not None:
@@ -167,6 +166,8 @@ class DocumentService(CommonService):
             docs = docs.paginate(page_number, items_per_page)
 
         docs_list = list(docs.dicts())
+        for doc in docs_list:
+            doc["nickname"] = ""
         if return_empty_metadata:
             for doc in docs_list:
                 doc["meta_fields"] = {}
@@ -417,7 +418,7 @@ class DocumentService(CommonService):
     @classmethod
     @DB.connection_context()
     def get_all_docs_by_creator_id(cls, creator_id):
-        fields = [cls.model.id, cls.model.kb_id, cls.model.token_num, cls.model.chunk_num, Knowledgebase.tenant_id]
+        fields = [cls.model.id, cls.model.kb_id, cls.model.token_num, cls.model.chunk_num, Knowledgebase.scope_id]
         docs = cls.model.select(*fields).join(Knowledgebase, on=(Knowledgebase.id == cls.model.kb_id)).where(cls.model.created_by == creator_id)
         docs.order_by(cls.model.create_time.asc())
         # maybe cause slow query by deep paginate, optimize later
@@ -443,13 +444,13 @@ class DocumentService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def remove_document(cls, doc, tenant_id):
+    def remove_document(cls, doc, scope_id):
         from api.db.services.task_service import TaskService, cancel_all_task_of
 
         if not cls.delete_document_and_update_kb_counts(doc.id):
             return True
 
-        chunk_index_name = search.index_name(tenant_id)
+        chunk_index_name = search.index_name(scope_id)
         chunk_index_exists = settings.docStoreConn.index_exist(chunk_index_name, doc.kb_id)
 
         # Cancel all running tasks first using preset function in task_service.py --- set cancel flag in Redis
@@ -468,7 +469,7 @@ class DocumentService(CommonService):
         # Delete chunk images (non-critical, log and continue)
         try:
             if chunk_index_exists:
-                cls.delete_chunk_images(doc, tenant_id)
+                cls.delete_chunk_images(doc, scope_id)
         except Exception as e:
             logging.warning(f"Failed to delete chunk images for document {doc.id}: {e}")
 
@@ -488,7 +489,7 @@ class DocumentService(CommonService):
 
         # Delete document metadata (non-critical, log and continue)
         try:
-            DocMetadataService.delete_document_metadata(doc.id, doc.kb_id, tenant_id)
+            DocMetadataService.delete_document_metadata(doc.id, doc.kb_id, scope_id)
         except Exception as e:
             logging.warning(f"Failed to delete metadata for document {doc.id}: {e}")
 
@@ -519,11 +520,11 @@ class DocumentService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def delete_chunk_images(cls, doc, tenant_id):
+    def delete_chunk_images(cls, doc, scope_id):
         page = 0
         page_size = 1000
         while True:
-            chunks = settings.docStoreConn.search(["img_id"], [], {"doc_id": doc.id}, [], OrderByExpr(), page * page_size, page_size, search.index_name(tenant_id), [doc.kb_id])
+            chunks = settings.docStoreConn.search(["img_id"], [], {"doc_id": doc.id}, [], OrderByExpr(), page * page_size, page_size, search.index_name(scope_id), [doc.kb_id])
             chunk_ids = settings.docStoreConn.get_doc_ids(chunks)
             if not chunk_ids:
                 break
@@ -544,16 +545,12 @@ class DocumentService(CommonService):
             cls.model.type,
             cls.model.location,
             cls.model.size,
-            Knowledgebase.tenant_id,
-            Tenant.embd_id,
-            Tenant.img2txt_id,
-            Tenant.asr_id,
+            Knowledgebase.scope_id,
             cls.model.update_time,
         ]
         docs = (
             cls.model.select(*fields)
             .join(Knowledgebase, on=(cls.model.kb_id == Knowledgebase.id))
-            .join(Tenant, on=(Knowledgebase.tenant_id == Tenant.id))
             .where(
                 cls.model.status == StatusEnum.VALID.value,
                 ~(cls.model.type == FileType.VIRTUAL.value),
@@ -563,7 +560,11 @@ class DocumentService(CommonService):
             )
             .order_by(cls.model.update_time.asc())
         )
-        return list(docs.dicts())
+        rows = list(docs.dicts())
+        for row in rows:
+            row["img2txt_id"] = default_model_id(LLMType.IMAGE2TEXT)
+            row["asr_id"] = default_model_id(LLMType.SPEECH2TEXT)
+        return rows
 
     @classmethod
     @DB.connection_context()
@@ -733,12 +734,12 @@ class DocumentService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def get_tenant_id(cls, doc_id):
-        docs = cls.model.select(Knowledgebase.tenant_id).join(Knowledgebase, on=(Knowledgebase.id == cls.model.kb_id)).where(cls.model.id == doc_id, Knowledgebase.status == StatusEnum.VALID.value)
+    def get_scope_id(cls, doc_id):
+        docs = cls.model.select(Knowledgebase.scope_id).join(Knowledgebase, on=(Knowledgebase.id == cls.model.kb_id)).where(cls.model.id == doc_id, Knowledgebase.status == StatusEnum.VALID.value)
         docs = docs.dicts()
         if not docs:
             return None
-        return docs[0]["tenant_id"]
+        return docs[0]["scope_id"]
 
     @classmethod
     @DB.connection_context()
@@ -751,12 +752,12 @@ class DocumentService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def get_tenant_id_by_name(cls, name):
-        docs = cls.model.select(Knowledgebase.tenant_id).join(Knowledgebase, on=(Knowledgebase.id == cls.model.kb_id)).where(cls.model.name == name, Knowledgebase.status == StatusEnum.VALID.value)
+    def get_scope_id_by_name(cls, name):
+        docs = cls.model.select(Knowledgebase.scope_id).join(Knowledgebase, on=(Knowledgebase.id == cls.model.kb_id)).where(cls.model.name == name, Knowledgebase.status == StatusEnum.VALID.value)
         docs = docs.dicts()
         if not docs:
             return None
-        return docs[0]["tenant_id"]
+        return docs[0]["scope_id"]
 
     @classmethod
     @DB.connection_context()
@@ -769,13 +770,7 @@ class DocumentService(CommonService):
     @classmethod
     @DB.connection_context()
     def accessible4deletion(cls, doc_id, user_id):
-        docs = (
-            cls.model.select(cls.model.id)
-            .join(Knowledgebase, on=(Knowledgebase.id == cls.model.kb_id))
-            .join(UserTenant, on=((UserTenant.tenant_id == Knowledgebase.created_by) & (UserTenant.user_id == user_id)))
-            .where(cls.model.id == doc_id, UserTenant.status == StatusEnum.VALID.value, ((UserTenant.role == UserTenantRole.NORMAL) | (UserTenant.role == UserTenantRole.OWNER)))
-            .paginate(0, 1)
-        )
+        docs = cls.model.select(cls.model.id).where(cls.model.id == doc_id).paginate(0, 1)
         docs = docs.dicts()
         if not docs:
             return False
@@ -792,14 +787,14 @@ class DocumentService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def get_tenant_embd_id(cls, doc_id):
+    def get_runtime_embd_id(cls, doc_id):
         docs = (
-            cls.model.select(Knowledgebase.tenant_embd_id).join(Knowledgebase, on=(Knowledgebase.id == cls.model.kb_id)).where(cls.model.id == doc_id, Knowledgebase.status == StatusEnum.VALID.value)
+            cls.model.select(Knowledgebase.runtime_embd_id).join(Knowledgebase, on=(Knowledgebase.id == cls.model.kb_id)).where(cls.model.id == doc_id, Knowledgebase.status == StatusEnum.VALID.value)
         )
         docs = docs.dicts()
         if not docs:
             return None
-        return docs[0]["tenant_embd_id"]
+        return docs[0]["runtime_embd_id"]
 
     @classmethod
     @DB.connection_context()
@@ -814,19 +809,19 @@ class DocumentService(CommonService):
                 cls.model.content_hash,
                 Knowledgebase.language,
                 Knowledgebase.embd_id,
-                Tenant.id.alias("tenant_id"),
-                Tenant.img2txt_id,
-                Tenant.asr_id,
-                Tenant.llm_id,
+                Knowledgebase.scope_id,
             )
             .join(Knowledgebase, on=(cls.model.kb_id == Knowledgebase.id))
-            .join(Tenant, on=(Knowledgebase.tenant_id == Tenant.id))
             .where(cls.model.id == doc_id)
         )
         configs = configs.dicts()
         if not configs:
             return None
-        return configs[0]
+        config = configs[0]
+        config["img2txt_id"] = default_model_id(LLMType.IMAGE2TEXT)
+        config["asr_id"] = default_model_id(LLMType.SPEECH2TEXT)
+        config["llm_id"] = default_model_id(LLMType.CHAT)
+        return config
 
     @classmethod
     @DB.connection_context()
@@ -879,8 +874,8 @@ class DocumentService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def get_doc_count(cls, tenant_id):
-        docs = cls.model.select(cls.model.id).join(Knowledgebase, on=(Knowledgebase.id == cls.model.kb_id)).where(Knowledgebase.tenant_id == tenant_id)
+    def get_doc_count(cls, scope_id):
+        docs = cls.model.select(cls.model.id)
         return len(docs)
 
     @classmethod
@@ -1039,11 +1034,11 @@ class DocumentService(CommonService):
         return {"processing": int(row["processing"]), "finished": int(row["finished"]), "failed": int(row["failed"]), "cancelled": int(cancelled), "downloaded": int(downloaded)}
 
     @classmethod
-    def run(cls, tenant_id: str, doc: dict, kb_table_num_map: dict):
+    def run(cls, scope_id: str, doc: dict, kb_table_num_map: dict):
         from api.db.services.task_service import queue_tasks
         from api.db.services.file2document_service import File2DocumentService
 
-        doc["tenant_id"] = tenant_id
+        doc["scope_id"] = scope_id
         doc_parser = doc.get("parser_id", ParserType.NAIVE)
         if doc_parser == ParserType.TABLE:
             kb_id = doc.get("kb_id")

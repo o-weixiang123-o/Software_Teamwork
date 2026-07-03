@@ -65,7 +65,7 @@ class RAGFlowGCS:
             logging.exception(f"Health check failed: {e}")
             return False
 
-    def put(self, bucket, fnm, binary, tenant_id=None):
+    def put(self, bucket, fnm, binary, scope_id=None):
         # RENAMED PARAMETER: bucket_name -> bucket (to match interface)
         for _ in range(3):
             try:
@@ -84,7 +84,7 @@ class RAGFlowGCS:
                 time.sleep(1)
         return False
 
-    def rm(self, bucket, fnm, tenant_id=None):
+    def rm(self, bucket, fnm, scope_id=None):
         # RENAMED PARAMETER: bucket_name -> bucket
         try:
             bucket_obj = self.client.bucket(self.bucket_name)
@@ -96,7 +96,7 @@ class RAGFlowGCS:
         except Exception:
             logging.exception(f"Fail to remove {bucket}/{fnm}:")
 
-    def get(self, bucket, filename, tenant_id=None):
+    def get(self, bucket, filename, scope_id=None):
         # RENAMED PARAMETER: bucket_name -> bucket
         for _ in range(1):
             try:
@@ -113,7 +113,7 @@ class RAGFlowGCS:
                 time.sleep(1)
         return None
 
-    def obj_exist(self, bucket, filename, tenant_id=None):
+    def obj_exist(self, bucket, filename, scope_id=None):
         # RENAMED PARAMETER: bucket_name -> bucket
         try:
             bucket_obj = self.client.bucket(self.bucket_name)
@@ -133,7 +133,7 @@ class RAGFlowGCS:
             logging.exception(f"bucket_exist check for {self.bucket_name} got exception")
             return False
 
-    def get_presigned_url(self, bucket, fnm, expires, tenant_id=None):
+    def get_presigned_url(self, bucket, fnm, expires, scope_id=None):
         # RENAMED PARAMETER: bucket_name -> bucket
         for _ in range(10):
             try:

@@ -18,7 +18,7 @@
 - env-gated integration tests 默认可能跳过；如果本次改动触碰 repository、SQL 或 migration，应尽量提供本地数据库执行记录。
 - 测试组 `T-*` 任务必须实际运行测试并留下可复核证据；纯单元/组件自动化或静态检查可在 issue/PR 中保留轻量执行记录，集成、E2E、权限/安全边界、文件/Knowledge runtime 边界、migration、环境验收、人工验收、回归或缺陷复现必须按 `docs/testing/templates/test-report-template.md` 生成完整报告并归档到 `docs/testing/reports/YYYY-MM-DD/`。
 - 当前有前端 Playwright 基础 smoke，但没有后端跨服务完整 E2E smoke；不要用单服务测试或前端 mock E2E 替代跨服务验收。
-- 旧 `services/parser` 已退役；PDF 解析、切块、embedding、索引和检索由 Knowledge 的 RAGFlow runtime API/worker 链路覆盖。相关变更优先运行 Knowledge、knowledge-runtime、Docker policy、Compose config 和真实 PDF E2E。
+- 旧 `services/parser` 已退役；PDF 解析、切块、embedding、索引和检索由 Knowledge 的 Knowledge runtime API/worker 链路覆盖。相关变更优先运行 Knowledge、knowledge-runtime、Docker policy、Compose config 和真实 PDF E2E。
 - 当前有前端 Playwright 基础 smoke 和 #125 后端/跨服务 smoke slices，但没有完整前端到后端 E2E smoke；不要用单服务测试、局部 smoke 或前端 mock E2E 替代完整跨服务验收。
 - open PR、未合入 issue 和草案不能写成当前 `develop` 已实现；测试记录也不能把未稳定依赖的检查写成 required。
 
@@ -28,7 +28,7 @@
 
 ### 本地自动化
 
-本地自动化用于开发者在 PR 前快速验证改动，优先覆盖确定性强、依赖少、失败后容易定位的问题。前端以 typecheck、lint、format、build、Vitest/React Testing Library 和必要的 Playwright smoke 为主；后端以服务内 `go test ./...`、handler/service unit tests、fake dependency tests、OpenAPI/active route contract checks 和必要的 env-gated repository tests 为主。需要数据库、Redis、Elasticsearch/runtime doc engine、MinIO、Knowledge RAGFlow runtime 或真实模型 provider 的检查可以作为本地命令记录，但必须写清楚依赖环境、跳过条件和残余风险。
+本地自动化用于开发者在 PR 前快速验证改动，优先覆盖确定性强、依赖少、失败后容易定位的问题。前端以 typecheck、lint、format、build、Vitest/React Testing Library 和必要的 Playwright smoke 为主；后端以服务内 `go test ./...`、handler/service unit tests、fake dependency tests、OpenAPI/active route contract checks 和必要的 env-gated repository tests 为主。需要数据库、Redis、MinIO、Elasticsearch、Knowledge runtime 或真实模型 provider 的检查可以作为本地命令记录，但必须写清楚依赖环境、跳过条件和残余风险。
 
 ### CI 自动化
 
@@ -76,7 +76,7 @@ CI 自动化用于保护 `develop`，只放入可以在 GitHub Actions 中稳定
 | Knowledge ingestion real deps | 启动 PostgreSQL/Knowledge runtime/Redis/MinIO/Elasticsearch 后执行 `cd services/knowledge && KNOWLEDGE_INGESTION_SMOKE=1 ... go test ./internal/integration -run '^TestKnowledgeIngestionRealDepsSmoke$' -count=1 -v`；默认无 env 时跳过，不进入普通 CI required check。当前 Knowledge 主路径不依赖 File Service。 |
 | Gateway -> Knowledge owner route | 启动 Gateway/Auth/Redis/Knowledge/PostgreSQL 和 Knowledge runtime 后执行 `cd services/knowledge && GATEWAY_KNOWLEDGE_OWNER_SMOKE=1 ... go test ./internal/integration -run '^TestGatewayKnowledgeOwnerRouteSmoke$' -count=1 -v`；默认无 env 时跳过，不进入普通 CI required check。 |
 | Auth/Gateway/Redis full smoke | `bash scripts/run_issue_352_smoke.sh`；脚本只从 Compose 启动 `postgres` 和 `redis`，随后在宿主机执行 Auth migration、启动 Auth/Gateway、创建用户、登录、`/users/me`、登出、Redis 脱敏检查和 fake owner header capture。 |
-| Knowledge RAGFlow runtime / PDF E2E | 启动宿主机 Knowledge runtime API/worker 和 host-run Knowledge adapter 后，使用真实 PDF 走上传、解析、切块、索引、检索链路；默认不进入普通 CI required check。 |
+| Knowledge runtime / PDF E2E | 启动宿主机 Knowledge runtime API/worker 和 host-run Knowledge adapter 后，使用真实 PDF 走上传、解析、切块、索引、检索链路；默认不进入普通 CI required check。 |
 | migration | `go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$DATABASE_URL" up`。 |
 | Knowledge runtime route / contract | `cd services/knowledge-runtime && PYTHONPATH=. uv run --no-project --with pytest --with pytest-asyncio python -m pytest <targeted tests> -q`；配合 `cd services/knowledge && go test ./...` 和 `go build ./cmd/adapter`。 |
 | AI Gateway provider adapter | `cd services/ai-gateway && go test ./...`；尽量加 fake provider case 和真实 provider smoke 记录。 |
@@ -92,12 +92,12 @@ CI 自动化用于保护 `develop`，只放入可以在 GitHub Actions 中稳定
 | Migration apply | CI 使用 PostgreSQL 16 和 goose apply。 | 新增或修改 migration。 |
 | Contract tests | Gateway active API verifier、route coverage tests、QA active path schema contract tests。 | OpenAPI、owner map、active path、RESTful path、owner/auth/schema/content type 和 QA internal `$ref` drift。 |
 | Auth/Gateway 用户管理测试 | Auth service tests、Gateway auth/admin route tests、Gateway active API verifier、前端 route guard 和表单测试。 | 自助注册兼容、管理员管理范围、profile 自助编辑、必需改密、密码策略、会话刷新和 stale authorization 防回归。 |
-| Knowledge runtime tests | Route allowlist、adapter/runtime contract、配置加载、service token 和 clean DB provisioning 单测。 | Knowledge RAGFlow runtime API/worker 或 adapter contract 变更；真实 provider、OCR 质量和部署资源需要具备环境后单独记录。 |
+| Knowledge runtime tests | Route allowlist、adapter/runtime contract、配置加载、service token 和 clean DB provisioning 单测。 | Knowledge runtime API/worker 或 adapter contract 变更；真实 provider、OCR 质量和部署资源需要具备环境后单独记录。 |
 | Knowledge ingestion real deps smoke | `KNOWLEDGE_INGESTION_SMOKE=1` 显式启用；使用真实 Knowledge runtime、PostgreSQL、Redis、MinIO 和 Elasticsearch。 | 验证 Knowledge 上传 fixture、runtime 解析/切片/embedding/索引、状态更新和检索前置数据；不替代 retrieval/rerank/MCP/Gateway 总入口。 |
 | Gateway -> Knowledge owner route smoke | `GATEWAY_KNOWLEDGE_OWNER_SMOKE=1` 显式启用；使用真实 Gateway/Auth/session cache、Knowledge、PostgreSQL、Redis 和 Knowledge runtime。 | 先验证无 Bearer token 的伪造 `X-User-*` 请求被 Gateway 拒绝，再通过 Gateway 创建/读取 KB 并断言 `createdBy` 是真实 session user；不替代完整 Gateway route matrix。 |
 | Auth/Gateway/Redis full smoke | `AUTH_GATEWAY_REDIS_FULL_SMOKE=1` 显式启用；`scripts/run_issue_352_smoke.sh` 准备 PostgreSQL/Redis infra 并在宿主机启动 Auth/Gateway。 | 验证 Auth migration apply、Gateway 创建用户/登录/当前用户/登出、Redis session key/value/TTL 脱敏，以及 fake owner 捕获 Gateway 注入认证上下文 header。 |
 | Cross-service smoke | 已有 `scripts/run_issue_125_smoke.sh` 汇总入口；真实依赖仍按 slice 显式启用。 | Auth -> Gateway -> Domain、Document -> File/AI Gateway、QA -> Knowledge/AI Gateway 等链路。 |
-| Knowledge PDF E2E | 显式启用；使用真实 Knowledge adapter、RAGFlow runtime API/worker、PostgreSQL、MinIO、Elasticsearch/向量索引和 provider credential。 | 验证真实 PDF 上传、解析、切块、embedding、索引和检索结果；不替代完整 Gateway/MCP/QA 总入口。 |
+| Knowledge PDF E2E | 显式启用；使用真实 Knowledge adapter、Knowledge runtime API/worker、PostgreSQL、MinIO、Elasticsearch/向量索引和 provider credential。 | 验证真实 PDF 上传、解析、切块、embedding、索引和检索结果；不替代完整 Gateway/MCP/QA 总入口。 |
 | Issue #125 smoke slices | `bash scripts/run_issue_125_smoke.sh --list` / `--all` | 汇总 Auth/Gateway/Redis、File owner、QA RAG、Document REST 和 Document MCP slices；仍是显式 opt-in smoke，不等同于完整前端 E2E 或真实 provider 验收。 |
 
 env-gated repository tests：
@@ -113,7 +113,7 @@ cd services/knowledge
 KNOWLEDGE_TEST_DATABASE_URL='postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable' go test ./internal/repository -count=1
 ```
 
-Knowledge RAGFlow runtime PDF E2E is a manual or env-gated verification path:
+Knowledge runtime PDF E2E is a manual or env-gated verification path:
 start the host-run Knowledge runtime API/worker, run the Knowledge adapter
 with `VENDOR_RUNTIME_URL` pointing at the reachable runtime API, upload
 `DL_T_673-1999.pdf`, wait for document status `ready`, assert non-zero chunks,
@@ -122,7 +122,7 @@ or cannot run, PR verification must state the missing dependency and residual
 risk.
 
 Before running Gateway-level smoke, start infra from `deploy/` and start Auth,
-File, Knowledge, QA, AI Gateway, Gateway, and the host-run Knowledge RAGFlow
+File, Knowledge, QA, AI Gateway, Gateway, and the host-run Knowledge runtime
 runtime required by the scenario. The old standalone Parser service is not part
 of the current startup path.
 
@@ -194,7 +194,7 @@ prompts, document text, embedding payloads, or provider raw bodies.
 | 服务 implementation 文档 | 改服务能力、stub/501 状态、runtime dependency、migration、worker 或 provider adapter。 |
 | 技术选型基线 | 引入新运行时依赖、镜像、CLI、SDK、队列、数据库或工具链。 |
 | 本地联调手册 | 新增 Compose、env template、seed data、跨服务 smoke 或端口约定。 |
-| Knowledge runtime 契约一致性 | 改 `services/knowledge-runtime/**`、Knowledge adapter runtime client、parser config 到 RAGFlow config 映射、host-run runtime API/worker。 |
+| Knowledge runtime 契约一致性 | 改 `services/knowledge-runtime/**`、Knowledge adapter runtime client、parser config 到 runtime config 映射、host-run runtime API/worker。 |
 | 测试策略 | 新增 CI workflow、测试框架、E2E smoke、路径过滤规则或 required check。 |
 
 文档同步检查：
@@ -205,7 +205,7 @@ prompts, document text, embedding payloads, or provider raw bodies.
 | OpenAPI / Gateway active path / 数据模型变化 | OpenAPI、owner map、README、service boundaries 或相关契约文档；契约语义变化需先交管理组决策。 |
 | runtime dependency / Compose / CI 变化 | `technology-decisions.md`、runbook 或本文。 |
 | Docker infra Compose、基础设施镜像、Docker daemon mirror、registry rewrite 变化 | `docs/runbooks/docker-image-pull-environment.md`、`deploy/README.md`、`deploy/.env.example`、`docs/architecture/technology-decisions.md`、`scripts/check_docker_policy.py`、`scripts/check_docker_environment.py` 和相关 Trellis spec；Compose 基础镜像覆盖变量必须保持 pinned 默认，不得把正常路径改成 `latest`。 |
-| Knowledge RAGFlow runtime、Python packaging 或 HTTP tests 变化 | Knowledge README、`technology-decisions.md`、runbook 和本文。 |
+| Knowledge runtime、Python packaging 或 HTTP tests 变化 | Knowledge README、`technology-decisions.md`、runbook 和本文。 |
 | open PR 或未合入能力 | 只能写 pending、待合入或 follow-up，不得写成已实现。 |
 
 ## 跨服务 smoke 目标

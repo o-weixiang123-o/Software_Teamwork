@@ -42,13 +42,12 @@ def _load_dataset_service_module(
     *,
     ensure_paddleocr_from_config,
     knowledgebase_service=None,
-    tenant_service=None,
     remap_dictionary_keys=None,
     verify_embedding_availability=None,
 ):
     _stub(
         monkeypatch,
-        "api.db.joint_services.tenant_model_service",
+        "api.db.joint_services.runtime_model_service",
         ensure_paddleocr_from_config=ensure_paddleocr_from_config,
         get_model_config_from_provider_instance=MagicMock(),
     )
@@ -78,13 +77,6 @@ def _load_dataset_service_module(
         "api.db.services.task_service",
         TaskService=SimpleNamespace(),
         GRAPH_RAPTOR_FAKE_DOC_ID="fake-doc",
-    )
-    _stub(
-        monkeypatch,
-        "api.db.services.user_service",
-        TenantService=tenant_service or SimpleNamespace(),
-        UserService=SimpleNamespace(),
-        UserTenantService=SimpleNamespace(),
     )
     _stub(
         monkeypatch,
@@ -124,15 +116,15 @@ def _load_dataset_service_module(
 def test_apply_parser_config_credentials_sets_layout_model_without_persisting_credentials(monkeypatch):
     calls = {}
 
-    def fake_ensure(tenant_id, config, model_name=None):
-        calls.update(tenant_id=tenant_id, config=config, model_name=model_name)
+    def fake_ensure(scope_id, config, model_name=None):
+        calls.update(scope_id=scope_id, config=config, model_name=model_name)
         return "PaddleOCR-VL-1.6@PaddleOCR-VL-1.6@PaddleOCR"
 
     module = _load_dataset_service_module(monkeypatch, ensure_paddleocr_from_config=fake_ensure)
     req = {"parser_config": {"chunk_token_num": 512}}
 
     module._apply_parser_config_credentials(
-        "tenant-1",
+        "scope-1",
         req,
         {
             "paddleocr_cloud": {
@@ -146,7 +138,7 @@ def test_apply_parser_config_credentials_sets_layout_model_without_persisting_cr
     assert req["parser_config"]["chunk_token_num"] == 512
     assert req["parser_config"]["layout_recognize"] == "PaddleOCR-VL-1.6@PaddleOCR-VL-1.6@PaddleOCR"
     assert "parser_config_credentials" not in req
-    assert calls["tenant_id"] == "tenant-1"
+    assert calls["scope_id"] == "scope-1"
     assert calls["model_name"] == "PaddleOCR-VL-1.6"
     assert calls["config"]["paddleocr_base_url"] == "https://paddleocr.example.com/api"
     assert calls["config"]["paddleocr_access_token"] == "sk-secret"
@@ -158,7 +150,7 @@ def test_apply_parser_config_credentials_keeps_request_unchanged_without_model(m
     req = {}
 
     module._apply_parser_config_credentials(
-        "tenant-1",
+        "scope-1",
         req,
         {
             "paddleocr_cloud": {
@@ -178,28 +170,25 @@ async def test_create_dataset_ignores_ext_parser_config_credentials(monkeypatch)
     created_kb = SimpleNamespace(to_dict=lambda: {"id": "kb-1", "name": "Manuals"})
     ensure_paddleocr = MagicMock(return_value="PaddleOCR-VL@PaddleOCR-VL@PaddleOCR")
 
-    def fake_create_with_name(name, tenant_id, parser_id, **kwargs):
-        captured.update(name=name, tenant_id=tenant_id, parser_id=parser_id, kwargs=kwargs)
-        return True, {"id": "kb-1"}
+    def fake_create_with_name(name, scope_id, parser_id, **kwargs):
+        captured.update(name=name, scope_id=scope_id, parser_id=parser_id, kwargs=kwargs)
+        return True, {"id": "kb-1", "embd_id": "BAAI/bge-m3@default@SILICONFLOW"}
 
     knowledgebase_service = SimpleNamespace(
         create_with_name=fake_create_with_name,
         save=lambda **_kwargs: True,
         get_by_id=lambda _kb_id: (True, created_kb),
     )
-    tenant_service = SimpleNamespace(get_by_id=lambda _tenant_id: (True, SimpleNamespace(embd_id="BAAI/bge-m3@default@SILICONFLOW")))
-
     module = _load_dataset_service_module(
         monkeypatch,
         ensure_paddleocr_from_config=ensure_paddleocr,
         knowledgebase_service=knowledgebase_service,
-        tenant_service=tenant_service,
         remap_dictionary_keys=lambda data: data,
         verify_embedding_availability=lambda *_args, **_kwargs: (True, None),
     )
 
     ok, result = await module.create_dataset(
-        "tenant-1",
+        "scope-1",
         {
             "name": "Manuals",
             "parser_config": {"chunk_token_num": 512},
@@ -227,28 +216,25 @@ async def test_create_dataset_consumes_top_level_parser_config_credentials(monke
     captured = {}
     created_kb = SimpleNamespace(to_dict=lambda: {"id": "kb-1", "name": "Manuals"})
 
-    def fake_create_with_name(name, tenant_id, parser_id, **kwargs):
-        captured.update(name=name, tenant_id=tenant_id, parser_id=parser_id, kwargs=kwargs)
-        return True, {"id": "kb-1"}
+    def fake_create_with_name(name, scope_id, parser_id, **kwargs):
+        captured.update(name=name, scope_id=scope_id, parser_id=parser_id, kwargs=kwargs)
+        return True, {"id": "kb-1", "embd_id": "BAAI/bge-m3@default@SILICONFLOW"}
 
     knowledgebase_service = SimpleNamespace(
         create_with_name=fake_create_with_name,
         save=lambda **_kwargs: True,
         get_by_id=lambda _kb_id: (True, created_kb),
     )
-    tenant_service = SimpleNamespace(get_by_id=lambda _tenant_id: (True, SimpleNamespace(embd_id="BAAI/bge-m3@default@SILICONFLOW")))
-
     module = _load_dataset_service_module(
         monkeypatch,
         ensure_paddleocr_from_config=lambda *_args, **_kwargs: "PaddleOCR-VL@PaddleOCR-VL@PaddleOCR",
         knowledgebase_service=knowledgebase_service,
-        tenant_service=tenant_service,
         remap_dictionary_keys=lambda data: data,
         verify_embedding_availability=lambda *_args, **_kwargs: (True, None),
     )
 
     ok, result = await module.create_dataset(
-        "tenant-1",
+        "scope-1",
         {
             "name": "Manuals",
             "parser_config": {"chunk_token_num": 512},

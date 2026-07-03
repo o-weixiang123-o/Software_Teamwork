@@ -77,7 +77,7 @@ describe('QA capability helpers', () => {
         objectKey: 'secret/minio/key',
         prompt: 'full hidden prompt',
         queryCount: 3,
-        sourcePath: 'tenant-a/private/doc.pdf',
+        sourcePath: 'project-a/private/doc.pdf',
       },
       latencyMs: 120,
       rawResult: 'provider raw response',
@@ -95,7 +95,7 @@ describe('QA capability helpers', () => {
     expect(view.step.detail).toContain('查询数: 3')
     expect(view.step.detail).not.toContain('queryCount')
     expect(view.step.detail).not.toContain('qa-prod-files')
-    expect(view.step.detail).not.toContain('tenant-a/private')
+    expect(view.step.detail).not.toContain('project-a/private')
     expect(view.step.detail).not.toContain('s3://')
     expect(view.step.detail).not.toContain('secret/minio/key')
     expect(view.step.detail).not.toContain('full hidden prompt')

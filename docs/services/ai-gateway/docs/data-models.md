@@ -336,7 +336,7 @@ Provider 凭据记录。该表只保存 secret 引用或加密密文元数据，
 | `started_at` | datetime | 尝试开始时间。 |
 | `finished_at` | datetime | 尝试结束时间。 |
 
-`base_url_host` 只能记录 host，例如 `api.siliconflow.cn`；不得记录完整 URL、query、token 或 path 中的敏感租户信息。
+`base_url_host` 只能记录 host，例如 `api.siliconflow.cn`；不得记录完整 URL、query、token 或 path 中的敏感业务信息。
 
 ### 7.3 UsageAggregate
 

@@ -36,7 +36,7 @@ Current repository facts from `docs/architecture/technology-decisions.md`:
   unpinned `sqlc generate` command in docs, CI, or handoff notes.
 - Gateway directly uses `go-redis/v9@v9.21.0`; Knowledge Go adapter does not
   directly use go-redis. Knowledge runtime uses its own Redis/worker internals
-  behind the RAGFlow runtime boundary.
+  behind the Knowledge runtime boundary.
 - Document has fixed `asynq v0.26.0`; new Go asynchronous jobs should reuse
   that version unless a documented decision upgrades it. Knowledge ingestion
   jobs must not restore the retired Go asynq worker path.
@@ -45,8 +45,8 @@ Current repository facts from `docs/architecture/technology-decisions.md`:
   `FILE_DATABASE_URL` being empty is a local/test fallback, not the production
   persistence baseline.
 - Knowledge owns retrieval-facing business contracts, but current vector/index
-  persistence is inside `services/knowledge-runtime` (RAGFlow runtime, currently
-  Elasticsearch/doc engine). The Go adapter must not restore a Go index-store client,
+  persistence is inside `services/knowledge-runtime` (Knowledge runtime, currently
+  Elasticsearch/doc engine). The Go adapter must not restore a Go Qdrant client,
   File Service upload handoff, or Go ingestion worker. QA, Gateway, Document,
   and AI Gateway must not read or mutate runtime index/storage internals.
 
@@ -535,7 +535,7 @@ custom RoundTripper adds context.WithTimeout -> wraps response body -> cancel ha
 
 ### 1. Scope / Trigger
 
-- Trigger: adding or changing Knowledge document upload, RAGFlow runtime
+- Trigger: adding or changing Knowledge document upload, Knowledge runtime
   document handoff, parser-config mapping, runtime ingestion start, or runtime
   document status/chunk/content mapping.
 - Applies to `services/knowledge/internal/adapter`,
@@ -549,7 +549,7 @@ custom RoundTripper adds context.WithTimeout -> wraps response body -> cancel ha
 - Internal Knowledge route:
   - `POST /internal/v1/knowledge-bases/{knowledgeBaseId}/documents`
     with multipart field `file` and optional `tags`.
-- RAGFlow runtime calls through the vendor client:
+- Knowledge runtime calls through the vendor client:
   - upload document bytes under the runtime dataset/document API.
   - optional parse start when `KNOWLEDGE_AUTO_START_INGESTION=true`.
   - document status, chunks, content, and retrieval are read back through the
@@ -565,7 +565,7 @@ custom RoundTripper adds context.WithTimeout -> wraps response body -> cancel ha
 
 - Knowledge owns document resources, public document status, permissions,
   parser-config administration, response envelopes, and error mapping.
-- RAGFlow runtime owns raw bytes, parser task execution, chunks, embedding,
+- Knowledge runtime owns raw bytes, parser task execution, chunks, embedding,
   index writes, retrieval support, and runtime storage/search internals.
 - Public or service-local document responses may expose `jobId`, status, display
   filename, content type, size, and tags, but must not expose `fileRef`,
@@ -630,7 +630,7 @@ Knowledge upload -> File Service stores business metadata -> Go asynq worker par
 #### Correct
 
 ```text
-Knowledge upload -> Knowledge adapter -> RAGFlow runtime stores bytes and parses/chunks/indexes -> response exposes Knowledge document summary
+Knowledge upload -> Knowledge adapter -> Knowledge runtime stores bytes and parses/chunks/indexes -> response exposes Knowledge document summary
 ```
 
 ## Scenario: Document Service Report Baseline

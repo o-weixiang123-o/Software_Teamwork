@@ -17,7 +17,7 @@
 from types import SimpleNamespace
 
 from common.constants import ActiveStatusEnum
-from api.db.joint_services import tenant_model_service as module
+from api.db.joint_services import runtime_model_service as module
 
 
 def test_resolve_instance_for_model_falls_back_from_default_to_single_active_instance(monkeypatch):
@@ -29,12 +29,12 @@ def test_resolve_instance_for_model_falls_back_from_default_to_single_active_ins
     )
 
     monkeypatch.setattr(
-        module.TenantModelInstanceService,
+        module.RuntimeModelInstanceService,
         "get_by_provider_id_and_instance_name",
         lambda provider_id, instance_name: None,
     )
     monkeypatch.setattr(
-        module.TenantModelInstanceService,
+        module.RuntimeModelInstanceService,
         "get_all_by_provider_id",
         lambda provider_id: [resolved],
     )
@@ -51,9 +51,9 @@ def test_resolve_instance_for_model_falls_back_from_default_to_single_active_ins
 def test_ensure_paddleocr_from_config_normalizes_ui_credentials(monkeypatch):
     calls = {}
 
-    def fake_ensure(tenant_id, provider_name, model_name, config):
+    def fake_ensure(scope_id, provider_name, model_name, config):
         calls.update(
-            tenant_id=tenant_id,
+            scope_id=scope_id,
             provider_name=provider_name,
             model_name=model_name,
             config=config,
@@ -63,7 +63,7 @@ def test_ensure_paddleocr_from_config_normalizes_ui_credentials(monkeypatch):
     monkeypatch.setattr(module, "_ensure_ocr_provider_from_env", fake_ensure)
 
     got = module.ensure_paddleocr_from_config(
-        "tenant-1",
+        "scope-1",
         {
             "paddleocr_base_url": "https://paddleocr.example.com/api",
             "paddleocr_access_token": "sk-secret",
@@ -72,7 +72,7 @@ def test_ensure_paddleocr_from_config_normalizes_ui_credentials(monkeypatch):
     )
 
     assert got == "PaddleOCR-VL-1.6@PaddleOCR-VL-1.6@PaddleOCR"
-    assert calls["tenant_id"] == "tenant-1"
+    assert calls["scope_id"] == "scope-1"
     assert calls["provider_name"] == "PaddleOCR"
     assert calls["model_name"] == "PaddleOCR-VL-1.6"
     assert calls["config"]["PADDLEOCR_BASE_URL"] == "https://paddleocr.example.com/api"
@@ -90,7 +90,7 @@ def test_ensure_paddleocr_from_config_requires_token(monkeypatch):
     monkeypatch.setattr(module, "_ensure_ocr_provider_from_env", fake_ensure)
 
     got = module.ensure_paddleocr_from_config(
-        "tenant-1",
+        "scope-1",
         {
             "paddleocr_base_url": "https://paddleocr.example.com/api",
             "paddleocr_algorithm": "PaddleOCR-VL-1.6",

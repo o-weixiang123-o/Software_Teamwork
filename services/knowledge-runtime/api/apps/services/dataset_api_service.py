@@ -18,7 +18,7 @@ import json
 import os
 import re
 
-from api.db.joint_services.tenant_model_service import ensure_paddleocr_from_config, get_model_config_from_provider_instance
+from api.db.joint_services.runtime_model_service import ensure_paddleocr_from_config, get_model_config_from_provider_instance
 from common.constants import PAGERANK_FLD, RetCode
 from common import settings
 from api.db.db_models import File
@@ -27,9 +27,9 @@ from api.db.services.file2document_service import File2DocumentService
 from api.db.services.file_service import FileService
 from api.db.services.knowledgebase_service import KnowledgebaseService
 from api.db.services.task_service import DATASET_SCOPE_TASK_DOC_ID, TaskService
-from api.db.services.user_service import TenantService, UserService, UserTenantService
-from common.constants import FileSource, StatusEnum
+from common.constants import FileSource, LLMType, StatusEnum
 from api.utils.api_utils import deep_merge, get_parser_config, remap_dictionary_keys, verify_embedding_availability
+from api.utils.runtime_model_config import default_model_id
 
 _VALID_INDEX_TYPES = {"graph", "raptor", "mindmap"}
 
@@ -52,7 +52,7 @@ _INDEX_TYPE_TO_DISPLAY_NAME = {
 }
 
 
-def _apply_parser_config_credentials(tenant_id: str, req: dict, credentials: dict | None):
+def _apply_parser_config_credentials(scope_id: str, req: dict, credentials: dict | None):
     if not isinstance(credentials, dict):
         return
 
@@ -61,7 +61,7 @@ def _apply_parser_config_credentials(tenant_id: str, req: dict, credentials: dic
         return
 
     model_name = ensure_paddleocr_from_config(
-        tenant_id,
+        scope_id,
         paddleocr_config,
         paddleocr_config.get("paddleocr_algorithm") or paddleocr_config.get("PADDLEOCR_ALGORITHM"),
     )
@@ -90,6 +90,10 @@ def _search_not_found_error(message: str = "Dataset not found.") -> SearchBusine
     return SearchBusinessError(message, RetCode.NOT_FOUND, 404)
 
 
+def _dataset_not_found_message(dataset_id: str) -> str:
+    return f"Dataset '{dataset_id}' not found" if dataset_id else "Dataset not found"
+
+
 def _is_missing_search_index_error(exc: Exception) -> bool:
     text = f"{repr(exc)} {str(exc)}".lower()
     return "index_not_found_exception" in text
@@ -104,11 +108,11 @@ def _empty_search_result(labels=None):
     }
 
 
-async def create_dataset(tenant_id: str, req: dict):
+async def create_dataset(scope_id: str, req: dict):
     """
     Create a new dataset.
 
-    :param tenant_id: tenant ID
+    :param scope_id: runtime scope ID
     :param req: dataset creation request
     :return: (success, result) or (success, error_message)
     """
@@ -136,21 +140,19 @@ async def create_dataset(tenant_id: str, req: dict):
         req["parser_config"] = parser_cfg
     req.update(ext_fields)
     req.pop("parser_config_credentials", None)
-    _apply_parser_config_credentials(tenant_id, req, parser_config_credentials)
+    _apply_parser_config_credentials(scope_id, req, parser_config_credentials)
 
-    e, create_dict = KnowledgebaseService.create_with_name(name=req.pop("name", None), tenant_id=tenant_id, parser_id=req.pop("parser_id", None), **req)
+    e, create_dict = KnowledgebaseService.create_with_name(name=req.pop("name", None), scope_id=scope_id, parser_id=req.pop("parser_id", None), **req)
 
     if not e:
         return False, create_dict
 
-    # Insert embedding model(embd id)
-    ok, t = TenantService.get_by_id(tenant_id)
-    if not ok:
-        return False, "Tenant not found"
     if not create_dict.get("embd_id"):
-        create_dict["embd_id"] = t.embd_id
+        create_dict["embd_id"] = default_model_id(LLMType.EMBEDDING)
+        if not create_dict["embd_id"]:
+            return False, "Default embedding model is not configured"
     else:
-        ok, err = verify_embedding_availability(create_dict["embd_id"], tenant_id)
+        ok, err = verify_embedding_availability(create_dict["embd_id"], scope_id)
         if not ok:
             return False, err
 
@@ -163,13 +165,13 @@ async def create_dataset(tenant_id: str, req: dict):
     return True, response_data
 
 
-async def delete_datasets(tenant_id: str, ids: list = None, delete_all: bool = False):
+async def delete_datasets(scope_id: str, ids: list = None, delete_all: bool = False):
     """
     Delete datasets.
 
-    :param tenant_id: tenant ID
+    :param scope_id: runtime scope ID
     :param ids: list of dataset IDs
-    :param delete_all: whether to delete all datasets of the tenant (if ids is not provided)
+    :param delete_all: whether to delete all datasets of the scope (if ids is not provided)
     :return: (success, result) or (success, error_message)
     """
     kb_id_instance_pairs = []
@@ -177,23 +179,23 @@ async def delete_datasets(tenant_id: str, ids: list = None, delete_all: bool = F
         if not delete_all:
             return True, {"success_count": 0}
         else:
-            ids = [kb.id for kb in KnowledgebaseService.query(tenant_id=tenant_id)]
+            ids = [kb.id for kb in KnowledgebaseService.query(status=StatusEnum.VALID.value)]
 
     error_kb_ids = []
     for kb_id in ids:
-        kb = KnowledgebaseService.get_or_none(id=kb_id, tenant_id=tenant_id)
+        kb = KnowledgebaseService.get_or_none(id=kb_id, status=StatusEnum.VALID.value)
         if kb is None:
             error_kb_ids.append(kb_id)
             continue
         kb_id_instance_pairs.append((kb_id, kb))
     if len(error_kb_ids) > 0:
-        return False, f"""User '{tenant_id}' lacks permission for datasets: '{", ".join(error_kb_ids)}'"""
+        return False, f"""Datasets not found: '{", ".join(error_kb_ids)}'"""
 
     errors = []
     success_count = 0
     for kb_id, kb in kb_id_instance_pairs:
         for doc in DocumentService.query(kb_id=kb_id):
-            if not DocumentService.remove_document(doc, tenant_id):
+            if not DocumentService.remove_document(doc, scope_id):
                 errors.append(f"Remove document '{doc.id}' error for dataset '{kb_id}'")
                 continue
             f2d = File2DocumentService.get_by_document_id(doc.id)
@@ -221,7 +223,7 @@ async def delete_datasets(tenant_id: str, ids: list = None, delete_all: bool = F
         try:
             from rag.nlp import search
 
-            idxnm = search.index_name(kb.tenant_id)
+            idxnm = search.index_name(kb.scope_id)
             settings.docStoreConn.delete_idx(idxnm, kb_id)
         except Exception as e:
             errors.append(f"Failed to drop index for dataset {kb_id}: {e}")
@@ -241,19 +243,19 @@ async def delete_datasets(tenant_id: str, ids: list = None, delete_all: bool = F
     return True, {"success_count": success_count, "errors": errors[:5]}
 
 
-def get_dataset(dataset_id: str, tenant_id: str):
+def get_dataset(dataset_id: str, scope_id: str):
     """
     Get a single dataset.
 
     :param dataset_id: dataset ID
-    :param tenant_id: tenant ID
+    :param scope_id: runtime scope ID
     :return: (success, result) or (success, error_message)
     """
     if not dataset_id:
         return False, 'Lack of "Dataset ID"'
 
-    if not KnowledgebaseService.accessible(dataset_id, tenant_id):
-        return False, f"User '{tenant_id}' lacks permission for dataset '{dataset_id}'"
+    if not KnowledgebaseService.accessible(dataset_id, scope_id):
+        return False, f"Dataset '{dataset_id}' not found"
 
     ok, kb = KnowledgebaseService.get_by_id(dataset_id)
     if not ok:
@@ -264,19 +266,19 @@ def get_dataset(dataset_id: str, tenant_id: str):
     return True, response_data
 
 
-def get_ingestion_summary(dataset_id: str, tenant_id: str):
+def get_ingestion_summary(dataset_id: str, scope_id: str):
     """
     Get ingestion summary for a dataset.
 
     :param dataset_id: dataset ID
-    :param tenant_id: tenant ID
+    :param scope_id: runtime scope ID
     :return: (success, result) or (success, error_message)
     """
     if not dataset_id:
         return False, 'Lack of "Dataset ID"'
 
-    if not KnowledgebaseService.accessible(dataset_id, tenant_id):
-        return False, f"User '{tenant_id}' lacks permission for dataset '{dataset_id}'"
+    if not KnowledgebaseService.accessible(dataset_id, scope_id):
+        return False, f"Dataset '{dataset_id}' not found"
 
     ok, kb = KnowledgebaseService.get_by_id(dataset_id)
     if not ok:
@@ -291,11 +293,11 @@ def get_ingestion_summary(dataset_id: str, tenant_id: str):
     }
 
 
-async def update_dataset(tenant_id: str, dataset_id: str, req: dict):
+async def update_dataset(scope_id: str, dataset_id: str, req: dict):
     """
     Update a dataset.
 
-    :param tenant_id: tenant ID
+    :param scope_id: runtime scope ID
     :param dataset_id: dataset ID
     :param req: dataset update request
     :return: (success, result) or (success, error_message)
@@ -303,9 +305,9 @@ async def update_dataset(tenant_id: str, dataset_id: str, req: dict):
     if not req:
         return False, "No properties were modified"
 
-    kb = KnowledgebaseService.get_or_none(id=dataset_id, tenant_id=tenant_id)
+    kb = KnowledgebaseService.get_or_none(id=dataset_id, status=StatusEnum.VALID.value)
     if kb is None:
-        return False, f"User '{tenant_id}' lacks permission for dataset '{dataset_id}'"
+        return False, f"Dataset '{dataset_id}' not found"
 
     # Extract ext field for additional parameters
     ext_fields = req.pop("ext", {})
@@ -359,14 +361,14 @@ async def update_dataset(tenant_id: str, dataset_id: str, req: dict):
         req["pipeline_id"] = ""
 
     if "name" in req and req["name"].lower() != kb.name.lower():
-        exists = KnowledgebaseService.get_or_none(name=req["name"], tenant_id=tenant_id, status=StatusEnum.VALID.value)
+        exists = KnowledgebaseService.get_or_none(name=req["name"], status=StatusEnum.VALID.value)
         if exists:
             return False, f"Dataset name '{req['name']}' already exists"
 
     if "embd_id" in req:
         if not req["embd_id"]:
             req["embd_id"] = kb.embd_id
-        ok, err = verify_embedding_availability(req["embd_id"], tenant_id)
+        ok, err = verify_embedding_availability(req["embd_id"], scope_id)
         if not ok:
             return False, err
 
@@ -377,12 +379,12 @@ async def update_dataset(tenant_id: str, dataset_id: str, req: dict):
         if req["pagerank"] > 0:
             from rag.nlp import search
 
-            settings.docStoreConn.update({"kb_id": kb.id}, {PAGERANK_FLD: req["pagerank"]}, search.index_name(kb.tenant_id), kb.id)
+            settings.docStoreConn.update({"kb_id": kb.id}, {PAGERANK_FLD: req["pagerank"]}, search.index_name(kb.scope_id), kb.id)
         else:
             # Elasticsearch requires PAGERANK_FLD be non-zero!
             from rag.nlp import search
 
-            settings.docStoreConn.update({"exists": PAGERANK_FLD}, {"remove": PAGERANK_FLD}, search.index_name(kb.tenant_id), kb.id)
+            settings.docStoreConn.update({"exists": PAGERANK_FLD}, {"remove": PAGERANK_FLD}, search.index_name(kb.scope_id), kb.id)
     if "parse_type" in req:
         del req["parse_type"]
 
@@ -397,11 +399,11 @@ async def update_dataset(tenant_id: str, dataset_id: str, req: dict):
     return True, response_data
 
 
-def list_datasets(tenant_id: str, args: dict):
+def list_datasets(scope_id: str, args: dict):
     """
     List datasets.
 
-    :param tenant_id: tenant ID
+    :param scope_id: runtime scope ID
     :param args: query arguments
     :return: (success, result) or (success, error_message)
     """
@@ -423,39 +425,32 @@ def list_datasets(tenant_id: str, args: dict):
         desc = True
 
     if kb_id:
-        kbs = KnowledgebaseService.get_kb_by_id(kb_id, tenant_id)
+        kbs = KnowledgebaseService.get_kb_by_id(kb_id, scope_id)
         if not kbs:
-            return False, f"User '{tenant_id}' lacks permission for dataset '{kb_id}'"
+            return False, f"Dataset '{kb_id}' not found"
     if name:
-        kbs = KnowledgebaseService.get_kb_by_name(name, tenant_id)
+        kbs = KnowledgebaseService.get_kb_by_name(name, scope_id)
         if not kbs:
-            return False, f"User '{tenant_id}' lacks permission for dataset '{name}'"
-    if ext_fields.get("owner_ids", []):
-        tenant_ids = ext_fields["owner_ids"]
-    else:
-        tenants = TenantService.get_joined_tenants_by_user_id(tenant_id)
-        tenant_ids = [m["tenant_id"] for m in tenants]
-    kbs, total = KnowledgebaseService.get_list(tenant_ids, tenant_id, page, page_size, orderby, desc, kb_id, name, keywords, parser_id)
-    users = UserService.get_by_ids([m["tenant_id"] for m in kbs])
-    user_map = {m.id: m.to_dict() for m in users}
+            return False, f"Dataset '{name}' not found"
+    scope_ids = ext_fields.get("owner_ids", [])
+    kbs, total = KnowledgebaseService.get_list(scope_ids, scope_id, page, page_size, orderby, desc, kb_id, name, keywords, parser_id)
     response_data_list = []
     for kb in kbs:
-        user_dict = user_map.get(kb["tenant_id"], {})
-        kb.update({"nickname": user_dict.get("nickname", ""), "tenant_avatar": user_dict.get("avatar", "")})
+        kb.update({"nickname": "", "scope_avatar": ""})
         response_data_list.append(remap_dictionary_keys(kb))
     return True, {"data": response_data_list, "total": total}
 
 
-async def get_knowledge_graph(dataset_id: str, tenant_id: str):
+async def get_knowledge_graph(dataset_id: str, scope_id: str):
     """
     Get knowledge graph for a dataset.
 
     :param dataset_id: dataset ID
-    :param tenant_id: tenant ID
+    :param scope_id: runtime scope ID
     :return: (success, result) or (success, error_message)
     """
-    if not KnowledgebaseService.accessible(dataset_id, tenant_id):
-        return False, "No authorization."
+    if not KnowledgebaseService.accessible(dataset_id, scope_id):
+        return False, _dataset_not_found_message(dataset_id)
     _, kb = KnowledgebaseService.get_by_id(dataset_id)
 
     req = {"kb_id": [dataset_id], "knowledge_graph_kwd": ["graph"]}
@@ -463,9 +458,9 @@ async def get_knowledge_graph(dataset_id: str, tenant_id: str):
     obj = {"graph": {}, "mind_map": {}}
     from rag.nlp import search
 
-    if not settings.docStoreConn.index_exist(search.index_name(kb.tenant_id), dataset_id):
+    if not settings.docStoreConn.index_exist(search.index_name(kb.scope_id), dataset_id):
         return True, obj
-    sres = await settings.retriever.search(req, search.index_name(kb.tenant_id), [dataset_id])
+    sres = await settings.retriever.search(req, search.index_name(kb.scope_id), [dataset_id])
     if not len(sres.ids):
         return True, obj
 
@@ -487,21 +482,21 @@ async def get_knowledge_graph(dataset_id: str, tenant_id: str):
     return True, obj
 
 
-def delete_knowledge_graph(dataset_id: str, tenant_id: str):
+def delete_knowledge_graph(dataset_id: str, scope_id: str):
     """
     Delete knowledge graph for a dataset.
 
     :param dataset_id: dataset ID
-    :param tenant_id: tenant ID
+    :param scope_id: runtime scope ID
     :return: (success, result) or (success, error_message)
     """
-    if not KnowledgebaseService.accessible(dataset_id, tenant_id):
-        return False, "No authorization."
+    if not KnowledgebaseService.accessible(dataset_id, scope_id):
+        return False, _dataset_not_found_message(dataset_id)
     _, kb = KnowledgebaseService.get_by_id(dataset_id)
     from rag.nlp import search
     from rag.graphrag.phase_markers import clear_phase_markers
     settings.docStoreConn.delete({"knowledge_graph_kwd": ["graph", "subgraph", "entity", "relation", "community_report"]},
-                                 search.index_name(kb.tenant_id), dataset_id)
+                                 search.index_name(kb.scope_id), dataset_id)
     # Wiping the graph invalidates any phase-completion markers used to
     # short-circuit resolution / community detection on resume.
     clear_phase_markers(dataset_id)
@@ -513,12 +508,12 @@ def delete_knowledge_graph(dataset_id: str, tenant_id: str):
     return True, True
 
 
-def run_index(dataset_id: str, tenant_id: str, index_type: str):
+def run_index(dataset_id: str, scope_id: str, index_type: str):
     """
     Run an indexing task (graph/raptor/mindmap) for a dataset.
 
     :param dataset_id: dataset ID
-    :param tenant_id: tenant ID
+    :param scope_id: runtime scope ID
     :param index_type: one of "graph", "raptor", "mindmap"
     :return: (success, result) or (success, error_message)
     """
@@ -527,8 +522,8 @@ def run_index(dataset_id: str, tenant_id: str, index_type: str):
 
     if not dataset_id:
         return False, 'Lack of "Dataset ID"'
-    if not KnowledgebaseService.accessible(dataset_id, tenant_id):
-        return False, "No authorization."
+    if not KnowledgebaseService.accessible(dataset_id, scope_id):
+        return False, _dataset_not_found_message(dataset_id)
 
     ok, kb = KnowledgebaseService.get_by_id(dataset_id)
     if not ok:
@@ -572,12 +567,12 @@ def run_index(dataset_id: str, tenant_id: str, index_type: str):
     return True, {"task_id": task_id}
 
 
-def trace_index(dataset_id: str, tenant_id: str, index_type: str):
+def trace_index(dataset_id: str, scope_id: str, index_type: str):
     """
     Trace an indexing task (graph/raptor/mindmap) for a dataset.
 
     :param dataset_id: dataset ID
-    :param tenant_id: tenant ID
+    :param scope_id: runtime scope ID
     :param index_type: one of "graph", "raptor", "mindmap"
     :return: (success, result) or (success, error_message)
     """
@@ -587,8 +582,8 @@ def trace_index(dataset_id: str, tenant_id: str, index_type: str):
     if not dataset_id:
         return False, 'Lack of "Dataset ID"'
 
-    if not KnowledgebaseService.accessible(dataset_id, tenant_id):
-        return False, "No authorization."
+    if not KnowledgebaseService.accessible(dataset_id, scope_id):
+        return False, _dataset_not_found_message(dataset_id)
 
     ok, kb = KnowledgebaseService.get_by_id(dataset_id)
     if not ok:
@@ -606,104 +601,103 @@ def trace_index(dataset_id: str, tenant_id: str, index_type: str):
     return True, task.to_dict()
 
 
-def list_tags(dataset_id: str, tenant_id: str):
+def list_tags(dataset_id: str, scope_id: str):
     """
     List tags for a dataset.
 
     :param dataset_id: dataset ID
-    :param tenant_id: tenant ID
+    :param scope_id: runtime scope ID
     :return: (success, result) or (success, error_message)
     """
     if not dataset_id:
         return False, 'Lack of "Dataset ID"'
 
-    if not KnowledgebaseService.accessible(dataset_id, tenant_id):
-        return False, "No authorization."
+    if not KnowledgebaseService.accessible(dataset_id, scope_id):
+        return False, _dataset_not_found_message(dataset_id)
 
-    tenants = UserTenantService.get_tenants_by_user_id(tenant_id)
-    tags = []
-    for tenant in tenants:
-        tags += settings.retriever.all_tags(tenant["tenant_id"], [dataset_id])
-    return True, tags
+    ok, kb = KnowledgebaseService.get_by_id(dataset_id)
+    if not ok:
+        return False, "Invalid Dataset ID"
+    return True, settings.retriever.all_tags(kb.scope_id, [dataset_id])
 
 
-def aggregate_tags(dataset_ids: list[str], tenant_id: str):
+def aggregate_tags(dataset_ids: list[str], scope_id: str):
     """
     Aggregate tags across multiple datasets.
 
     :param dataset_ids: list of dataset IDs
-    :param tenant_id: tenant ID
+    :param scope_id: runtime scope ID
     :return: (success, result) or (success, error_message)
     """
     if not dataset_ids:
         return False, 'Lack of "dataset_ids"'
 
     for dataset_id in dataset_ids:
-        if not KnowledgebaseService.accessible(dataset_id, tenant_id):
-            return False, f"No authorization for dataset '{dataset_id}'"
+        if not KnowledgebaseService.accessible(dataset_id, scope_id):
+            return False, _dataset_not_found_message(dataset_id)
 
-    dataset_ids_by_tenant = {}
+    dataset_ids_by_scope = {}
     for dataset_id in dataset_ids:
         ok, kb = KnowledgebaseService.get_by_id(dataset_id)
         if not ok:
             return False, f"Invalid Dataset ID '{dataset_id}'"
-        dataset_ids_by_tenant.setdefault(kb.tenant_id, []).append(dataset_id)
+        dataset_ids_by_scope.setdefault(kb.scope_id, []).append(dataset_id)
 
     merged = {}
-    for kb_tenant_id, kb_ids in dataset_ids_by_tenant.items():
-        for tag, count in settings.retriever.all_tags(kb_tenant_id, kb_ids):
+    for kb_scope_id, kb_ids in dataset_ids_by_scope.items():
+        for tag, count in settings.retriever.all_tags(kb_scope_id, kb_ids):
             merged[tag] = merged.get(tag, 0) + count
 
     return True, [{"value": tag, "count": count} for tag, count in merged.items()]
 
 
-def get_flattened_metadata(dataset_ids: list[str], tenant_id: str):
+def get_flattened_metadata(dataset_ids: list[str], scope_id: str):
     """
     Get flattened metadata for datasets.
 
     :param dataset_ids: list of dataset IDs
-    :param tenant_id: tenant ID
+    :param scope_id: runtime scope ID
     :return: (success, result) or (success, error_message)
     """
     if not dataset_ids:
         return False, 'Lack of "dataset_ids"'
 
     for dataset_id in dataset_ids:
-        if not KnowledgebaseService.accessible(dataset_id, tenant_id):
-            return False, f"No authorization for dataset '{dataset_id}'"
+        if not KnowledgebaseService.accessible(dataset_id, scope_id):
+            return False, _dataset_not_found_message(dataset_id)
 
     from api.db.services.doc_metadata_service import DocMetadataService
 
     return True, DocMetadataService.get_flatted_meta_by_kbs(dataset_ids)
 
 
-def get_auto_metadata(dataset_id: str, tenant_id: str):
+def get_auto_metadata(dataset_id: str, scope_id: str):
     """
     Get auto-metadata configuration for a dataset.
 
     :param dataset_id: dataset ID
-    :param tenant_id: tenant ID
+    :param scope_id: runtime scope ID
     :return: (success, result) or (success, error_message)
     """
-    kb = KnowledgebaseService.get_or_none(id=dataset_id, tenant_id=tenant_id)
+    kb = KnowledgebaseService.get_or_none(id=dataset_id, status=StatusEnum.VALID.value)
     if kb is None:
-        return False, f"User '{tenant_id}' lacks permission for dataset '{dataset_id}'"
+        return False, f"Dataset '{dataset_id}' not found"
     parser_cfg = kb.parser_config or {}
     return True, {"metadata": parser_cfg.get("metadata") or [], "built_in_metadata": parser_cfg.get("built_in_metadata") or []}
 
 
-async def update_auto_metadata(dataset_id: str, tenant_id: str, cfg: dict):
+async def update_auto_metadata(dataset_id: str, scope_id: str, cfg: dict):
     """
     Update auto-metadata configuration for a dataset.
 
     :param dataset_id: dataset ID
-    :param tenant_id: tenant ID
+    :param scope_id: runtime scope ID
     :param cfg: auto-metadata configuration
     :return: (success, result) or (success, error_message)
     """
-    kb = KnowledgebaseService.get_or_none(id=dataset_id, tenant_id=tenant_id)
+    kb = KnowledgebaseService.get_or_none(id=dataset_id, status=StatusEnum.VALID.value)
     if kb is None:
-        return False, f"User '{tenant_id}' lacks permission for dataset '{dataset_id}'"
+        return False, f"Dataset '{dataset_id}' not found"
 
     parser_cfg = kb.parser_config or {}
     parser_cfg["metadata"] = cfg.get("metadata")
@@ -715,20 +709,20 @@ async def update_auto_metadata(dataset_id: str, tenant_id: str, cfg: dict):
     return True, cfg
 
 
-def delete_tags(dataset_id: str, tenant_id: str, tags: list[str]):
+def delete_tags(dataset_id: str, scope_id: str, tags: list[str]):
     """
     Delete tags from a dataset.
 
     :param dataset_id: dataset ID
-    :param tenant_id: tenant ID
+    :param scope_id: runtime scope ID
     :param tags: list of tags to delete
     :return: (success, result) or (success, error_message)
     """
     if not dataset_id:
         return False, 'Lack of "Dataset ID"'
 
-    if not KnowledgebaseService.accessible(dataset_id, tenant_id):
-        return False, "No authorization."
+    if not KnowledgebaseService.accessible(dataset_id, scope_id):
+        return False, _dataset_not_found_message(dataset_id)
 
     ok, kb = KnowledgebaseService.get_by_id(dataset_id)
     if not ok:
@@ -737,14 +731,14 @@ def delete_tags(dataset_id: str, tenant_id: str, tags: list[str]):
     from rag.nlp import search
 
     for t in tags:
-        settings.docStoreConn.update({"tag_kwd": t, "kb_id": [dataset_id]}, {"remove": {"tag_kwd": t}}, search.index_name(kb.tenant_id), dataset_id)
+        settings.docStoreConn.update({"tag_kwd": t, "kb_id": [dataset_id]}, {"remove": {"tag_kwd": t}}, search.index_name(kb.scope_id), dataset_id)
 
     return True, {}
 
 
 def list_ingestion_logs(
     dataset_id: str,
-    tenant_id: str,
+    scope_id: str,
     page: int,
     page_size: int,
     orderby: str,
@@ -759,7 +753,7 @@ def list_ingestion_logs(
     List ingestion logs for a dataset.
 
     :param dataset_id: dataset ID
-    :param tenant_id: tenant ID
+    :param scope_id: runtime scope ID
     :param page: page number
     :param page_size: items per page
     :param orderby: order by field
@@ -774,25 +768,25 @@ def list_ingestion_logs(
     if not dataset_id:
         return False, 'Lack of "Dataset ID"'
 
-    if not KnowledgebaseService.accessible(dataset_id, tenant_id):
-        return False, "No authorization."
+    if not KnowledgebaseService.accessible(dataset_id, scope_id):
+        return False, _dataset_not_found_message(dataset_id)
 
     from api.db.services.pipeline_operation_log_service import PipelineOperationLogService
 
     allowed_log_types = {"dataset", "file"}
     if log_type not in allowed_log_types:
         logging.warning(
-            "list_ingestion_logs invalid log_type: dataset_id=%s tenant_id=%s log_type=%s",
+            "list_ingestion_logs invalid log_type: dataset_id=%s scope_id=%s log_type=%s",
             dataset_id,
-            tenant_id,
+            scope_id,
             log_type,
         )
         return False, 'Invalid "log_type", expected "dataset" or "file"'
 
     logging.info(
-        "list_ingestion_logs: dataset_id=%s tenant_id=%s log_type=%s page=%s page_size=%s",
+        "list_ingestion_logs: dataset_id=%s scope_id=%s log_type=%s page=%s page_size=%s",
         dataset_id,
-        tenant_id,
+        scope_id,
         log_type,
         page,
         page_size,
@@ -805,20 +799,20 @@ def list_ingestion_logs(
     return True, {"total": total, "logs": logs}
 
 
-def get_ingestion_log(dataset_id: str, tenant_id: str, log_id: str):
+def get_ingestion_log(dataset_id: str, scope_id: str, log_id: str):
     """
     Get a single ingestion log.
 
     :param dataset_id: dataset ID
-    :param tenant_id: tenant ID
+    :param scope_id: runtime scope ID
     :param log_id: log ID
     :return: (success, result) or (success, error_message)
     """
     if not dataset_id:
         return False, 'Lack of "Dataset ID"'
 
-    if not KnowledgebaseService.accessible(dataset_id, tenant_id):
-        return False, "No authorization."
+    if not KnowledgebaseService.accessible(dataset_id, scope_id):
+        return False, _dataset_not_found_message(dataset_id)
 
     from api.db.services.pipeline_operation_log_service import PipelineOperationLogService
 
@@ -839,12 +833,12 @@ def get_ingestion_log(dataset_id: str, tenant_id: str, log_id: str):
     return True, result
 
 
-def delete_index(dataset_id: str, tenant_id: str, index_type: str, wipe: bool = True):
+def delete_index(dataset_id: str, scope_id: str, index_type: str, wipe: bool = True):
     """
     Delete an indexing task (graph/raptor/mindmap) for a dataset.
 
     :param dataset_id: dataset ID
-    :param tenant_id: tenant ID
+    :param scope_id: runtime scope ID
     :param index_type: one of "graph", "raptor", "mindmap"
     :param wipe: when True (default) the persisted artefacts (graph rows,
         raptor summaries) are removed from the doc store and any GraphRAG
@@ -858,8 +852,8 @@ def delete_index(dataset_id: str, tenant_id: str, index_type: str, wipe: bool = 
     if not dataset_id:
         return False, 'Lack of "Dataset ID"'
 
-    if not KnowledgebaseService.accessible(dataset_id, tenant_id):
-        return False, "No authorization."
+    if not KnowledgebaseService.accessible(dataset_id, scope_id):
+        return False, _dataset_not_found_message(dataset_id)
 
     ok, kb = KnowledgebaseService.get_by_id(dataset_id)
     if not ok:
@@ -884,7 +878,7 @@ def delete_index(dataset_id: str, tenant_id: str, index_type: str, wipe: bool = 
         from rag.nlp import search
         from rag.graphrag.phase_markers import clear_phase_markers
         settings.docStoreConn.delete({"knowledge_graph_kwd": ["graph", "subgraph", "entity", "relation", "community_report"]},
-                                     search.index_name(kb.tenant_id), dataset_id)
+                                     search.index_name(kb.scope_id), dataset_id)
         # Wiping the graph invalidates any phase-completion markers used to
         # short-circuit resolution / community detection on resume.
         clear_phase_markers(dataset_id)
@@ -892,25 +886,25 @@ def delete_index(dataset_id: str, tenant_id: str, index_type: str, wipe: bool = 
     elif wipe and index_type == "raptor":
         from rag.nlp import search
 
-        settings.docStoreConn.delete({"raptor_kwd": ["raptor"]}, search.index_name(kb.tenant_id), dataset_id)
+        settings.docStoreConn.delete({"raptor_kwd": ["raptor"]}, search.index_name(kb.scope_id), dataset_id)
 
     KnowledgebaseService.update_by_id(kb.id, {task_id_field: "", task_finish_at_field: None})
     return True, {}
 
 
-def run_embedding(dataset_id: str, tenant_id: str):
+def run_embedding(dataset_id: str, scope_id: str):
     """
     Run embedding for all documents in a dataset.
 
     :param dataset_id: dataset ID
-    :param tenant_id: tenant ID
+    :param scope_id: runtime scope ID
     :return: (success, result) or (success, error_message)
     """
     if not dataset_id:
         return False, 'Lack of "Dataset ID"'
 
-    if not KnowledgebaseService.accessible(dataset_id, tenant_id):
-        return False, "No authorization."
+    if not KnowledgebaseService.accessible(dataset_id, scope_id):
+        return False, _dataset_not_found_message(dataset_id)
 
     ok, kb = KnowledgebaseService.get_by_id(dataset_id)
     if not ok:
@@ -932,18 +926,18 @@ def run_embedding(dataset_id: str, tenant_id: str):
 
     kb_table_num_map = {}
     for doc in documents:
-        doc["tenant_id"] = tenant_id
-        DocumentService.run(tenant_id, doc, kb_table_num_map)
+        doc["scope_id"] = scope_id
+        DocumentService.run(scope_id, doc, kb_table_num_map)
 
     return True, {"scheduled_count": len(documents)}
 
 
-def rename_tag(dataset_id: str, tenant_id: str, from_tag: str, to_tag: str):
+def rename_tag(dataset_id: str, scope_id: str, from_tag: str, to_tag: str):
     """
     Rename a tag in a dataset.
 
     :param dataset_id: dataset ID
-    :param tenant_id: tenant ID
+    :param scope_id: runtime scope ID
     :param from_tag: original tag name
     :param to_tag: new tag name
     :return: (success, result) or (success, error_message)
@@ -951,8 +945,8 @@ def rename_tag(dataset_id: str, tenant_id: str, from_tag: str, to_tag: str):
     if not dataset_id:
         return False, 'Lack of "Dataset ID"'
 
-    if not KnowledgebaseService.accessible(dataset_id, tenant_id):
-        return False, "No authorization."
+    if not KnowledgebaseService.accessible(dataset_id, scope_id):
+        return False, _dataset_not_found_message(dataset_id)
 
     ok, kb = KnowledgebaseService.get_by_id(dataset_id)
     if not ok:
@@ -960,33 +954,32 @@ def rename_tag(dataset_id: str, tenant_id: str, from_tag: str, to_tag: str):
 
     from rag.nlp import search
 
-    settings.docStoreConn.update({"tag_kwd": from_tag, "kb_id": [dataset_id]}, {"remove": {"tag_kwd": from_tag.strip()}, "add": {"tag_kwd": to_tag}}, search.index_name(kb.tenant_id), dataset_id)
+    settings.docStoreConn.update({"tag_kwd": from_tag, "kb_id": [dataset_id]}, {"remove": {"tag_kwd": from_tag.strip()}, "add": {"tag_kwd": to_tag}}, search.index_name(kb.scope_id), dataset_id)
 
     return True, {"from": from_tag, "to": to_tag}
 
 
-async def search(dataset_id: str, tenant_id: str, req: dict):
+async def search(dataset_id: str, scope_id: str, req: dict):
     """
     Search (retrieval test) within a dataset.
 
     :param dataset_id: dataset ID
-    :param tenant_id: tenant ID
+    :param scope_id: runtime scope ID
     :param req: search request
     :return: (success, result) or (success, error_message)
     """
-    from api.db.joint_services.tenant_model_service import get_tenant_default_model_by_type
+    from api.db.joint_services.runtime_model_service import get_runtime_default_model_by_type
     from api.db.services.doc_metadata_service import DocMetadataService
     from api.db.services.llm_service import LLMBundle
-    from api.db.services.user_service import UserTenantService
     from common.constants import LLMType
     from common.metadata_utils import MetadataFilterFallbackTooLarge, apply_meta_data_filter
     from rag.app.tag import label_question
     from rag.prompts.generator import cross_languages, keyword_extraction
 
     logging.debug(
-        "search(dataset=%s, tenant=%s, question_len=%s)",
+        "search(dataset=%s, scope=%s, question_len=%s)",
         dataset_id,
-        tenant_id,
+        scope_id,
         len(req.get("question", "")),
     )
 
@@ -1000,9 +993,9 @@ async def search(dataset_id: str, tenant_id: str, req: dict):
     top = max(1, min(int(req.get("top_k", 1024)), 2048))
     langs = req.get("cross_languages", [])
 
-    if not KnowledgebaseService.accessible(dataset_id, tenant_id):
-        logging.warning("search access denied: dataset=%s tenant=%s", dataset_id, tenant_id)
-        return False, "Only owner of dataset authorized for this operation."
+    if not KnowledgebaseService.accessible(dataset_id, scope_id):
+        logging.warning("search access denied: dataset=%s scope=%s", dataset_id, scope_id)
+        return False, "Dataset not found."
 
     e, kb = KnowledgebaseService.get_by_id(dataset_id)
     if not e:
@@ -1016,8 +1009,8 @@ async def search(dataset_id: str, tenant_id: str, req: dict):
     meta_data_filter = req.get("meta_data_filter") or {}
     chat_mdl = None
     if meta_data_filter.get("method") in ["auto", "semi_auto"]:
-        chat_model_config = get_tenant_default_model_by_type(tenant_id, LLMType.CHAT)
-        chat_mdl = LLMBundle(tenant_id, chat_model_config)
+        chat_model_config = get_runtime_default_model_by_type(scope_id, LLMType.CHAT)
+        chat_mdl = LLMBundle(scope_id, chat_model_config)
 
     if meta_data_filter:
         try:
@@ -1033,40 +1026,33 @@ async def search(dataset_id: str, tenant_id: str, req: dict):
         except MetadataFilterFallbackTooLarge as exc:
             return False, _search_validation_error(str(exc))
 
-    tenant_ids = []
-    tenants = UserTenantService.query(user_id=tenant_id)
-    for tenant in tenants:
-        if KnowledgebaseService.query(tenant_id=tenant.tenant_id, id=dataset_id):
-            tenant_ids.append(tenant.tenant_id)
-            break
-    else:
-        return False, "Only owner of dataset authorized for this operation."
+    scope_ids = [kb.scope_id]
 
     _question = question
     if langs:
-        _question = await cross_languages(kb.tenant_id, None, _question, langs)
+        _question = await cross_languages(kb.scope_id, None, _question, langs)
     if kb.embd_id:
-        embd_model_config = get_model_config_from_provider_instance(kb.tenant_id, LLMType.EMBEDDING, kb.embd_id)
+        embd_model_config = get_model_config_from_provider_instance(kb.scope_id, LLMType.EMBEDDING, kb.embd_id)
     else:
-        embd_model_config = get_tenant_default_model_by_type(kb.tenant_id, LLMType.EMBEDDING)
-    embd_mdl = LLMBundle(kb.tenant_id, embd_model_config)
+        embd_model_config = get_runtime_default_model_by_type(kb.scope_id, LLMType.EMBEDDING)
+    embd_mdl = LLMBundle(kb.scope_id, embd_model_config)
 
     rerank_mdl = None
     rerank_id = req.get("rerank_id")
     if rerank_id:
-        rerank_model_config = get_model_config_from_provider_instance(kb.tenant_id, LLMType.RERANK.value, rerank_id)
-        rerank_mdl = LLMBundle(kb.tenant_id, rerank_model_config)
+        rerank_model_config = get_model_config_from_provider_instance(kb.scope_id, LLMType.RERANK.value, rerank_id)
+        rerank_mdl = LLMBundle(kb.scope_id, rerank_model_config)
 
     if req.get("keyword", False):
-        default_chat_model_config = get_tenant_default_model_by_type(kb.tenant_id, LLMType.CHAT)
-        chat_mdl = LLMBundle(kb.tenant_id, default_chat_model_config)
+        default_chat_model_config = get_runtime_default_model_by_type(kb.scope_id, LLMType.CHAT)
+        chat_mdl = LLMBundle(kb.scope_id, default_chat_model_config)
         _question += await keyword_extraction(chat_mdl, _question)
 
     labels = label_question(_question, [kb])
     ranks = await settings.retriever.retrieval(
         _question,
         embd_mdl,
-        tenant_ids,
+        scope_ids,
         [dataset_id],
         page,
         size,
@@ -1081,13 +1067,13 @@ async def search(dataset_id: str, tenant_id: str, req: dict):
 
     if use_kg:
         try:
-            default_chat_model_config = get_tenant_default_model_by_type(tenant_id, LLMType.CHAT)
-            ck = await settings.kg_retriever.retrieval(_question, tenant_ids, [dataset_id], embd_mdl, LLMBundle(kb.tenant_id, default_chat_model_config))
+            default_chat_model_config = get_runtime_default_model_by_type(scope_id, LLMType.CHAT)
+            ck = await settings.kg_retriever.retrieval(_question, scope_ids, [dataset_id], embd_mdl, LLMBundle(kb.scope_id, default_chat_model_config))
             if ck["content_with_weight"]:
                 ranks["chunks"].insert(0, ck)
         except Exception:
-            logging.warning("search KG retrieval failed: dataset=%s tenant=%s", dataset_id, tenant_id, exc_info=True)
-    ranks["chunks"] = settings.retriever.retrieval_by_children(ranks["chunks"], tenant_ids)
+            logging.warning("search KG retrieval failed: dataset=%s scope=%s", dataset_id, scope_id, exc_info=True)
+    ranks["chunks"] = settings.retriever.retrieval_by_children(ranks["chunks"], scope_ids)
     ranks["total"] = len(ranks["chunks"])
 
     for c in ranks["chunks"]:
@@ -1097,13 +1083,13 @@ async def search(dataset_id: str, tenant_id: str, req: dict):
     return True, ranks
 
 
-def check_embedding(dataset_id: str, tenant_id: str, req: dict):
+def check_embedding(dataset_id: str, scope_id: str, req: dict):
     """
     Check embedding model compatibility by sampling random chunks,
     re-embedding them with the new model, and computing cosine similarity.
 
     :param dataset_id: dataset ID
-    :param tenant_id: tenant ID
+    :param scope_id: runtime scope ID
     :param req: request body with embd_id
     :return: (success, result) or (success, error_message)
     """
@@ -1147,12 +1133,12 @@ def check_embedding(dataset_id: str, tenant_id: str, req: dict):
 
     def sample_random_chunks_with_vectors(
         docStoreConn,
-        tenant_id: str,
+        scope_id: str,
         kb_id: str,
         n: int = 5,
         base_fields=("docnm_kwd", "doc_id", "content_with_weight", "page_num_int", "position_int", "top_int"),
     ):
-        index_nm = search.index_name(tenant_id)
+        index_nm = search.index_name(scope_id)
 
         res0 = docStoreConn.search(
             select_fields=[], highlight_fields=[],
@@ -1209,8 +1195,8 @@ def check_embedding(dataset_id: str, tenant_id: str, req: dict):
     if not dataset_id:
         return False, 'Lack of "Dataset ID"'
 
-    if not KnowledgebaseService.accessible(dataset_id, tenant_id):
-        return False, "No authorization."
+    if not KnowledgebaseService.accessible(dataset_id, scope_id):
+        return False, _dataset_not_found_message(dataset_id)
 
     ok, kb = KnowledgebaseService.get_by_id(dataset_id)
     if not ok:
@@ -1220,17 +1206,17 @@ def check_embedding(dataset_id: str, tenant_id: str, req: dict):
     if not embd_id:
         return False, "`embd_id` is required."
 
-    logging.info("check_embedding: dataset=%s tenant=%s embd_id=%s", dataset_id, tenant_id, embd_id)
+    logging.info("check_embedding: dataset=%s scope=%s embd_id=%s", dataset_id, scope_id, embd_id)
 
-    ok, err = verify_embedding_availability(embd_id, tenant_id)
+    ok, err = verify_embedding_availability(embd_id, scope_id)
     if not ok:
         return False, err
 
-    embd_model_config = get_model_config_from_provider_instance(kb.tenant_id, LLMType.EMBEDDING, embd_id)
-    emb_mdl = LLMBundle(kb.tenant_id, embd_model_config)
+    embd_model_config = get_model_config_from_provider_instance(kb.scope_id, LLMType.EMBEDDING, embd_id)
+    emb_mdl = LLMBundle(kb.scope_id, embd_model_config)
 
     n = int(req.get("check_num", 5))
-    samples = sample_random_chunks_with_vectors(settings.docStoreConn, tenant_id=kb.tenant_id, kb_id=dataset_id, n=n)
+    samples = sample_random_chunks_with_vectors(settings.docStoreConn, scope_id=kb.scope_id, kb_id=dataset_id, n=n)
     logging.info("check_embedding: dataset=%s sampled=%d chunks", dataset_id, len(samples))
 
     results, eff_sims = [], []
@@ -1297,18 +1283,17 @@ def check_embedding(dataset_id: str, tenant_id: str, req: dict):
     return "not_effective", {"code": RetCode.NOT_EFFECTIVE, "message": "Embedding model switch failed: the average similarity between old and new vectors is below 0.9, indicating incompatible vector spaces.", "data": data}
 
 
-async def search_datasets(tenant_id: str, req: dict):
+async def search_datasets(scope_id: str, req: dict):
     """
     Search (retrieval test) across multiple datasets.
 
-    :param tenant_id: tenant ID
+    :param scope_id: runtime scope ID
     :param req: search request containing dataset_ids and other params
     :return: (success, result) or (success, error_message)
     """
-    from api.db.joint_services.tenant_model_service import get_tenant_default_model_by_type, split_model_name
+    from api.db.joint_services.runtime_model_service import get_runtime_default_model_by_type, split_model_name
     from api.db.services.doc_metadata_service import DocMetadataService
     from api.db.services.llm_service import LLMBundle
-    from api.db.services.user_service import UserTenantService
     from common.constants import LLMType
     from common.metadata_utils import MetadataFilterFallbackTooLarge, apply_meta_data_filter
     from rag.app.tag import label_question
@@ -1326,16 +1311,16 @@ async def search_datasets(tenant_id: str, req: dict):
     langs = req.get("cross_languages", [])
 
     logging.debug(
-        "search_datasets(datasets=%s, tenant=%s, question_len=%s)",
+        "search_datasets(datasets=%s, scope=%s, question_len=%s)",
         kb_ids,
-        tenant_id,
+        scope_id,
         len(question),
     )
 
     # Access check for all datasets
     for kb_id in kb_ids:
-        if not KnowledgebaseService.accessible(kb_id, tenant_id):
-            logging.warning("search_datasets access denied: dataset=%s tenant=%s", kb_id, tenant_id)
+        if not KnowledgebaseService.accessible(kb_id, scope_id):
+            logging.warning("search_datasets access denied: dataset=%s scope=%s", kb_id, scope_id)
             return False, _search_not_found_error()
 
     kbs = KnowledgebaseService.get_by_ids(kb_ids)
@@ -1354,8 +1339,8 @@ async def search_datasets(tenant_id: str, req: dict):
     meta_data_filter = req.get("meta_data_filter") or {}
     chat_mdl = None
     if meta_data_filter.get("method") in ["auto", "semi_auto"]:
-        chat_model_config = get_tenant_default_model_by_type(tenant_id, LLMType.CHAT)
-        chat_mdl = LLMBundle(tenant_id, chat_model_config)
+        chat_model_config = get_runtime_default_model_by_type(scope_id, LLMType.CHAT)
+        chat_mdl = LLMBundle(scope_id, chat_model_config)
 
     if meta_data_filter:
         logging.debug("Metadata filter applied: %s, question length: %d, chat_mdl=%s",
@@ -1373,34 +1358,26 @@ async def search_datasets(tenant_id: str, req: dict):
         except MetadataFilterFallbackTooLarge as exc:
             return False, _search_validation_error(str(exc))
 
-    tenant_ids = []
-    tenants = UserTenantService.query(user_id=tenant_id)
-    for tenant in tenants:
-        if any(KnowledgebaseService.query(tenant_id=tenant.tenant_id, id=kb_id) for kb_id in kb_ids):
-            tenant_ids.append(tenant.tenant_id)
-            break
-    else:
-        return False, _search_not_found_error()
-
     kb = kbs[0]
+    scope_ids = list(dict.fromkeys(kb.scope_id for kb in kbs))
     _question = question
     if langs:
-        _question = await cross_languages(kb.tenant_id, None, _question, langs)
+        _question = await cross_languages(kb.scope_id, None, _question, langs)
     if kb.embd_id:
-        embd_model_config = get_model_config_from_provider_instance(kb.tenant_id, LLMType.EMBEDDING, kb.embd_id)
+        embd_model_config = get_model_config_from_provider_instance(kb.scope_id, LLMType.EMBEDDING, kb.embd_id)
     else:
-        embd_model_config = get_tenant_default_model_by_type(kb.tenant_id, LLMType.EMBEDDING)
-    embd_mdl = LLMBundle(kb.tenant_id, embd_model_config)
+        embd_model_config = get_runtime_default_model_by_type(kb.scope_id, LLMType.EMBEDDING)
+    embd_mdl = LLMBundle(kb.scope_id, embd_model_config)
 
     rerank_mdl = None
     rerank_id = req.get("rerank_id")
     if rerank_id:
-        rerank_model_config = get_model_config_from_provider_instance(kb.tenant_id, LLMType.RERANK.value, rerank_id)
-        rerank_mdl = LLMBundle(kb.tenant_id, rerank_model_config)
+        rerank_model_config = get_model_config_from_provider_instance(kb.scope_id, LLMType.RERANK.value, rerank_id)
+        rerank_mdl = LLMBundle(kb.scope_id, rerank_model_config)
 
     if req.get("keyword", False):
-        default_chat_model_config = get_tenant_default_model_by_type(kb.tenant_id, LLMType.CHAT)
-        chat_mdl = LLMBundle(kb.tenant_id, default_chat_model_config)
+        default_chat_model_config = get_runtime_default_model_by_type(kb.scope_id, LLMType.CHAT)
+        chat_mdl = LLMBundle(kb.scope_id, default_chat_model_config)
         _question += await keyword_extraction(chat_mdl, _question)
 
     labels = label_question(_question, kbs)
@@ -1408,7 +1385,7 @@ async def search_datasets(tenant_id: str, req: dict):
         ranks = await settings.retriever.retrieval(
             _question,
             embd_mdl,
-            tenant_ids,
+            scope_ids,
             kb_ids,
             page,
             size,
@@ -1422,19 +1399,19 @@ async def search_datasets(tenant_id: str, req: dict):
         )
     except Exception as exc:
         if _is_missing_search_index_error(exc):
-            logging.info("search_datasets index missing: datasets=%s tenant=%s", kb_ids, tenant_id)
+            logging.info("search_datasets index missing: datasets=%s scope=%s", kb_ids, scope_id)
             return True, _empty_search_result(labels)
         raise
 
     if use_kg:
         try:
-            default_chat_model_config = get_tenant_default_model_by_type(tenant_id, LLMType.CHAT)
-            ck = await settings.kg_retriever.retrieval(_question, tenant_ids, kb_ids, embd_mdl, LLMBundle(kb.tenant_id, default_chat_model_config))
+            default_chat_model_config = get_runtime_default_model_by_type(scope_id, LLMType.CHAT)
+            ck = await settings.kg_retriever.retrieval(_question, scope_ids, kb_ids, embd_mdl, LLMBundle(kb.scope_id, default_chat_model_config))
             if ck["content_with_weight"]:
                 ranks["chunks"].insert(0, ck)
         except Exception:
-            logging.warning("search_datasets KG retrieval failed: datasets=%s tenant=%s", kb_ids, tenant_id, exc_info=True)
-    ranks["chunks"] = settings.retriever.retrieval_by_children(ranks["chunks"], tenant_ids)
+            logging.warning("search_datasets KG retrieval failed: datasets=%s scope=%s", kb_ids, scope_id, exc_info=True)
+    ranks["chunks"] = settings.retriever.retrieval_by_children(ranks["chunks"], scope_ids)
     ranks["total"] = len(ranks["chunks"])
 
     for c in ranks["chunks"]:

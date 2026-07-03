@@ -173,8 +173,8 @@ func (c *Client) CheckCitationSources(ctx context.Context, userID string, refs [
 
 // GetStats fetches knowledge base and document counts from the knowledge
 // service's internal statistics endpoint. The endpoint uses service-level
-// authentication and accepts an optional user context for tenant-scoped runtime
-// totals; user-scoped totals require a read permission context.
+// authentication and accepts a user context for product authorization while
+// Knowledge reads totals from its fixed runtime namespace.
 func (c *Client) GetStats(ctx context.Context, userID string) (int, int, error) {
 	endpoint := c.baseURL + "/internal/v1/knowledge-statistics"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)

@@ -43,7 +43,7 @@ def test_allocate_deltas_relevance():
 def test_apply_feedback_disabled(monkeypatch):
     monkeypatch.setattr(cfs, "CHUNK_FEEDBACK_ENABLED", False)
     result = cfs.ChunkFeedbackService.apply_feedback(
-        "tenant-1",
+        "scope-1",
         {"chunks": [{"id": "c1", "dataset_id": "kb1"}]},
         True,
     )
@@ -66,7 +66,7 @@ def test_apply_feedback_updates_chunks(monkeypatch):
                 {"id": "c2", "dataset_id": "kb1"},
             ]
         }
-        result = cfs.ChunkFeedbackService.apply_feedback("tenant-1", reference, True)
+        result = cfs.ChunkFeedbackService.apply_feedback("scope-1", reference, True)
 
     assert result["success_count"] == 2
     assert result["fail_count"] == 0

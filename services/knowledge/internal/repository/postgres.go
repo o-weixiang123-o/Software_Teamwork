@@ -29,7 +29,7 @@ func (r *PostgresRepository) ListRuntimeKnowledgeBases(ctx context.Context, ids 
 		filter = " AND id = ANY($2::text[])"
 		args = append(args, ids)
 	}
-	rows, err := r.pool.Query(ctx, `SELECT id, tenant_id, COALESCE(embd_id,''), COALESCE(chunk_num,0) FROM knowledgebase WHERE status=$1`+filter+` ORDER BY update_time DESC, id`, args...)
+	rows, err := r.pool.Query(ctx, `SELECT id, COALESCE(embd_id,''), COALESCE(chunk_num,0) FROM knowledgebase WHERE status=$1`+filter+` ORDER BY update_time DESC, id`, args...)
 	if err != nil {
 		return nil, wrapPostgresError("list runtime knowledge bases", err)
 	}
@@ -38,7 +38,7 @@ func (r *PostgresRepository) ListRuntimeKnowledgeBases(ctx context.Context, ids 
 	items := []service.RuntimeKnowledgeBase{}
 	for rows.Next() {
 		var item service.RuntimeKnowledgeBase
-		if err := rows.Scan(&item.ID, &item.TenantID, &item.EmbeddingID, &item.ChunkCount); err != nil {
+		if err := rows.Scan(&item.ID, &item.EmbeddingID, &item.ChunkCount); err != nil {
 			return nil, wrapPostgresError("scan runtime knowledge base", err)
 		}
 		items = append(items, item)
@@ -51,7 +51,7 @@ func (r *PostgresRepository) ListRuntimeKnowledgeBases(ctx context.Context, ids 
 
 func (r *PostgresRepository) GetRuntimeDocument(ctx context.Context, id string) (service.RuntimeDocument, error) {
 	const query = `
-		SELECT d.id, d.kb_id, k.tenant_id, COALESCE(d.chunk_num,0)
+		SELECT d.id, d.kb_id, COALESCE(d.chunk_num,0)
 		FROM document d
 		JOIN knowledgebase k ON k.id=d.kb_id
 		WHERE d.id=$1
@@ -59,7 +59,7 @@ func (r *PostgresRepository) GetRuntimeDocument(ctx context.Context, id string) 
 			AND k.status='1'
 	`
 	var item service.RuntimeDocument
-	if err := r.pool.QueryRow(ctx, query, id).Scan(&item.ID, &item.KnowledgeBaseID, &item.TenantID, &item.ChunkCount); err != nil {
+	if err := r.pool.QueryRow(ctx, query, id).Scan(&item.ID, &item.KnowledgeBaseID, &item.ChunkCount); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return service.RuntimeDocument{}, service.ErrNotFound
 		}
@@ -76,7 +76,7 @@ func (r *PostgresRepository) ListRuntimeDocuments(ctx context.Context, ids []str
 		args = append(args, ids)
 	}
 	rows, err := r.pool.Query(ctx, `
-		SELECT d.id, d.kb_id, k.tenant_id, COALESCE(d.chunk_num,0)
+		SELECT d.id, d.kb_id, COALESCE(d.chunk_num,0)
 		FROM document d
 		JOIN knowledgebase k ON k.id=d.kb_id
 		WHERE COALESCE(d.status,'1')='1'
@@ -93,7 +93,7 @@ func (r *PostgresRepository) ListRuntimeDocuments(ctx context.Context, ids []str
 	items := []service.RuntimeDocument{}
 	for rows.Next() {
 		var item service.RuntimeDocument
-		if err := rows.Scan(&item.ID, &item.KnowledgeBaseID, &item.TenantID, &item.ChunkCount); err != nil {
+		if err := rows.Scan(&item.ID, &item.KnowledgeBaseID, &item.ChunkCount); err != nil {
 			return nil, wrapPostgresError("scan runtime document", err)
 		}
 		items = append(items, item)

@@ -14,12 +14,12 @@
 #  limitations under the License.
 #
 from common.constants import ActiveStatusEnum
-from api.db.db_models import DB, TenantModel
+from api.db.db_models import DB, RuntimeModel
 from api.db.services.common_service import CommonService
 
 
-class TenantModelService(CommonService):
-    model = TenantModel
+class RuntimeModelService(CommonService):
+    model = RuntimeModel
 
     @classmethod
     @DB.connection_context()

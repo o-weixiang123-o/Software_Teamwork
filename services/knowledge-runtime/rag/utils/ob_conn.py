@@ -349,7 +349,7 @@ class OBConnection(OBConnectionBase):
 
     def delete_idx(self, index_name: str, dataset_id: str):
         if dataset_id:
-            # The index need to be alive after any kb deletion since all kb under this tenant are in one index.
+            # The index need to be alive after any kb deletion since all kb under this scope are in one index.
             return
         super().delete_idx(index_name, dataset_id)
 

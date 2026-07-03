@@ -19,17 +19,17 @@ import logging
 from peewee import IntegrityError
 from common import settings
 from common.constants import MINERU_DEFAULT_CONFIG, MINERU_ENV_KEYS, OPENDATALOADER_DEFAULT_CONFIG, OPENDATALOADER_ENV_KEYS, PADDLEOCR_DEFAULT_CONFIG, PADDLEOCR_ENV_KEYS, LLMType
-from api.db.db_models import DB, LLMFactories, TenantLLM
+from api.db.db_models import DB, LLMFactories, RuntimeLLM
 from api.db.services.common_service import CommonService
-from api.db.services.user_service import TenantService
+from api.utils.runtime_model_config import runtime_model_config
 
 
 class LLMFactoriesService(CommonService):
     model = LLMFactories
 
 
-class TenantLLMService(CommonService):
-    model = TenantLLM
+class RuntimeLLMService(CommonService):
+    model = RuntimeLLM
 
     @staticmethod
     def _decode_api_key_config(raw_api_key: str) -> tuple[str, bool | None, str | None]:
@@ -69,10 +69,10 @@ class TenantLLMService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def get_api_key(cls, tenant_id, model_name, model_type=None):
-        mdlnm, fid = TenantLLMService.split_model_name_and_factory(model_name)
+    def get_api_key(cls, scope_id, model_name, model_type=None):
+        mdlnm, fid = RuntimeLLMService.split_model_name_and_factory(model_name)
         model_type_val = model_type.value if hasattr(model_type, "value") else model_type
-        query_kwargs = {"tenant_id": tenant_id, "llm_name": mdlnm}
+        query_kwargs = {"scope_id": scope_id, "llm_name": mdlnm}
         if model_type_val is not None:
             query_kwargs["model_type"] = model_type_val
         if not fid:
@@ -97,9 +97,9 @@ class TenantLLMService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def get_my_llms(cls, tenant_id):
+    def get_my_llms(cls, scope_id):
         fields = [cls.model.id, cls.model.llm_factory, LLMFactories.logo, LLMFactories.tags, cls.model.model_type, cls.model.llm_name, cls.model.used_tokens, cls.model.status]
-        objs = cls.model.select(*fields).join(LLMFactories, on=(cls.model.llm_factory == LLMFactories.name)).where(cls.model.tenant_id == tenant_id, ~cls.model.api_key.is_null()).dicts()
+        objs = cls.model.select(*fields).join(LLMFactories, on=(cls.model.llm_factory == LLMFactories.name)).where(cls.model.scope_id == scope_id, ~cls.model.api_key.is_null()).dicts()
 
         return list(objs)
 
@@ -119,61 +119,17 @@ class TenantLLMService(CommonService):
                 return model_name, None
             return arr[0], arr[-1]
         except Exception as e:
-            logging.exception(f"TenantLLMService.split_model_name_and_factory got exception: {e}")
+            logging.exception(f"RuntimeLLMService.split_model_name_and_factory got exception: {e}")
         return model_name, None
 
     @classmethod
     @DB.connection_context()
-    def get_model_config(cls, tenant_id, llm_type, llm_name=None):
-        from api.db.services.llm_service import LLMService
-
-        e, tenant = TenantService.get_by_id(tenant_id)
-        if not e:
-            raise LookupError("Tenant not found")
-
-        if llm_type == LLMType.EMBEDDING.value:
-            mdlnm = tenant.embd_id if not llm_name else llm_name
-        elif llm_type == LLMType.SPEECH2TEXT.value:
-            mdlnm = tenant.asr_id if not llm_name else llm_name
-        elif llm_type == LLMType.IMAGE2TEXT.value:
-            mdlnm = tenant.img2txt_id if not llm_name else llm_name
-        elif llm_type == LLMType.CHAT.value:
-            mdlnm = tenant.llm_id if not llm_name else llm_name
-        elif llm_type == LLMType.RERANK:
-            mdlnm = tenant.rerank_id if not llm_name else llm_name
-        elif llm_type == LLMType.TTS:
-            mdlnm = tenant.tts_id if not llm_name else llm_name
-        elif llm_type == LLMType.OCR:
-            if not llm_name:
-                raise LookupError("OCR model name is required")
-            mdlnm = llm_name
-        else:
-            assert False, "LLM type error"
-
-        model_config = cls.get_api_key(tenant_id, mdlnm, llm_type)
-        mdlnm, fid = TenantLLMService.split_model_name_and_factory(mdlnm)
-        if not model_config:  # for some cases seems fid mismatch
-            model_config = cls.get_api_key(tenant_id, mdlnm, llm_type)
+    def get_model_config(cls, scope_id, llm_type, llm_name=None):
+        model_config = runtime_model_config(llm_type, llm_name)
         if model_config:
-            model_config = model_config.to_dict()
-            api_key, is_tools, api_key_payload = cls._decode_api_key_config(model_config.get("api_key", ""))
-            model_config["api_key"] = api_key
-            if api_key_payload is not None:
-                model_config["api_key_payload"] = api_key_payload
-            if is_tools is not None:
-                model_config["is_tools"] = is_tools
-        elif llm_type == LLMType.EMBEDDING and fid == "Builtin" and "tei-" in os.getenv("COMPOSE_PROFILES", "") and mdlnm == os.getenv("TEI_MODEL", ""):
-            embedding_cfg = settings.EMBEDDING_CFG
-            model_config = {"llm_factory": "Builtin", "api_key": embedding_cfg["api_key"], "llm_name": mdlnm, "api_base": embedding_cfg["base_url"]}
-        else:
-            raise LookupError(f"Model({mdlnm}@{fid}) not authorized")
+            return model_config
 
-        llm = LLMService.query(llm_name=mdlnm) if not fid else LLMService.query(llm_name=mdlnm, fid=fid)
-        if not llm and fid:  # for some cases seems fid mismatch
-            llm = LLMService.query(llm_name=mdlnm)
-        if "is_tools" not in model_config and llm:
-            model_config["is_tools"] = llm[0].is_tools
-        return model_config
+        raise LookupError(f"Runtime model for {llm_type} is not configured")
 
     @classmethod
     @DB.connection_context()
@@ -238,48 +194,17 @@ class TenantLLMService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def increase_usage(cls, tenant_id, llm_type, used_tokens, llm_name=None):
-        e, tenant = TenantService.get_by_id(tenant_id)
-        if not e:
-            logging.error(f"Tenant not found: {tenant_id}")
-            return 0
-
-        llm_map = {
-            LLMType.EMBEDDING.value: tenant.embd_id if not llm_name else llm_name,
-            LLMType.SPEECH2TEXT.value: tenant.asr_id,
-            LLMType.IMAGE2TEXT.value: tenant.img2txt_id,
-            LLMType.CHAT.value: tenant.llm_id if not llm_name else llm_name,
-            LLMType.RERANK.value: tenant.rerank_id if not llm_name else llm_name,
-            LLMType.TTS.value: tenant.tts_id if not llm_name else llm_name,
-            LLMType.OCR.value: llm_name,
-        }
-
-        mdlnm = llm_map.get(llm_type)
-        if mdlnm is None:
-            logging.error(f"LLM type error: {llm_type}")
-            return 0
-
-        llm_name, llm_factory = TenantLLMService.split_model_name_and_factory(mdlnm)
-
-        try:
-            num = (
-                cls.model.update(used_tokens=cls.model.used_tokens + used_tokens)
-                .where(cls.model.tenant_id == tenant_id, cls.model.llm_name == llm_name, cls.model.llm_factory == llm_factory if llm_factory else True)
-                .execute()
-            )
-        except Exception:
-            logging.exception("TenantLLMService.increase_usage got exception,Failed to update used_tokens for tenant_id=%s, llm_name=%s", tenant_id, llm_name)
-            return 0
-
-        return num
+    def increase_usage(cls, scope_id, llm_type, used_tokens, llm_name=None):
+        logging.debug("Skip RuntimeLLM usage update; runtime model usage is audited by AI Gateway/provider logs")
+        return 0
 
     @classmethod
     @DB.connection_context()
-    def increase_usage_by_id(cls, tenant_model_id: int, used_tokens: int):
+    def increase_usage_by_id(cls, runtime_model_id: int, used_tokens: int):
         try:
-            update_cnt = cls.model.update(used_tokens=cls.model.used_tokens + used_tokens).where(cls.model.id == tenant_model_id).execute()
+            update_cnt = cls.model.update(used_tokens=cls.model.used_tokens + used_tokens).where(cls.model.id == runtime_model_id).execute()
         except Exception as e:
-            logging.exception(f"TenantLLMService.increase_usage got exception {e}, Failed to update used_tokens for tenant_model_id {tenant_model_id}")
+            logging.exception(f"RuntimeLLMService.increase_usage got exception {e}, Failed to update used_tokens for runtime_model_id {runtime_model_id}")
             return 0
         return update_cnt
 
@@ -302,16 +227,16 @@ class TenantLLMService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def ensure_mineru_from_env(cls, tenant_id: str) -> str | None:
+    def ensure_mineru_from_env(cls, scope_id: str) -> str | None:
         """
-        Ensure a MinerU OCR model exists for the tenant if env variables are present.
+        Ensure a MinerU OCR model exists for the scope if env variables are present.
         Return the existing or newly created llm_name, or None if env not set.
         """
         cfg = cls._collect_mineru_env_config()
         if not cfg:
             return None
 
-        saved_mineru_models = cls.query(tenant_id=tenant_id, llm_factory="MinerU", model_type=LLMType.OCR.value)
+        saved_mineru_models = cls.query(scope_id=scope_id, llm_factory="MinerU", model_type=LLMType.OCR.value)
 
         def _parse_api_key(raw: str) -> dict:
             try:
@@ -336,7 +261,7 @@ class TenantLLMService(CommonService):
 
             try:
                 cls.save(
-                    tenant_id=tenant_id,
+                    scope_id=scope_id,
                     llm_factory="MinerU",
                     llm_name=candidate,
                     model_type=LLMType.OCR.value,
@@ -346,7 +271,7 @@ class TenantLLMService(CommonService):
                 )
                 return candidate
             except IntegrityError:
-                logging.warning("MinerU env model %s already exists for tenant %s, retry with next name", candidate, tenant_id)
+                logging.warning("MinerU env model %s already exists for scope %s, retry with next name", candidate, scope_id)
                 used_names.add(candidate)
                 idx += 1
                 continue
@@ -364,16 +289,16 @@ class TenantLLMService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def ensure_paddleocr_from_env(cls, tenant_id: str) -> str | None:
+    def ensure_paddleocr_from_env(cls, scope_id: str) -> str | None:
         """
-        Ensure a PaddleOCR model exists for the tenant if env variables are present.
+        Ensure a PaddleOCR model exists for the scope if env variables are present.
         Return the existing or newly created llm_name, or None if env not set.
         """
         cfg = cls._collect_paddleocr_env_config()
         if not cfg:
             return None
 
-        saved_paddleocr_models = cls.query(tenant_id=tenant_id, llm_factory="PaddleOCR", model_type=LLMType.OCR.value)
+        saved_paddleocr_models = cls.query(scope_id=scope_id, llm_factory="PaddleOCR", model_type=LLMType.OCR.value)
 
         def _parse_api_key(raw: str) -> dict:
             try:
@@ -398,7 +323,7 @@ class TenantLLMService(CommonService):
 
             try:
                 cls.save(
-                    tenant_id=tenant_id,
+                    scope_id=scope_id,
                     llm_factory="PaddleOCR",
                     llm_name=candidate,
                     model_type=LLMType.OCR.value,
@@ -408,7 +333,7 @@ class TenantLLMService(CommonService):
                 )
                 return candidate
             except IntegrityError:
-                logging.warning("PaddleOCR env model %s already exists for tenant %s, retry with next name", candidate, tenant_id)
+                logging.warning("PaddleOCR env model %s already exists for scope %s, retry with next name", candidate, scope_id)
                 used_names.add(candidate)
                 idx += 1
                 continue
@@ -426,16 +351,16 @@ class TenantLLMService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def ensure_opendataloader_from_env(cls, tenant_id: str) -> str | None:
+    def ensure_opendataloader_from_env(cls, scope_id: str) -> str | None:
         """
-        Ensure an OpenDataLoader OCR model exists for the tenant if env variables are present.
+        Ensure an OpenDataLoader OCR model exists for the scope if env variables are present.
         Return the existing or newly created llm_name, or None if env not set.
         """
         cfg = cls._collect_opendataloader_env_config()
         if not cfg:
             return None
 
-        saved_models = cls.query(tenant_id=tenant_id, llm_factory="OpenDataLoader", model_type=LLMType.OCR.value)
+        saved_models = cls.query(scope_id=scope_id, llm_factory="OpenDataLoader", model_type=LLMType.OCR.value)
 
         def _parse_api_key(raw: str) -> dict:
             try:
@@ -459,7 +384,7 @@ class TenantLLMService(CommonService):
                 continue
             try:
                 cls.save(
-                    tenant_id=tenant_id,
+                    scope_id=scope_id,
                     llm_factory="OpenDataLoader",
                     llm_name=candidate,
                     model_type=LLMType.OCR.value,
@@ -469,21 +394,21 @@ class TenantLLMService(CommonService):
                 )
                 return candidate
             except IntegrityError:
-                logging.warning("OpenDataLoader env model %s already exists for tenant %s, retry with next name", candidate, tenant_id)
+                logging.warning("OpenDataLoader env model %s already exists for scope %s, retry with next name", candidate, scope_id)
                 used_names.add(candidate)
                 idx += 1
                 continue
 
     @classmethod
     @DB.connection_context()
-    def delete_by_tenant_id(cls, tenant_id):
-        return cls.model.delete().where(cls.model.tenant_id == tenant_id).execute()
+    def delete_by_scope_id(cls, scope_id):
+        return cls.model.delete().where(cls.model.scope_id == scope_id).execute()
 
     @staticmethod
     def llm_id2llm_type(llm_id: str) -> str | None:
         from api.db.services.llm_service import LLMService
 
-        llm_id, *_ = TenantLLMService.split_model_name_and_factory(llm_id)
+        llm_id, *_ = RuntimeLLMService.split_model_name_and_factory(llm_id)
         llm_factories = settings.FACTORY_LLM_INFOS
         for llm_factory in llm_factories:
             for llm in llm_factory["llm"]:
@@ -493,28 +418,28 @@ class TenantLLMService(CommonService):
         for llm in LLMService.query(llm_name=llm_id):
             return llm.model_type
 
-        llm = TenantLLMService.get_or_none(llm_name=llm_id)
+        llm = RuntimeLLMService.get_or_none(llm_name=llm_id)
         if llm:
             return llm.model_type
-        for llm in TenantLLMService.query(llm_name=llm_id):
+        for llm in RuntimeLLMService.query(llm_name=llm_id):
             return llm.model_type
         return None
 
 
-class LLM4Tenant:
-    def __init__(self, tenant_id: str, model_config: dict, lang="Chinese", **kwargs):
-        self.tenant_id = tenant_id
+class RuntimeLLMBundle:
+    def __init__(self, scope_id: str, model_config: dict, lang="Chinese", **kwargs):
+        self.scope_id = scope_id
         self.llm_name = model_config["llm_name"]
         self.model_config = model_config
-        self.mdl = TenantLLMService.model_instance(model_config, lang=lang, **kwargs)
-        assert self.mdl, "Can't find model for {}/{}/{}".format(tenant_id, model_config["model_type"], model_config["llm_name"])
+        self.mdl = RuntimeLLMService.model_instance(model_config, lang=lang, **kwargs)
+        assert self.mdl, "Can't find model for {}/{}/{}".format(scope_id, model_config["model_type"], model_config["llm_name"])
         self.max_length = model_config.get("max_tokens", 8192)
 
         self.is_tools = model_config.get("is_tools", False)
         self.verbose_tool_use = kwargs.get("verbose_tool_use")
 
     def close(self):
-        """Release resources held by this LLM4Tenant instance.
+        """Release resources held by this RuntimeLLMBundle instance.
 
         This method should be called when the instance is no longer needed
         to properly release resources such as:

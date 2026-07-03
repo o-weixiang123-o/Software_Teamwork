@@ -194,7 +194,7 @@ Auth 公开资源族包括：
 
 知识库管理、文档处理状态、切片详情、原始文件内容和知识检索已经进入 gateway OpenAPI。前端只能调用 gateway active paths，不能直接调用 `services/knowledge`。逐项 method/path/schema 以 [`docs/services/gateway/api/public.openapi.yaml`](../services/gateway/api/public.openapi.yaml) 和 [Gateway Active API Owner Map](../services/gateway/docs/active-api-owner-map.md) 为准；本文只规定跨前后端协作规则。
 
-Knowledge 公开资源族包括 `knowledge-bases`、知识库下的 `documents`、独立 `documents` 子资源、`documents/{documentId}/chunks`、`documents/{documentId}/content` 和 `knowledge-queries`。检索使用 `knowledge-queries` 资源，不使用 `/search`、`/retrieval/search` 或其他动作路径。`standard` 默认具备 `knowledge:read`，可以直接使用前端知识检索入口，也可以查看可见知识库、文档详情、chunks 和原文内容；知识库创建/更新/删除、文档上传/更新/删除和 parser config 仍按 Knowledge 管理权限控制。文档详情、chunks 和 content 路径必须携带 `knowledgeBaseId`，让 Knowledge adapter 使用明确的 runtime dataset 上下文。返回字段、分页结构和错误响应以 Gateway OpenAPI 为准；RAGFlow runtime 认证失败或 service token 错配应作为 `dependency_error` 展示服务暂不可用，不应触发前端清理登录态。
+Knowledge 公开资源族包括 `knowledge-bases`、知识库下的 `documents`、独立 `documents` 子资源、`documents/{documentId}/chunks`、`documents/{documentId}/content` 和 `knowledge-queries`。检索使用 `knowledge-queries` 资源，不使用 `/search`、`/retrieval/search` 或其他动作路径。`standard` 默认具备 `knowledge:read`，可以直接使用前端知识检索入口，也可以查看可见知识库、文档详情、chunks 和原文内容；知识库创建/更新/删除、文档上传/更新/删除和 parser config 仍按 Knowledge 管理权限控制。文档详情、chunks 和 content 路径必须携带 `knowledgeBaseId`，让 Knowledge adapter 使用明确的 runtime dataset 上下文。返回字段、分页结构和错误响应以 Gateway OpenAPI 为准；Knowledge runtime 认证失败或 service token 错配应作为 `dependency_error` 展示服务暂不可用，不应触发前端清理登录态。
 
 ## QA 接口
 

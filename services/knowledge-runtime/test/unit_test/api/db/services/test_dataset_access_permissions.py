@@ -62,7 +62,6 @@ def _install_cv2_stub_if_unavailable():
 
 _install_cv2_stub_if_unavailable()
 
-from api.db import TenantPermission
 from api.db.services.document_service import DocumentService
 from api.db.services.knowledgebase_service import KnowledgebaseService
 from common.constants import StatusEnum
@@ -76,44 +75,40 @@ def _unwrapped_doc_accessible():
     return DocumentService.accessible.__func__.__wrapped__
 
 
-def test_private_dataset_is_not_accessible_to_other_tenant_member(monkeypatch):
+def test_valid_dataset_is_accessible_from_global_runtime_scope(monkeypatch):
     kb = SimpleNamespace(
-        id="kb-private",
-        tenant_id="owner-1",
-        permission=TenantPermission.ME.value,
+        id="kb-valid",
+        scope_id="knowledge_runtime",
         status=StatusEnum.VALID.value,
     )
 
     monkeypatch.setattr(KnowledgebaseService, "get_by_id", classmethod(lambda cls, kb_id: (True, kb)))
-    monkeypatch.setattr(
-        "api.db.services.knowledgebase_service.TenantService.get_joined_tenants_by_user_id",
-        lambda _user_id: [{"tenant_id": "owner-1"}],
-    )
 
-    assert _unwrapped_kb_accessible()(KnowledgebaseService, "kb-private", "member-2") is False
+    assert _unwrapped_kb_accessible()(KnowledgebaseService, "kb-valid", "any-runtime-scope") is True
 
 
-def test_team_dataset_is_accessible_to_joined_tenant_member(monkeypatch):
+def test_invalid_dataset_is_not_accessible(monkeypatch):
     kb = SimpleNamespace(
-        id="kb-team",
-        tenant_id="owner-1",
-        permission=TenantPermission.TEAM.value,
-        status=StatusEnum.VALID.value,
+        id="kb-invalid",
+        scope_id="knowledge_runtime",
+        status=StatusEnum.INVALID.value,
     )
 
     monkeypatch.setattr(KnowledgebaseService, "get_by_id", classmethod(lambda cls, kb_id: (True, kb)))
-    monkeypatch.setattr(
-        "api.db.services.knowledgebase_service.TenantService.get_joined_tenants_by_user_id",
-        lambda _user_id: [{"tenant_id": "owner-1"}],
-    )
 
-    assert _unwrapped_kb_accessible()(KnowledgebaseService, "kb-team", "member-2") is True
+    assert _unwrapped_kb_accessible()(KnowledgebaseService, "kb-invalid", "any-runtime-scope") is False
 
 
-def test_document_access_respects_dataset_permission(monkeypatch):
-    doc = SimpleNamespace(id="doc-1", kb_id="kb-private")
+def test_missing_dataset_is_not_accessible(monkeypatch):
+    monkeypatch.setattr(KnowledgebaseService, "get_by_id", classmethod(lambda cls, kb_id: (False, None)))
+
+    assert _unwrapped_kb_accessible()(KnowledgebaseService, "kb-missing", "any-runtime-scope") is False
+
+
+def test_document_access_follows_dataset_existence(monkeypatch):
+    doc = SimpleNamespace(id="doc-1", kb_id="kb-valid")
 
     monkeypatch.setattr(DocumentService, "get_by_id", classmethod(lambda cls, doc_id: (True, doc)))
-    monkeypatch.setattr(KnowledgebaseService, "accessible", classmethod(lambda cls, kb_id, user_id: False))
+    monkeypatch.setattr(KnowledgebaseService, "accessible", classmethod(lambda cls, kb_id, user_id: True))
 
-    assert _unwrapped_doc_accessible()(DocumentService, "doc-1", "member-2") is False
+    assert _unwrapped_doc_accessible()(DocumentService, "doc-1", "any-runtime-scope") is True

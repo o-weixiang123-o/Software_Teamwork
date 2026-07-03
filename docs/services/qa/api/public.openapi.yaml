@@ -160,7 +160,7 @@ paths:
       description: >-
         Uploads a temporary attachment. QA stores metadata and parse status,
         calls file internally for raw bytes, and delegates parsing to the
-        Knowledge RAGFlow runtime boundary.
+        Knowledge runtime boundary.
         The attachment starts in uploaded status and is purged by TTL.
         Single file limit: 20 MB. Per-session limit: 10 attachments and
         100 MB total. Accepted part Content-Type values: application/pdf,

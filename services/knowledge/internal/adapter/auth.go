@@ -63,13 +63,6 @@ func readScope(reqCtx service.RequestContext) (service.AccessScope, error) {
 	return scope, nil
 }
 
-func (s *Server) projectReadRuntimeUserID(reqCtx service.RequestContext) string {
-	if userID := s.projectRuntimeUserID(); userID != "" {
-		return userID
-	}
-	return strings.TrimSpace(reqCtx.UserID)
-}
-
 func trustedProjectRetrievalScope(reqCtx service.RequestContext, r *http.Request) bool {
 	if !strings.EqualFold(strings.TrimSpace(r.Header.Get(retrievalScopeHeader)), retrievalScopeProject) {
 		return false

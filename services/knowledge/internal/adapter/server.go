@@ -218,7 +218,7 @@ func (s *Server) checkVendorRuntime(ctx context.Context, includeInternal bool) (
 		return false, detail
 	}
 	statusURL := s.cfg.VendorRuntimeURL + "/api/v1/system/status"
-	status, err := s.vendor.RuntimeStatus(ctx, s.runtimeStatusUserID())
+	status, err := s.vendor.RuntimeStatus(ctx, s.runtimeScopeID())
 	if err != nil {
 		s.logger.WarnContext(ctx, "knowledge runtime status check failed",
 			"service", "knowledge-adapter",
@@ -250,18 +250,8 @@ func (s *Server) checkVendorRuntime(ctx context.Context, includeInternal bool) (
 	return statusOK, statusDetail
 }
 
-func (s *Server) runtimeStatusUserID() string {
-	if userID := s.projectRuntimeUserID(); userID != "" {
-		return userID
-	}
-	return "knowledge_adapter_ready"
-}
-
-func (s *Server) projectRuntimeUserID() string {
-	if userID := strings.TrimSpace(s.cfg.ProjectRuntimeUserID); userID != "" {
-		return userID
-	}
-	return strings.TrimSpace(s.cfg.MCPUserID)
+func (s *Server) runtimeScopeID() string {
+	return ""
 }
 
 func summarizeRuntimeStatus(status map[string]interface{}, readinessMode adapterconfig.RuntimeReadinessMode) (bool, map[string]any) {

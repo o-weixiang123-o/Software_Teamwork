@@ -196,7 +196,7 @@ class TestChunkServiceInsertChunks:
                     with patch("rag.svr.task_executor_refactor.chunk_service.TaskService") as mock_task:
                         mock_task.update_chunk_ids = MagicMock()
 
-                        result = await service.insert_chunks("task_1", "tenant_1", "kb_1", chunks)
+                        result = await service.insert_chunks("task_1", "scope_1", "kb_1", chunks)
 
                         assert result is True
 
@@ -220,7 +220,7 @@ class TestChunkServiceInsertChunks:
                 with patch("rag.svr.task_executor_refactor.chunk_service.thread_pool_exec") as mock_thread:
                     mock_thread.return_value = None
 
-                    result = await service.insert_chunks("task_1", "tenant_1", "kb_1", chunks)
+                    result = await service.insert_chunks("task_1", "scope_1", "kb_1", chunks)
 
                     assert result is False
                     ctx.progress_cb.assert_called_with(-1, msg="Task has been canceled.")
@@ -245,7 +245,7 @@ class TestChunkServiceInsertChunks:
                     mock_thread.return_value = "Error"
 
                     with pytest.raises(Exception, match="Insert chunk error"):
-                        await service.insert_chunks("task_1", "tenant_1", "kb_1", chunks)
+                        await service.insert_chunks("task_1", "scope_1", "kb_1", chunks)
 
 
 class TestChunkServiceCreateMotherChunks:

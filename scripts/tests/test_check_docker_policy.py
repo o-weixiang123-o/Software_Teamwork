@@ -170,7 +170,6 @@ class DockerPolicyTests(unittest.TestCase):
         issues = self.verify(
             files={
                 "services/knowledge-runtime/Dockerfile": dockerfile,
-                "services/knowledge-runtime/.dockerignore": ".git\n",
             }
         )
 

@@ -37,7 +37,7 @@ deploy/
 
 Use the same service-local layout for every Go service unless a service has a
 clear reason to omit a directory. `services/knowledge-runtime/` is the explicit
-non-Go runtime exception: it is the vendored RAGFlow runtime boundary behind the
+non-Go runtime exception: it is the vendored Knowledge runtime boundary behind the
 Go Knowledge adapter and should not be forced into the Go module layout.
 
 ---

@@ -51,8 +51,7 @@ QA 自动切换至少要求以下只读工具全部可发现：
 
 | 变量 | 用途 |
 | --- | --- |
-| `KNOWLEDGE_MCP_USER_ID` | adapter 内部请求的固定用户身份 |
-| `KNOWLEDGE_PROJECT_RUNTIME_USER_ID` | 项目级 QA RAG 知识库池使用的 runtime 身份；默认继承 `KNOWLEDGE_MCP_USER_ID` |
+| `KNOWLEDGE_RUNTIME_SCOPE_ID` | Knowledge runtime 进程内使用的全局 scope；adapter 不再通过 `X-User-Id` 注入运行时主体 |
 | `KNOWLEDGE_MCP_ROLES` | 固定角色集合 |
 | `KNOWLEDGE_MCP_PERMISSIONS` | 固定权限，默认 `knowledge:read` |
 
@@ -98,8 +97,7 @@ Knowledge 侧：
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `KNOWLEDGE_MCP_ADDR` | 空 | MCP 监听地址；local 模板为 `127.0.0.1:8093` |
-| `KNOWLEDGE_MCP_USER_ID` | `knowledge_mcp_service` | 固定受信任 caller |
-| `KNOWLEDGE_PROJECT_RUNTIME_USER_ID` | `KNOWLEDGE_MCP_USER_ID` | 项目级 QA RAG 知识库池使用的 runtime 身份 |
+| `KNOWLEDGE_MCP_CALLER_ID` | `knowledge_mcp` | MCP bridge 调 adapter 使用的内部 caller id；不转发给 runtime 作为用户或租户 |
 | `KNOWLEDGE_MCP_ROLES` | 空 | 固定角色 |
 | `KNOWLEDGE_MCP_PERMISSIONS` | `knowledge:read` | 固定权限 |
 | `KNOWLEDGE_SERVICE_TOKEN` | 无 | REST 与 MCP 共用的内部服务令牌 |

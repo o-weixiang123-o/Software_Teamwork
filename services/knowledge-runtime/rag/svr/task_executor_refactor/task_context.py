@@ -49,7 +49,7 @@ Usage example::
 
     # Access task properties directly
     task_id = ctx.id
-    tenant_id = ctx.tenant_id
+    scope_id = ctx.scope_id
     kb_id = ctx.kb_id
 """
 
@@ -70,14 +70,14 @@ from rag.svr.task_executor_refactor.write_operation_interceptor import WriteOper
 class TaskDict(TypedDict, total=False):
     """TypedDict defining the structure of the raw task dictionary.
 
-    All fields are optional except 'id' and 'tenant_id' which are required.
+    All fields are optional except 'id' and 'scope_id' which are required.
     """
 
     id: Required[str]
     """Task identifier (required)."""
 
-    tenant_id: Required[str]
-    """Tenant identifier (required)."""
+    scope_id: Required[str]
+    """Scope identifier (required)."""
 
     kb_id: str
     """Knowledge base / dataset identifier."""
@@ -237,13 +237,13 @@ class TaskContext:
                 capture. Must be injected via constructor.
 
         Raises:
-            ValueError: If required fields ('id', 'tenant_id') are missing from task.
+            ValueError: If required fields ('id', 'scope_id') are missing from task.
         """
         # Validate required fields
         if "id" not in task:
             raise ValueError("Task must contain 'id'")
-        if "tenant_id" not in task:
-            raise ValueError("Task must contain 'tenant_id'")
+        if "scope_id" not in task:
+            raise ValueError("Task must contain 'scope_id'")
 
         self._task = task
         self.limiters = limiters
@@ -271,9 +271,9 @@ class TaskContext:
         return self._task["id"]
 
     @property
-    def tenant_id(self) -> str:
-        """Tenant identifier."""
-        return self._task["tenant_id"]
+    def scope_id(self) -> str:
+        """Scope identifier."""
+        return self._task["scope_id"]
 
     @property
     def kb_id(self) -> str:

@@ -13,10 +13,7 @@ def test_runtime_route_allowlist_keeps_knowledge_core_routes():
         "chunk_api.py",
         "dataset_api.py",
         "document_api.py",
-        "models_api.py",
-        "provider_api.py",
         "system_api.py",
-        "task_api.py",
     }
 
 

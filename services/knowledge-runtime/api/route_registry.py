@@ -6,10 +6,7 @@ RUNTIME_RESTFUL_API_ALLOWLIST = frozenset(
         "chunk_api.py",
         "dataset_api.py",
         "document_api.py",
-        "models_api.py",
-        "provider_api.py",
         "system_api.py",
-        "task_api.py",
     }
 )
 

@@ -14,7 +14,7 @@
 #  limitations under the License.
 #
 
-"""Shared setup for RAGFlow unit tests.
+"""Shared setup for Knowledge runtime unit tests.
 
 Several parsers and the chunking pipeline tokenize text with NLTK, which needs
 the ``punkt_tab`` and ``wordnet`` data sets. Production provisions these via

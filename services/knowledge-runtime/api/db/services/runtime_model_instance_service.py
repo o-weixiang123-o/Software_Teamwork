@@ -14,12 +14,12 @@
 #  limitations under the License.
 #
 from common.misc_utils import get_uuid
-from api.db.db_models import DB, TenantModelInstance
+from api.db.db_models import DB, RuntimeModelInstance
 from api.db.services.common_service import CommonService
 from api.db.services import duplicate_name
 
-class TenantModelInstanceService(CommonService):
-    model = TenantModelInstance
+class RuntimeModelInstanceService(CommonService):
+    model = RuntimeModelInstance
 
     @classmethod
     @DB.connection_context()

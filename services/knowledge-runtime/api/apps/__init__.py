@@ -21,9 +21,8 @@ from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 from quart import Blueprint, Quart, request, g, current_app, jsonify
 from quart_cors import cors
-from common.constants import StatusEnum, RetCode
+from common.constants import RetCode
 from api.db.db_models import close_connection
-from api.db.services import UserService
 from api.utils.json_encode import CustomJSONEncoder
 
 from quart_auth import Unauthorized as QuartAuthUnauthorized
@@ -35,15 +34,13 @@ from api.constants import API_VERSION
 from common.exceptions import ModelException
 from api.route_registry import collect_runtime_page_paths
 from api.utils.gateway_auth import SERVICE_TOKEN_HEADER, normalize_route_auth_types, route_allows_gateway_auth, service_token_is_valid
-from api.utils.gateway_identity import normalize_gateway_principal_id
+from api.utils.runtime_scope import runtime_subject
 
 settings.init_settings()
 
 __all__ = ["app"]
 
 UNAUTHORIZED_MESSAGE = "<Unauthorized '401: Unauthorized'>"
-GATEWAY_TENANT_HEADER = "X-Tenant-Id"
-GATEWAY_USER_HEADER = "X-User-Id"
 
 
 def _unauthorized_message(error):
@@ -91,23 +88,11 @@ T = TypeVar("T")
 P = ParamSpec("P")
 
 AUTH_GATEWAY = "GATEWAY"
-# Kept for route decorators that still declare legacy auth type tuples.
-AUTH_JWT = "JWT"
-AUTH_API = "API"
-AUTH_BETA = "BETA"
 DEFAULT_AUTH_TYPES = (AUTH_GATEWAY,)
 
 
 def _normalize_auth_types(auth_types=None):
     return normalize_route_auth_types(auth_types, DEFAULT_AUTH_TYPES)
-
-
-def _gateway_tenant_id():
-    tenant_id = request.headers.get(GATEWAY_TENANT_HEADER) or request.headers.get(GATEWAY_USER_HEADER)
-    if tenant_id is None:
-        return None
-    tenant_id = tenant_id.strip()
-    return tenant_id or None
 
 
 def _load_user(auth_types=None):
@@ -119,10 +104,6 @@ def _load_user(auth_types=None):
     if getattr(g, "user", None) and (not explicit_auth_types or getattr(g, "auth_type", None) in auth_types):
         return g.user
 
-    tenant_id = _gateway_tenant_id()
-    if not tenant_id:
-        return None
-
     g.user = None
     g.auth_type = None
     g.auth_error_message = None
@@ -131,43 +112,17 @@ def _load_user(auth_types=None):
         g.auth_error_message = f"Invalid or missing {SERVICE_TOKEN_HEADER}"
         return None
 
-    try:
-        runtime_tenant_id = normalize_gateway_principal_id(tenant_id)
-        user = UserService.query(id=runtime_tenant_id, status=StatusEnum.VALID.value)
-        if user:
-            g.auth_type = AUTH_GATEWAY
-            g.user = user[0]
-            return user[0]
-
-        from api.db.services.gateway_tenant_service import ensure_gateway_tenant
-        from api.utils.gateway_tenant_provisioning import provision_gateway_tenant_if_enabled
-
-        provisioned_user = provision_gateway_tenant_if_enabled(tenant_id, ensure_gateway_tenant)
-        if provisioned_user:
-            g.auth_type = AUTH_GATEWAY
-            g.user = provisioned_user
-            return provisioned_user
-        from api.utils.gateway_tenant_provisioning import gateway_tenant_auto_provision_enabled
-
-        if not gateway_tenant_auto_provision_enabled():
-            g.auth_error_message = (
-                f"Tenant not found for {GATEWAY_TENANT_HEADER}; "
-                "auto-provisioning is disabled"
-            )
-            return None
-        g.auth_error_message = f"Tenant not found for {GATEWAY_TENANT_HEADER}"
-    except Exception as exc:
-        logging.warning("load_user from gateway tenant header failed: %s", exc)
-        g.auth_error_message = "Tenant not found"
-
-    return None
+    user = runtime_subject()
+    g.auth_type = AUTH_GATEWAY
+    g.user = user
+    return user
 
 
 current_user = LocalProxy(_load_user)
 
 
 def login_required(func: Callable[P, Awaitable[T]] = None, auth_types=None) -> Callable[P, Awaitable[T]]:
-    """Require a gateway-injected tenant header before executing a route."""
+    """Require the global runtime auth subject before executing a route."""
 
     def decorator(func: Callable[P, Awaitable[T]]) -> Callable[P, Awaitable[T]]:
         @wraps(func)
@@ -182,7 +137,7 @@ def login_required(func: Callable[P, Awaitable[T]] = None, auth_types=None) -> C
                     request.path,
                 )
             if not user:
-                message = getattr(g, "auth_error_message", None) or f"Missing {GATEWAY_TENANT_HEADER}"
+                message = getattr(g, "auth_error_message", None) or f"Invalid or missing {SERVICE_TOKEN_HEADER}"
                 return build_error_result(code=RetCode.UNAUTHORIZED, message=message)
             return await current_app.ensure_async(func)(*args, **kwargs)
 

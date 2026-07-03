@@ -66,7 +66,7 @@ file service /internal/v1/files/**
 
 前端侧只调用 gateway 公开接口。gateway 将认证后的请求转发给 owner service，并统一处理响应 envelope、request id 和错误归一化。
 
-知识库文件上传、文档详情、文档标签、删除和原始文件流公开资源由 `knowledge` 拥有。当前 `develop` 的 Knowledge 主路径通过 `services/knowledge-runtime` 保存和读取原始 bytes，RAGFlow runtime 负责解析、切块、embedding、索引和检索支持；`file` 不参与 Knowledge 文档上传/content 主路径。早期 `file_ref` 字段只作为兼容和迁移排查背景，不是当前公开权限或内容读取依据。
+知识库文件上传、文档详情、文档标签、删除和原始文件流公开资源由 `knowledge` 拥有。当前 `develop` 的 Knowledge 主路径通过 `services/knowledge-runtime` 保存和读取原始 bytes，Knowledge runtime 负责解析、切块、embedding、索引和检索支持；`file` 不参与 Knowledge 文档上传/content 主路径。早期 `file_ref` 字段只作为兼容和迁移排查背景，不是当前公开权限或内容读取依据。
 
 报告模板、素材和导出文件公开资源由 `document` 拥有。`document` 保存 `reportTemplateId`、`materialId`、`reportFileId`、业务状态和内部 `file_ref`，并通过内部 client 调用 `file` 完成对象写入、读取和删除。前端仍只看到 report 资源 ID 和 content 子资源，不接触 file 内部 ID、bucket、object key 或 MinIO URL。
 
@@ -74,7 +74,7 @@ file service /internal/v1/files/**
 
 `file` 服务不直接拥有前端公开 API。Gateway active path、owner service 和认证要求只在 [Gateway OpenAPI](../gateway/api/public.openapi.yaml) 与 [active API owner map](../gateway/docs/active-api-owner-map.md) 维护；本文只说明哪些业务资源会在内部复用 `file` 的基础能力。
 
-- `knowledge` 拥有知识库文档、文档详情、文档标签、文档切片和文档内容资源；当前主路径通过 RAGFlow runtime 处理原始文件对象、解析、切块、embedding、索引和检索，不在服务边界内调用 `file`。
+- `knowledge` 拥有知识库文档、文档详情、文档标签、文档切片和文档内容资源；当前主路径通过 Knowledge runtime 处理原始文件对象、解析、切块、embedding、索引和检索，不在服务边界内调用 `file`。
 - `document` 拥有报告模板、报告素材、报告导出文件和文件内容资源；模板文件、素材文件和生成文件的对象写入、读取和删除在内部复用 `file`。
 - `qa` 拥有会话附件元数据、解析状态和临时 chunk；附件原始 bytes 可在内部复用 `file`，但附件不得写入 Knowledge 的长期知识库或索引。
 
@@ -181,7 +181,7 @@ File 相关接口使用项目统一错误码：
 | `forbidden` | `403` | 调用方服务无权执行该基础文件操作。 |
 | `not_found` | `404` | 文件元数据或原始对象不存在，或已删除。 |
 | `conflict` | `409` | 文件状态不允许当前操作。 |
-| `rate_limited` | `429` | 上传频率、容量、数量或租户配额超限；配额归属由 owner service 定义。 |
+| `rate_limited` | `429` | 上传频率、容量、数量或 owner service 配额超限；配额归属由 owner service 定义。 |
 | `dependency_error` | `502` | PostgreSQL、MinIO 或其他已确定依赖失败。 |
 | `internal_error` | `500` | 未预期服务端错误。 |
 
@@ -191,7 +191,7 @@ File 相关接口使用项目统一错误码：
 - 日志建议包含 `service`、`request_id`、`operation`、`file_id`、`caller_service`、`status`、`content_type`、`size_bytes` 等可排查字段。
 - 文件名来自用户输入，写入响应头前必须安全转义，避免 header injection。
 - 所有跨服务 HTTP client 必须设置超时，并传递 `context.Context`。
-- 上传大小、内容类型白名单、危险文件扫描和租户配额属于实现前必须明确的安全策略；业务配额归属仍由 owner service 持有。
+- 上传大小、内容类型白名单、危险文件扫描和业务配额属于实现前必须明确的安全策略；配额归属仍由 owner service 持有。
 - `file` 服务可以记录文件域内结构化日志和 request id，但不拥有全局审计日志查询能力；后续如审计日志独立成服务，file/domain 服务应只对接审计事件生产或查询授权契约。
 
 ## 实现状态

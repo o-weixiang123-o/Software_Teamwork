@@ -372,7 +372,7 @@ Tool contracts:
 - CRUD tools → matching `/internal/v1/knowledge-bases*` and `/internal/v1/documents*` adapter routes.
 - `create_document` → decode `fileContentBase64`, `Bridge.DoMultipart` to upload route.
 
-Do **not** expose RAGFlow upstream MCP (`--enable-mcpserver`) as the product tool surface.
+Do **not** expose the bundled runtime MCP (`--enable-mcpserver`) as the product tool surface.
 
 ### 4. Validation & Error Matrix
 
@@ -388,7 +388,7 @@ Do **not** expose RAGFlow upstream MCP (`--enable-mcpserver`) as the product too
 
 - Good: QA calls `search_knowledge` via Streamable HTTP; Knowledge forwards to adapter; citations returned for QA snapshot projection.
 - Base: MCP disabled; Gateway REST on `:8083` only.
-- Bad: QA calls RAGFlow runtime MCP on `:9382`; duplicate auth models; bypass adapter contract.
+- Bad: QA calls Knowledge runtime MCP on `:9382`; duplicate auth models; bypass adapter contract.
 
 ### 6. Tests Required
 
@@ -402,7 +402,7 @@ Do **not** expose RAGFlow upstream MCP (`--enable-mcpserver`) as the product too
 
 ```text
 Document service -> knowledge-runtime :9380 /api/v1/datasets/search
-QA -> RAGFlow MCP with API key auth
+QA -> runtime MCP with API key auth
 ```
 
 #### Correct
@@ -549,7 +549,7 @@ KNOWLEDGE_MCP_USER_ID defaults to knowledge_mcp_service
 - Base: QA citation lookup calls Knowledge document detail with
   `knowledgeBaseId` and user permissions; no project scope header is present.
 - Bad: require the end user's `knowledge:read` for QA answers, use the end user's
-  runtime tenant to expand empty QA retrieval scope, or interpret empty defaults
+  runtime identity to expand empty QA retrieval scope, or interpret empty defaults
   as disabled RAG.
 - Bad: use project retrieval scope to validate citation document availability,
   because that can mark a source downloadable even when the user cannot read the

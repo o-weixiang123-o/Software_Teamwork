@@ -278,8 +278,8 @@ func TestListKnowledgeBasesMapsVendorResponse(t *testing.T) {
 		if r.URL.Path != "/api/v1/datasets" {
 			t.Fatalf("path=%s", r.URL.Path)
 		}
-		if got := r.Header.Get("X-User-Id"); got != "usr_test" {
-			t.Fatalf("X-User-Id=%q", got)
+		if got := r.Header.Get("X-User-Id"); got != "" {
+			t.Fatalf("X-User-Id=%q, want no forwarded runtime user identity", got)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"code":0,"data":[{"id":"kb_1","name":"Docs","description":"demo","chunk_method":"naive","document_count":2,"chunk_count":10,"create_time":1700000000000}],"total_datasets":1}`))
@@ -409,10 +409,9 @@ func TestCreateKnowledgeQueryMapsRetrieval(t *testing.T) {
 	}
 }
 
-func TestCreateKnowledgeQueryExpandsEmptyKnowledgeBasesAcrossRuntimeTenants(t *testing.T) {
+func TestCreateKnowledgeQueryExpandsEmptyKnowledgeBasesAcrossEmbeddingGroups(t *testing.T) {
 	type searchCall struct {
-		tenantID string
-		ids      []string
+		ids []string
 	}
 	var calls []searchCall
 	vendor := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -424,9 +423,9 @@ func TestCreateKnowledgeQueryExpandsEmptyKnowledgeBasesAcrossRuntimeTenants(t *t
 			t.Fatalf("decode search body: %v", err)
 		}
 		ids := stringSliceFromAny(body["dataset_ids"])
-		calls = append(calls, searchCall{tenantID: r.Header.Get("X-Tenant-Id"), ids: ids})
+		calls = append(calls, searchCall{ids: ids})
 		score := 0.82
-		if r.Header.Get("X-Tenant-Id") == "tenant_b" {
+		if len(ids) > 0 && ids[0] == "kb_b" {
 			score = 0.93
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -435,9 +434,9 @@ func TestCreateKnowledgeQueryExpandsEmptyKnowledgeBasesAcrossRuntimeTenants(t *t
 			"data": map[string]any{
 				"total": 1,
 				"chunks": []map[string]any{{
-					"id": "chunk_" + r.Header.Get("X-Tenant-Id"), "doc_id": "doc_1",
+					"id": "chunk_" + ids[0], "doc_id": "doc_1",
 					"kb_id": ids[0], "similarity": score, "docnm_kwd": "manual.pdf",
-					"content_with_weight": "tenant scoped result",
+					"content_with_weight": "runtime scope result",
 				}},
 			},
 		})
@@ -449,9 +448,9 @@ func TestCreateKnowledgeQueryExpandsEmptyKnowledgeBasesAcrossRuntimeTenants(t *t
 		VendorRuntimeURL: vendor.URL,
 		ServiceToken:     testServiceToken,
 	}, nil, WithRuntimeKnowledgeBaseCatalog(queryCatalogStub{items: []service.RuntimeKnowledgeBase{
-		{ID: "kb_a", TenantID: "tenant_a", EmbeddingID: "embed_a", ChunkCount: 3},
-		{ID: "kb_b", TenantID: "tenant_b", EmbeddingID: "embed_b", ChunkCount: 5},
-		{ID: "kb_empty", TenantID: "tenant_a", EmbeddingID: "embed_a", ChunkCount: 0},
+		{ID: "kb_a", EmbeddingID: "embed_a", ChunkCount: 3},
+		{ID: "kb_b", EmbeddingID: "embed_b", ChunkCount: 5},
+		{ID: "kb_empty", EmbeddingID: "embed_a", ChunkCount: 0},
 	}}))
 
 	req := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-queries", strings.NewReader(`{"query":"transformer","topK":2}`))
@@ -465,12 +464,12 @@ func TestCreateKnowledgeQueryExpandsEmptyKnowledgeBasesAcrossRuntimeTenants(t *t
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	if len(calls) != 2 {
-		t.Fatalf("search calls=%+v, want two tenant/embedding groups", calls)
+		t.Fatalf("search calls=%+v, want two embedding groups", calls)
 	}
-	if calls[0].tenantID != "tenant_a" || len(calls[0].ids) != 1 || calls[0].ids[0] != "kb_a" {
+	if len(calls[0].ids) != 1 || calls[0].ids[0] != "kb_a" {
 		t.Fatalf("first call=%+v", calls[0])
 	}
-	if calls[1].tenantID != "tenant_b" || len(calls[1].ids) != 1 || calls[1].ids[0] != "kb_b" {
+	if len(calls[1].ids) != 1 || calls[1].ids[0] != "kb_b" {
 		t.Fatalf("second call=%+v", calls[1])
 	}
 

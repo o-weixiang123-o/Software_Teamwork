@@ -80,7 +80,7 @@ _install_rag_llm_stubs()
 
 import pytest
 import requests
-from configs import HOST_ADDRESS, RAGFLOW_TENANT_ID, ZHIPU_AI_API_KEY, SILICONFLOW_API_KEY
+from configs import HOST_ADDRESS, RUNTIME_SERVICE_TOKEN, ZHIPU_AI_API_KEY, SILICONFLOW_API_KEY
 
 MARKER_EXPRESSIONS = {
     "p1": "p1",
@@ -116,9 +116,7 @@ def pytest_configure(config: pytest.Config) -> None:
 
 @pytest.fixture(scope="session")
 def token():
-    if not RAGFLOW_TENANT_ID:
-        pytest.exit("Set RAGFLOW_TENANT_ID (or TENANT_ID) to run RAGFlow HTTP integration tests.")
-    return RAGFLOW_TENANT_ID
+    return RUNTIME_SERVICE_TOKEN
 
 
 @pytest.fixture(scope="session")
@@ -126,9 +124,12 @@ def auth(token):
     return token
 
 
-def get_added_models(tenant_id, factory_name):
+def get_added_models(factory_name):
     url = HOST_ADDRESS + "/api/v1/models"
-    response = requests.get(url=url, headers={"X-Tenant-Id": tenant_id})
+    response = requests.get(
+        url=url,
+        headers={"X-Service-Token": RUNTIME_SERVICE_TOKEN},
+    )
     res = response.json()
     if res.get("code") != 0:
         raise Exception(res.get("message"))
@@ -149,7 +150,7 @@ def add_model_instance(auth):
     authorization = {"Authorization": auth}
 
     # Tracks providers that already existed in the catalog before this test
-    # run. Their user-tenant_llm binding is whatever was last configured for
+    # run. Their user-runtime_llm binding is whatever was last configured for
     # this user; the final assertion is downgraded to a warning in that
     # case to keep the suite runnable in partially-seeded environments.
     provider_already_existed = set()
@@ -160,13 +161,13 @@ def add_model_instance(auth):
     ]
 
     for provider_name, api_key in providers:
-        if not get_added_models(auth, provider_name):
+        if not get_added_models(provider_name):
             add_provider_response = requests.put(url=add_provider_api, headers=authorization, json={"provider_name": provider_name})
             add_provider_res = add_provider_response.json()
             if add_provider_res.get("code") != 0:
                 msg = add_provider_res.get("message", "")
                 # Provider may already exist in the catalog from a prior run
-                # or admin setup but not yet appear in this tenant's
+                # or admin setup but not yet appear in this scope's
                 # `/api/v1/models` listing — treat as success and continue
                 # to the instance step. The final assertion below will be
                 # downgraded to a warning in that case so the test can run.
@@ -208,30 +209,30 @@ def add_model_instance(auth):
                 f"{msg}"
             )
 
-        add_success = get_added_models(auth, provider_name)
+        add_success = get_added_models(provider_name)
         if not add_success:
             if provider_name in provider_already_existed:
                 # The provider/instances were already there from a prior run
-                # but this user's tenant_llm binding is missing — the Go
+                # but this user's runtime_llm binding is missing — the Go
                 # server (post-Python port) doesn't auto-create the binding
                 # on PUT. Downgrade to a warning so tests that don't depend
                 # on the model can still run; tests that do will fail with
                 # a real error rather than this opaque setup crash.
                 print(
                     "WARNING: provider already exists in catalog but missing from "
-                    "this tenant's /api/v1/models. Tests that depend on it may fail."
+                    "this scope's /api/v1/models. Tests that depend on it may fail."
                 )
                 continue
             pytest.exit(f"Critical error in check added model: {provider_name} add model failed")
 
 
 @pytest.fixture(scope="session", autouse=True)
-def set_tenant_info(auth):
-    if not get_added_models(auth, "ZHIPU-AI") or not get_added_models(auth, "SILICONFLOW"):
+def set_scope_info(auth):
+    if not get_added_models("ZHIPU-AI") or not get_added_models("SILICONFLOW"):
         try:
             add_model_instance(auth)
         except Exception as e:
-            pytest.exit(f"Error in set_tenant_info: {str(e)}")
+            pytest.exit(f"Error in set_scope_info: {str(e)}")
     url = HOST_ADDRESS + "/api/v1/models/default"
     authorization = {"Authorization": auth}
     # set chat model

@@ -126,7 +126,6 @@ type PageInput struct {
 
 type RuntimeKnowledgeBase struct {
 	ID          string
-	TenantID    string
 	EmbeddingID string
 	ChunkCount  int64
 }
@@ -138,7 +137,6 @@ type RuntimeKnowledgeBaseCatalog interface {
 type RuntimeDocument struct {
 	ID              string
 	KnowledgeBaseID string
-	TenantID        string
 	ChunkCount      int64
 }
 

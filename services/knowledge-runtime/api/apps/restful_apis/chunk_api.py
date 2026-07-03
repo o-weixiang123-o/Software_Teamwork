@@ -24,10 +24,10 @@ from pydantic import BaseModel, Field, validator
 from quart import request
 
 from api.apps import login_required
-from api.db.joint_services.tenant_model_service import (
+from api.db.joint_services.runtime_model_service import (
     split_model_name,
     get_model_config_from_provider_instance,
-    get_tenant_default_model_by_type,
+    get_runtime_default_model_by_type,
 )
 from api.db.db_models import Document, Task
 from api.db.services.doc_metadata_service import DocMetadataService
@@ -36,9 +36,9 @@ from api.db.services.file2document_service import File2DocumentService
 from api.db.services.knowledgebase_service import KnowledgebaseService
 from api.db.services.llm_service import LLMBundle
 from api.db.services.task_service import TaskService, cancel_all_task_of, queue_tasks
-from api.db.services.tenant_llm_service import TenantLLMService
+from api.db.services.runtime_llm_service import RuntimeLLMService
 from api.utils.api_utils import (
-    add_tenant_id_to_kwargs,
+    add_scope_id_to_kwargs,
     check_duplicate_ids,
     construct_json_result,
     get_error_data_result,
@@ -146,11 +146,11 @@ def _strip_chunk_runtime_fields(chunk):
     return chunk
 
 
-def _get_dataset_tenant_id(dataset_id):
+def _get_dataset_scope_id(dataset_id):
     ok, kb = KnowledgebaseService.get_by_id(dataset_id)
     if not ok:
         return None
-    return kb.tenant_id
+    return kb.scope_id
 
 
 def _resolve_reference_metadata(req: dict, search_config: dict | None = None):
@@ -163,12 +163,12 @@ def _enrich_chunks_with_document_metadata(chunks: list[dict], metadata_fields=No
 
 @manager.route("/datasets/<dataset_id>/chunks", methods=["POST"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-async def parse(tenant_id, dataset_id):
-    if not KnowledgebaseService.accessible(kb_id=dataset_id, user_id=tenant_id):
+@add_scope_id_to_kwargs
+async def parse(scope_id, dataset_id):
+    if not KnowledgebaseService.accessible(kb_id=dataset_id, user_id=scope_id):
         return get_error_data_result(message=f"You don't own the dataset {dataset_id}.")
-    dataset_tenant_id = _get_dataset_tenant_id(dataset_id)
-    if not dataset_tenant_id:
+    dataset_scope_id = _get_dataset_scope_id(dataset_id)
+    if not dataset_scope_id:
         return get_error_data_result(message=f"You don't own the dataset {dataset_id}.")
     e, kb = KnowledgebaseService.get_by_id(dataset_id)
     if not e:
@@ -203,7 +203,7 @@ async def parse(tenant_id, dataset_id):
             == 0
         ):
             return get_error_data_result("Can't parse document that is currently being processed")
-        index_name = search.index_name(dataset_tenant_id)
+        index_name = search.index_name(dataset_scope_id)
         if settings.docStoreConn.index_exist(index_name, doc[0].kb_id):
             settings.docStoreConn.delete({"doc_id": id}, index_name, doc[0].kb_id)
         else:
@@ -216,7 +216,7 @@ async def parse(tenant_id, dataset_id):
         TaskService.filter_delete([Task.doc_id == id])
         e, doc = DocumentService.get_by_id(id)
         doc = doc.to_dict()
-        doc["tenant_id"] = tenant_id
+        doc["scope_id"] = scope_id
         bucket, name = File2DocumentService.get_storage_address(doc_id=doc["id"])
         queue_tasks(doc, bucket, name, 0)
         success_count += 1
@@ -236,12 +236,12 @@ async def parse(tenant_id, dataset_id):
 
 @manager.route("/datasets/<dataset_id>/chunks", methods=["DELETE"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-async def stop_parsing(tenant_id, dataset_id):
-    if not KnowledgebaseService.accessible(kb_id=dataset_id, user_id=tenant_id):
+@add_scope_id_to_kwargs
+async def stop_parsing(scope_id, dataset_id):
+    if not KnowledgebaseService.accessible(kb_id=dataset_id, user_id=scope_id):
         return get_error_data_result(message=f"You don't own the dataset {dataset_id}.")
-    dataset_tenant_id = _get_dataset_tenant_id(dataset_id)
-    if not dataset_tenant_id:
+    dataset_scope_id = _get_dataset_scope_id(dataset_id)
+    if not dataset_scope_id:
         return get_error_data_result(message=f"You don't own the dataset {dataset_id}.")
     req = await get_request_json()
 
@@ -265,7 +265,7 @@ async def stop_parsing(tenant_id, dataset_id):
         cancel_all_task_of(id)
         info = {"run": "2", "progress": 0, "chunk_num": 0}
         DocumentService.update_by_id(id, info)
-        index_name = search.index_name(dataset_tenant_id)
+        index_name = search.index_name(dataset_scope_id)
         if settings.docStoreConn.index_exist(index_name, doc[0].kb_id):
             settings.docStoreConn.delete({"doc_id": doc[0].id}, index_name, doc[0].kb_id)
         else:
@@ -289,8 +289,8 @@ async def stop_parsing(tenant_id, dataset_id):
 
 @manager.route("/retrieval", methods=["POST"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-async def retrieval_test(tenant_id):
+@add_scope_id_to_kwargs
+async def retrieval_test(scope_id):
     req = await get_request_json()
     if not req.get("dataset_ids"):
         return get_error_data_result("`dataset_ids` is required.")
@@ -298,7 +298,7 @@ async def retrieval_test(tenant_id):
     if not isinstance(kb_ids, list):
         return get_error_data_result("`dataset_ids` should be a list")
     for id in kb_ids:
-        if not KnowledgebaseService.accessible(kb_id=id, user_id=tenant_id):
+        if not KnowledgebaseService.accessible(kb_id=id, user_id=scope_id):
             return get_error_data_result(f"You don't own the dataset {id}.")
     kbs = KnowledgebaseService.get_by_ids(kb_ids)
     embd_nms = list(set([split_model_name(kb.embd_id)[0] for kb in kbs]))
@@ -349,38 +349,38 @@ async def retrieval_test(tenant_id):
         return get_error_data_result("`highlight` should be a boolean")
     include_metadata, metadata_fields = _resolve_reference_metadata(req)
     try:
-        tenant_ids = list(set([kb.tenant_id for kb in kbs]))
+        scope_ids = list(set([kb.scope_id for kb in kbs]))
         e, kb = KnowledgebaseService.get_by_id(kb_ids[0])
         if not e:
             return get_error_data_result(message="Dataset not found!")
-        embd_model_config = get_model_config_from_provider_instance(kb.tenant_id, LLMType.EMBEDDING, kb.embd_id)
-        embd_mdl = LLMBundle(kb.tenant_id, embd_model_config)
+        embd_model_config = get_model_config_from_provider_instance(kb.scope_id, LLMType.EMBEDDING, kb.embd_id)
+        embd_mdl = LLMBundle(kb.scope_id, embd_model_config)
 
         rerank_mdl = None
         if req.get("rerank_id"):
-            rerank_model_config = get_model_config_from_provider_instance(kb.tenant_id, LLMType.RERANK, req["rerank_id"])
-            rerank_mdl = LLMBundle(kb.tenant_id, rerank_model_config)
+            rerank_model_config = get_model_config_from_provider_instance(kb.scope_id, LLMType.RERANK, req["rerank_id"])
+            rerank_mdl = LLMBundle(kb.scope_id, rerank_model_config)
 
         if langs:
-            question = await cross_languages(kb.tenant_id, None, question, langs)
+            question = await cross_languages(kb.scope_id, None, question, langs)
         if req.get("keyword", False):
-            chat_model_config = get_tenant_default_model_by_type(kb.tenant_id, LLMType.CHAT)
-            question += await keyword_extraction(LLMBundle(kb.tenant_id, chat_model_config), question)
+            chat_model_config = get_runtime_default_model_by_type(kb.scope_id, LLMType.CHAT)
+            question += await keyword_extraction(LLMBundle(kb.scope_id, chat_model_config), question)
 
         ranks = await settings.retriever.retrieval(
-            question, embd_mdl, tenant_ids, kb_ids, page, size, similarity_threshold,
+            question, embd_mdl, scope_ids, kb_ids, page, size, similarity_threshold,
             vector_similarity_weight, top, doc_ids, rerank_mdl=rerank_mdl,
             highlight=highlight, rank_feature=_label_question(question, kbs),
         )
         if toc_enhance:
-            chat_model_config = get_tenant_default_model_by_type(kb.tenant_id, LLMType.CHAT)
-            cks = await settings.retriever.retrieval_by_toc(question, ranks["chunks"], tenant_ids, LLMBundle(kb.tenant_id, chat_model_config), size)
+            chat_model_config = get_runtime_default_model_by_type(kb.scope_id, LLMType.CHAT)
+            cks = await settings.retriever.retrieval_by_toc(question, ranks["chunks"], scope_ids, LLMBundle(kb.scope_id, chat_model_config), size)
             if cks:
                 ranks["chunks"] = cks
-        ranks["chunks"] = settings.retriever.retrieval_by_children(ranks["chunks"], tenant_ids)
+        ranks["chunks"] = settings.retriever.retrieval_by_children(ranks["chunks"], scope_ids)
         if use_kg:
-            chat_model_config = get_tenant_default_model_by_type(kb.tenant_id, LLMType.CHAT)
-            ck = await settings.kg_retriever.retrieval(question, [k.tenant_id for k in kbs], kb_ids, embd_mdl, LLMBundle(kb.tenant_id, chat_model_config))
+            chat_model_config = get_runtime_default_model_by_type(kb.scope_id, LLMType.CHAT)
+            ck = await settings.kg_retriever.retrieval(question, [k.scope_id for k in kbs], kb_ids, embd_mdl, LLMBundle(kb.scope_id, chat_model_config))
             if ck["content_with_weight"]:
                 ranks["chunks"].insert(0, ck)
 
@@ -409,14 +409,14 @@ async def retrieval_test(tenant_id):
 
 @manager.route("/datasets/<dataset_id>/documents/<document_id>/chunks", methods=["GET"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-async def list_chunks(tenant_id, dataset_id, document_id):
+@add_scope_id_to_kwargs
+async def list_chunks(scope_id, dataset_id, document_id):
     from rag.nlp import search
 
-    if not KnowledgebaseService.accessible(kb_id=dataset_id, user_id=tenant_id):
+    if not KnowledgebaseService.accessible(kb_id=dataset_id, user_id=scope_id):
         return get_error_data_result(message=f"You don't own the dataset {dataset_id}.")
-    dataset_tenant_id = _get_dataset_tenant_id(dataset_id)
-    if not dataset_tenant_id:
+    dataset_scope_id = _get_dataset_scope_id(dataset_id)
+    if not dataset_scope_id:
         return get_error_data_result(message=f"You don't own the dataset {dataset_id}.")
     doc = DocumentService.query(id=document_id, kb_id=dataset_id)
     if not doc:
@@ -438,7 +438,7 @@ async def list_chunks(tenant_id, dataset_id, document_id):
 
     res = {"total": 0, "chunks": [], "doc": _map_doc(doc)}
     if req.get("id"):
-        chunk = settings.docStoreConn.get(req.get("id"), search.index_name(dataset_tenant_id), [dataset_id])
+        chunk = settings.docStoreConn.get(req.get("id"), search.index_name(dataset_scope_id), [dataset_id])
         if not chunk:
             return get_result(message=f"Chunk not found: {dataset_id}/{req.get('id')}", code=RetCode.DATA_ERROR)
         if str(chunk.get("doc_id", chunk.get("document_id"))) != str(document_id):
@@ -461,10 +461,10 @@ async def list_chunks(tenant_id, dataset_id, document_id):
         }
         res["chunks"].append(final_chunk)
         _ = Chunk(**final_chunk)
-    elif settings.docStoreConn.index_exist(search.index_name(dataset_tenant_id), dataset_id):
+    elif settings.docStoreConn.index_exist(search.index_name(dataset_scope_id), dataset_id):
         sres = await settings.retriever.search(
             query,
-            search.index_name(dataset_tenant_id),
+            search.index_name(dataset_scope_id),
             [dataset_id],
             emb_mdl=None,
             highlight=True,
@@ -495,20 +495,20 @@ async def list_chunks(tenant_id, dataset_id, document_id):
 
 @manager.route("/datasets/<dataset_id>/documents/<document_id>/chunks/<chunk_id>", methods=["GET"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-async def get_chunk(tenant_id, dataset_id, document_id, chunk_id):
+@add_scope_id_to_kwargs
+async def get_chunk(scope_id, dataset_id, document_id, chunk_id):
     from rag.nlp import search
 
-    if not KnowledgebaseService.accessible(kb_id=dataset_id, user_id=tenant_id):
+    if not KnowledgebaseService.accessible(kb_id=dataset_id, user_id=scope_id):
         return get_error_data_result(message=f"You don't own the dataset {dataset_id}.")
-    dataset_tenant_id = _get_dataset_tenant_id(dataset_id)
-    if not dataset_tenant_id:
+    dataset_scope_id = _get_dataset_scope_id(dataset_id)
+    if not dataset_scope_id:
         return get_error_data_result(message=f"You don't own the dataset {dataset_id}.")
     doc = DocumentService.query(id=document_id, kb_id=dataset_id)
     if not doc:
         return get_error_data_result(message=f"You don't own the document {document_id}.")
     try:
-        chunk = settings.docStoreConn.get(chunk_id, search.index_name(dataset_tenant_id), [dataset_id])
+        chunk = settings.docStoreConn.get(chunk_id, search.index_name(dataset_scope_id), [dataset_id])
         if chunk is None or str(chunk.get("doc_id", chunk.get("document_id"))) != str(document_id):
             return get_result(data=False, message="Chunk not found!", code=RetCode.DATA_ERROR)
         return get_result(data=_strip_chunk_runtime_fields(chunk))
@@ -520,14 +520,14 @@ async def get_chunk(tenant_id, dataset_id, document_id, chunk_id):
 
 @manager.route("/datasets/<dataset_id>/documents/<document_id>/chunks", methods=["POST"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-async def add_chunk(tenant_id, dataset_id, document_id):
+@add_scope_id_to_kwargs
+async def add_chunk(scope_id, dataset_id, document_id):
     from rag.nlp import rag_tokenizer, search
 
-    if not KnowledgebaseService.accessible(kb_id=dataset_id, user_id=tenant_id):
+    if not KnowledgebaseService.accessible(kb_id=dataset_id, user_id=scope_id):
         return get_error_data_result(message=f"You don't own the dataset {dataset_id}.")
-    dataset_tenant_id = _get_dataset_tenant_id(dataset_id)
-    if not dataset_tenant_id:
+    dataset_scope_id = _get_dataset_scope_id(dataset_id)
+    if not dataset_scope_id:
         return get_error_data_result(message=f"You don't own the dataset {dataset_id}.")
     doc = DocumentService.query(id=document_id, kb_id=dataset_id)
     if not doc:
@@ -581,12 +581,12 @@ async def add_chunk(tenant_id, dataset_id, document_id):
         d["doc_type_kwd"] = "image"
 
     embd_id = DocumentService.get_embd_id(document_id)
-    model_config = get_model_config_from_provider_instance(dataset_tenant_id, LLMType.EMBEDDING.value, embd_id)
-    embd_mdl = TenantLLMService.model_instance(model_config)
+    model_config = get_model_config_from_provider_instance(dataset_scope_id, LLMType.EMBEDDING.value, embd_id)
+    embd_mdl = RuntimeLLMService.model_instance(model_config)
     v, c = embd_mdl.encode([doc.name, req["content"] if not d["question_kwd"] else "\n".join(d["question_kwd"])])
     v = 0.1 * v[0] + 0.9 * v[1]
     d[f"q_{len(v)}_vec"] = v.tolist()
-    settings.docStoreConn.insert([d], search.index_name(dataset_tenant_id), dataset_id)
+    settings.docStoreConn.insert([d], search.index_name(dataset_scope_id), dataset_id)
 
     DocumentService.increment_chunk_num(doc.id, doc.kb_id, c, 1, 0)
     key_mapping = {
@@ -609,14 +609,14 @@ async def add_chunk(tenant_id, dataset_id, document_id):
 
 @manager.route("/datasets/<dataset_id>/documents/<document_id>/chunks", methods=["DELETE"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-async def rm_chunk(tenant_id, dataset_id, document_id):
+@add_scope_id_to_kwargs
+async def rm_chunk(scope_id, dataset_id, document_id):
     from rag.nlp import search
 
-    if not KnowledgebaseService.accessible(kb_id=dataset_id, user_id=tenant_id):
+    if not KnowledgebaseService.accessible(kb_id=dataset_id, user_id=scope_id):
         return get_error_data_result(message=f"You don't own the dataset {dataset_id}.")
-    dataset_tenant_id = _get_dataset_tenant_id(dataset_id)
-    if not dataset_tenant_id:
+    dataset_scope_id = _get_dataset_scope_id(dataset_id)
+    if not dataset_scope_id:
         return get_error_data_result(message=f"You don't own the dataset {dataset_id}.")
     docs = DocumentService.query(id=document_id, kb_id=dataset_id)
     if not docs:
@@ -629,8 +629,8 @@ async def rm_chunk(tenant_id, dataset_id, document_id):
     if not chunk_ids:
         if req.get("delete_all") is True:
             doc = docs[0]
-            DocumentService.delete_chunk_images(doc, dataset_tenant_id)
-            chunk_number = settings.docStoreConn.delete({"doc_id": document_id}, search.index_name(dataset_tenant_id), dataset_id)
+            DocumentService.delete_chunk_images(doc, dataset_scope_id)
+            chunk_number = settings.docStoreConn.delete({"doc_id": document_id}, search.index_name(dataset_scope_id), dataset_id)
             if chunk_number != 0:
                 DocumentService.decrement_chunk_num(document_id, dataset_id, 1, chunk_number, 0)
             return get_result(message=f"deleted {chunk_number} chunks")
@@ -639,7 +639,7 @@ async def rm_chunk(tenant_id, dataset_id, document_id):
     unique_chunk_ids, duplicate_messages = check_duplicate_ids(chunk_ids, "chunk")
     chunk_number = settings.docStoreConn.delete(
         {"doc_id": document_id, "id": unique_chunk_ids},
-        search.index_name(dataset_tenant_id),
+        search.index_name(dataset_scope_id),
         dataset_id,
     )
     if chunk_number != 0:
@@ -658,21 +658,21 @@ async def rm_chunk(tenant_id, dataset_id, document_id):
 
 @manager.route("/datasets/<dataset_id>/documents/<document_id>/chunks/<chunk_id>", methods=["PATCH"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-async def update_chunk(tenant_id, dataset_id, document_id, chunk_id):
+@add_scope_id_to_kwargs
+async def update_chunk(scope_id, dataset_id, document_id, chunk_id):
     from rag.app.qa import beAdoc, rmPrefix
     from rag.nlp import rag_tokenizer, search
 
-    if not KnowledgebaseService.accessible(kb_id=dataset_id, user_id=tenant_id):
+    if not KnowledgebaseService.accessible(kb_id=dataset_id, user_id=scope_id):
         return get_error_data_result(message=f"You don't own the dataset {dataset_id}.")
-    dataset_tenant_id = _get_dataset_tenant_id(dataset_id)
-    if not dataset_tenant_id:
+    dataset_scope_id = _get_dataset_scope_id(dataset_id)
+    if not dataset_scope_id:
         return get_error_data_result(message=f"You don't own the dataset {dataset_id}.")
     doc = DocumentService.query(id=document_id, kb_id=dataset_id)
     if not doc:
         return get_error_data_result(message=f"You don't own the document {document_id}.")
     doc = doc[0]
-    chunk = settings.docStoreConn.get(chunk_id, search.index_name(dataset_tenant_id), [dataset_id])
+    chunk = settings.docStoreConn.get(chunk_id, search.index_name(dataset_scope_id), [dataset_id])
     if chunk is None or str(chunk.get("doc_id", chunk.get("document_id"))) != str(document_id):
         return get_error_data_result(f"Can't find this chunk {chunk_id}")
     req = await get_request_json()
@@ -723,8 +723,8 @@ async def update_chunk(tenant_id, dataset_id, document_id, chunk_id):
         d["doc_type_kwd"] = "image"
 
     embd_id = DocumentService.get_embd_id(document_id)
-    model_config = get_model_config_from_provider_instance(dataset_tenant_id, LLMType.EMBEDDING.value, embd_id)
-    embd_mdl = TenantLLMService.model_instance(model_config)
+    model_config = get_model_config_from_provider_instance(dataset_scope_id, LLMType.EMBEDDING.value, embd_id)
+    embd_mdl = RuntimeLLMService.model_instance(model_config)
     if doc.parser_id == ParserType.QA:
         arr = [t for t in re.split(r"[\n\t]", d["content_with_weight"]) if len(t) > 1]
         if len(arr) != 2:
@@ -740,20 +740,20 @@ async def update_chunk(tenant_id, dataset_id, document_id, chunk_id):
     )
     v = 0.1 * v[0] + 0.9 * v[1] if doc.parser_id != ParserType.QA else v[1]
     d[f"q_{len(v)}_vec"] = v.tolist()
-    settings.docStoreConn.update({"id": chunk_id}, d, search.index_name(dataset_tenant_id), dataset_id)
+    settings.docStoreConn.update({"id": chunk_id}, d, search.index_name(dataset_scope_id), dataset_id)
     return get_result()
 
 
 @manager.route("/datasets/<dataset_id>/documents/<document_id>/chunks", methods=["PATCH"])  # noqa: F821
 @login_required
-@add_tenant_id_to_kwargs
-async def switch_chunks(tenant_id, dataset_id, document_id):
+@add_scope_id_to_kwargs
+async def switch_chunks(scope_id, dataset_id, document_id):
     from rag.nlp import search
 
-    if not KnowledgebaseService.accessible(kb_id=dataset_id, user_id=tenant_id):
+    if not KnowledgebaseService.accessible(kb_id=dataset_id, user_id=scope_id):
         return get_error_data_result(message=f"You don't own the dataset {dataset_id}.")
-    dataset_tenant_id = _get_dataset_tenant_id(dataset_id)
-    if not dataset_tenant_id:
+    dataset_scope_id = _get_dataset_scope_id(dataset_id)
+    if not dataset_scope_id:
         return get_error_data_result(message=f"You don't own the dataset {dataset_id}.")
     req = await get_request_json()
     if not req.get("chunk_ids"):
@@ -773,7 +773,7 @@ async def switch_chunks(tenant_id, dataset_id, document_id):
                 if not settings.docStoreConn.update(
                     {"id": cid},
                     {"available_int": available_int},
-                    search.index_name(dataset_tenant_id),
+                    search.index_name(dataset_scope_id),
                     doc.kb_id,
                 ):
                     return get_error_data_result(message="Index updating failure")

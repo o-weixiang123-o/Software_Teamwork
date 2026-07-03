@@ -2,11 +2,11 @@
 
 版本：v0.3
 日期：2026-07-03
-范围：`services/knowledge/` adapter、RAGFlow runtime 映射、parser config repository 和检索查询逻辑模型
+范围：`services/knowledge/` adapter、Knowledge runtime 映射、parser config repository、早期迁移兼容字段和检索查询逻辑模型
 
 ## 1. 文档定位
 
-本文定义 Knowledge Service 的当前数据模型边界，用于指导 Go adapter、RAGFlow runtime 映射、PostgreSQL goose migration、gateway 代理契约对齐和后续测试用例编写。
+本文定义 Knowledge Service 的当前数据模型边界，用于指导 Go adapter、Knowledge runtime 映射、PostgreSQL goose migration 兼容字段、gateway 代理契约对齐和后续测试用例编写。
 
 本文只描述 Knowledge Service 拥有的业务数据，不替代 gateway 公开 OpenAPI，也不定义 File Service、QA Service 或 Document Service 的内部模型。前端可见字段仍以 `docs/services/gateway/api/public.openapi.yaml` 为准；服务本地内部接口以 `docs/services/knowledge/api/internal.openapi.yaml` 和 Go DTO 为准。
 
@@ -19,16 +19,16 @@
 | PostgreSQL 访问 | 当前 Go adapter 使用 `pgx/v5` 手写 repository 管理 parser configs 和迁移保留字段；本服务当前没有 `sqlc.yaml` 或生成查询包。 |
 | ORM | 不使用 GORM/ent 等 ORM；schema、query 和事务边界由 migration、repository 和 service 层维护。 |
 | Migration | 使用 `goose`，迁移文件放在 `services/knowledge/migrations/` 并采用有序前缀。 |
-| 事务 | parser config repository 使用显式事务或单语句写入；文档、chunks、embedding、索引和 runtime task 事实由 RAGFlow runtime 管理。 |
-| Runtime queue | Knowledge Go adapter 不接入 asynq；RAGFlow runtime 内部使用 Redis/worker 协调解析、切块、embedding 和索引。 |
-| Runtime index | 当前 runtime 默认使用 Elasticsearch/索引后端；adapter 不保存旧向量库 point 字段。 |
+| 事务 | parser config repository 使用显式事务或单语句写入；文档、chunks、embedding、索引和 runtime task 事实由 Knowledge runtime 管理。 |
+| Runtime queue | Knowledge Go adapter 不接入 asynq；Knowledge runtime 内部使用 Redis/worker 协调解析、切块、embedding 和索引。 |
+| Runtime index | 当前 runtime 默认使用 Elasticsearch/索引后端；早期 migration 中的 `qdrant_point_id` 仅作为兼容字段和历史 fixture 背景。 |
 
 ## 3. 边界原则
 
-- RAGFlow runtime 是知识库文档、chunks、embedding、索引、任务状态和原始文件对象的运行时事实来源；Knowledge adapter 负责项目契约映射、权限上下文和错误归一化。
+- Knowledge runtime 是知识库文档、chunks、embedding、索引、任务状态和原始文件对象的运行时事实来源；Knowledge adapter 负责项目契约映射、权限上下文和错误归一化。
 - Parser configs 是当前 Go adapter 自有的 PostgreSQL 管理资源，可选启用 `DATABASE_URL` 或 `KNOWLEDGE_DATABASE_URL`。
-- 原始文件二进制、MinIO object key、索引 payload、runtime 内部 URL 和 provider 原始响应归 RAGFlow runtime 边界；Knowledge 公开响应不得暴露这些字段。
-- 文档解析、切块、embedding、索引和检索支持归 Knowledge 的 RAGFlow runtime 边界；Knowledge adapter 负责项目契约映射、权限上下文和状态推进。
+- 原始文件二进制、MinIO object key、索引 payload、runtime 内部 URL 和 provider 原始响应归 Knowledge runtime 边界；Knowledge 公开响应不得暴露这些字段。
+- 文档解析、切块、embedding、索引和检索支持归 Knowledge 的 Knowledge runtime 边界；Knowledge adapter 负责项目契约映射、权限上下文和状态推进。
 - `knowledge-queries` 是检索请求资源。当前实现即时执行并返回结果，不持久化查询历史；如后续需要审计或调试留痕，应新增独立表。
 - 删除采用软删除优先：知识库和文档在 adapter/runtime 契约中从常规列表隐藏；runtime 内部对象和索引清理由 runtime 生命周期处理。
 
@@ -45,12 +45,12 @@
 ## 5. 实体关系概览
 
 ```text
-RAGFlow dataset 1 ── n runtime documents
+runtime dataset 1 ── n runtime documents
 runtime document 1 ── n runtime chunks
 runtime chunks ── runtime doc engine index
 
 knowledge_query
-  └── calls RAGFlow runtime retrieval
+  └── calls Knowledge runtime retrieval
   └── adapter maps runtime chunks to KnowledgeQueryResult
 
 parser_configs
@@ -63,7 +63,7 @@ parser_configs
 - `services/knowledge/migrations/0001_create_knowledge_core_tables.sql` 仍保留
   `knowledge_bases`、`knowledge_documents`、`processing_jobs` 和 `document_chunks`
   早期表，供迁移兼容和历史 fixture 使用。
-- 当前 adapter CRUD、上传、chunks/content 和检索主路径通过 RAGFlow runtime 映射，
+- 当前 adapter CRUD、上传、chunks/content 和检索主路径通过 Knowledge runtime 映射，
   不是直接读写这些早期表。
 - `0002_create_parser_configs.sql` 和 `internal/repository/postgres.go` 是当前
   Go adapter 仍使用的 PostgreSQL 路径。
@@ -114,7 +114,7 @@ parser_configs
 
 ### 6.2 KnowledgeDocument
 
-知识文档是 Knowledge Service 拥有的可检索文档资源。它维护解析协调、切片、embedding、索引和错误状态；具体 OCR/PaddleOCR 模型加载和文档解析执行在 Knowledge 的 RAGFlow runtime 边界内。
+知识文档是 Knowledge Service 拥有的可检索文档资源。它维护解析协调、切片、embedding、索引和错误状态；具体 OCR/PaddleOCR 模型加载和文档解析执行在 Knowledge 的 Knowledge runtime 边界内。
 
 | 逻辑字段 | HTTP 字段 | PostgreSQL 字段 | 类型 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -129,7 +129,7 @@ parser_configs
 | `ErrorMessage` | `errorMessage` | `error_message` | text nullable | 可展示或可排查的错误摘要。 |
 | `ChunkCount` | `chunkCount` | derived | integer | 从 `document_chunks` 聚合得出。 |
 | `Tags` | `tags` | `tags` | jsonb | 文档标签，当前最多 32 个，每个最多 64 字符。 |
-| `ParserBackend` | `parserBackend` | `parser_backend` | text nullable | Runtime parser 标识，例如 RAGFlow parser config 中的解析器类型。 |
+| `ParserBackend` | `parserBackend` | `parser_backend` | text nullable | Runtime parser 标识，例如 runtime parser config 中的解析器类型。 |
 | `CreatedBy` | `createdBy` | `created_by` | text | 上传或 handoff 发起人。 |
 | `CurrentJobID` | `jobId` | `current_job_id` | text nullable | 当前处理任务引用。 |
 | `CreatedAt` | `createdAt` | `created_at` | timestamptz | 创建时间。 |
@@ -145,7 +145,7 @@ parser_configs
 
 ### 6.3 ProcessingJob
 
-处理任务表是早期 Go worker 设计和兼容 fixture。当前 runtime task 状态由 RAGFlow runtime 管理，adapter 只映射公开 `DocumentStatus`、错误摘要和必要 trace。
+处理任务表是早期 Go worker 设计和兼容 fixture。当前 runtime task 状态由 Knowledge runtime 管理，adapter 只映射公开 `DocumentStatus`、错误摘要和必要 trace。
 
 | 逻辑字段 | HTTP 字段 | PostgreSQL 字段 | 类型 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -176,7 +176,7 @@ parser_configs
 
 ### 6.4 DocumentChunk
 
-文档切片是检索命中的最小可引用单元。当前实现从 RAGFlow runtime 获取 chunks 并映射到公开 DTO；PostgreSQL `document_chunks` 表只保留契约测试所需的公开展示字段。
+文档切片是检索命中的最小可引用单元。当前实现从 Knowledge runtime 获取 chunks 并映射到公开 DTO；早期 PostgreSQL `document_chunks` 表和 `qdrant_point_id` 字段可用于兼容 fixture，但不是当前运行主路径。
 
 | 逻辑字段 | HTTP 字段 | PostgreSQL 字段 | 类型 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -225,7 +225,7 @@ parser_configs
 | `Results` | `results` | array | 检索命中列表。 |
 | `Trace` | `trace` | object | embedding、collection、topK、阈值和命中数。 |
 
-检索结果由 RAGFlow runtime 返回，adapter 将 runtime chunk 映射为 `KnowledgeQueryResult`。只有文档状态为 `ready` 且调用方有权限访问的结果才会返回；权限、状态和输出字段必须以 adapter/gateway 契约为准，不读取 runtime 内部 payload 作为前端事实。
+检索结果由 Knowledge runtime 返回，adapter 将 runtime chunk 映射为 `KnowledgeQueryResult`。只有文档状态为 `ready` 且调用方有权限访问的结果才会返回；权限、状态和输出字段必须以 adapter/gateway 契约为准，不读取 runtime 内部 payload 作为前端事实。
 
 ### 6.6 RuntimeConfig
 
@@ -263,7 +263,7 @@ fixture 规则：
 - Runtime/vector hit 找不到对应公开文档或 hydrate 后文档不可见时，跳过该 hit，不把内部不一致暴露给前端。
 - 无有效命中时返回 `results: []` 和 `trace.hitCount: 0`，不得返回 500。
 - fake embedding/rerank adapter 可以返回固定向量、固定 score 或固定重排序顺序，但公开响应和 trace 字段必须符合 gateway OpenAPI。
-- 单元或契约测试不要求启动 RAGFlow runtime、真实 embedding provider 或真实索引后端；真实端到端 smoke 需单独显式启用。
+- 单元或契约测试不要求启动 Knowledge runtime、真实 embedding provider 或真实索引后端；真实端到端 smoke 需单独显式启用。
 
 ## 7. 枚举与状态机
 
@@ -322,7 +322,15 @@ reprocessing
 
 ## 8. Runtime 索引模型
 
-当前 RAGFlow runtime 的索引 ID、payload 和向量维度由 runtime 管理，adapter 只能映射公开所需字段。
+当前 adapter 的 `qdrantCollection` 公开 trace 字段是兼容字段名；当前实现填入 runtime
+doc engine 标识：
+
+```text
+elasticsearch
+```
+
+早期 Qdrant fixture 使用由 `chunk_id` 稳定派生的 point ID。当前 Knowledge runtime 的
+索引 ID、payload 和向量维度由 runtime 管理，adapter 只能映射公开所需字段。
 
 Payload 示例：
 
@@ -366,7 +374,7 @@ document_chunks
 - repository 层负责把 PostgreSQL `jsonb` 转换为 Go `map[string]any`、`[]string` 或具体策略结构。
 - `created_at`、`updated_at` 统一使用 UTC。
 - 列表查询默认排除 `deleted_at IS NOT NULL` 的知识库和文档。
-- 删除知识库时应先阻止或清理关联文档、切片和索引；当前 runtime 路径由 RAGFlow runtime 保证内部生命周期，早期表只保留迁移兼容和测试 fixture 价值。
+- 删除知识库时应先阻止或清理关联文档、切片和索引；当前 runtime 路径由 Knowledge runtime 保证内部生命周期，早期表只保留迁移兼容和测试 fixture 价值。
 
 ## 10. 公开字段与内部字段
 

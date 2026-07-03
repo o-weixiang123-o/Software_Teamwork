@@ -2,8 +2,8 @@
 
 Knowledge exposes Gateway `/internal/v1/*` contract routes via the **contract
 adapter** (`cmd/adapter`). KB metadata, documents, chunks, queries, and upload
-flow through the RAGFlow runtime at `VENDOR_RUNTIME_URL` (`services/knowledge-runtime/`;
-deepdoc + Elasticsearch + MinIO).
+flow through Knowledge runtime at `VENDOR_RUNTIME_URL`
+(`services/knowledge-runtime/`; deepdoc + Elasticsearch + MinIO).
 
 Parser-config admin routes (`/internal/v1/parser-configs`) optionally use legacy
 goose PostgreSQL tables when `DATABASE_URL` or `KNOWLEDGE_DATABASE_URL` is set.
@@ -16,7 +16,7 @@ goose PostgreSQL tables when `DATABASE_URL` or `KNOWLEDGE_DATABASE_URL` is set.
 - Logging: `log/slog`
 - Parser-config storage: `pgx/v5` + hand-written SQL (optional)
 
-See `../knowledge-runtime/README.md` for host-run vendor runtime wiring.
+See `../knowledge-runtime/README.md` for host-run runtime wiring.
 The MCP transport and QA integration workflow are documented in
 [`docs/services/knowledge/docs/mcp-server.md`](../../docs/services/knowledge/docs/mcp-server.md).
 
@@ -24,7 +24,7 @@ The MCP transport and QA integration workflow are documented in
 
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
-| `VENDOR_RUNTIME_URL` | yes | `http://127.0.0.1:9380` | RAGFlow vendor HTTP base URL. |
+| `VENDOR_RUNTIME_URL` | yes | `http://127.0.0.1:9380` | Knowledge runtime HTTP base URL. |
 | `VENDOR_RUNTIME_SERVICE_TOKEN` | yes | - | Token forwarded to the runtime as `X-Service-Token`; must match `KNOWLEDGE_RUNTIME_SERVICE_TOKEN`. |
 | `KNOWLEDGE_SERVICE_TOKEN` / `INTERNAL_SERVICE_TOKEN` | yes | - | Shared service token required on `/internal/v1/**` via `X-Service-Token`. |
 | `DATABASE_URL` / `KNOWLEDGE_DATABASE_URL` | no | - | PostgreSQL for parser-config admin; omit to return `502` on those routes. |
@@ -37,8 +37,7 @@ The MCP transport and QA integration workflow are documented in
 | `KNOWLEDGE_VENDOR_RERANK_ID` | no | - | Runtime rerank model id forwarded on retrieval when rerank is requested. |
 | `KNOWLEDGE_SHUTDOWN_TIMEOUT` | no | `10s` | Graceful shutdown timeout. |
 | `KNOWLEDGE_MCP_ADDR` | no | - | Optional Streamable HTTP MCP listen address, for example `127.0.0.1:8093`. |
-| `KNOWLEDGE_MCP_USER_ID` | no | `knowledge_mcp_service` | Fixed user id used by MCP bridge calls. |
-| `KNOWLEDGE_PROJECT_RUNTIME_USER_ID` | no | `KNOWLEDGE_MCP_USER_ID` | Runtime user id whose visible datasets form the project-wide QA RAG pool. |
+| `KNOWLEDGE_MCP_CALLER_ID` | no | `knowledge_mcp` | Internal caller id used by the MCP bridge when it calls the adapter. It is not forwarded to the runtime as a user or runtime scope. |
 | `KNOWLEDGE_MCP_PERMISSIONS` | no | `knowledge:read` | Fixed permission set used by MCP bridge calls. Current MCP tools are read-only. |
 | `KNOWLEDGE_MCP_ROLES` | no | - | Fixed role set used by MCP bridge calls. |
 
@@ -89,9 +88,9 @@ Public gateway equivalents are documented in
 When `KNOWLEDGE_MCP_ADDR` is set, `cmd/adapter` also starts a Streamable HTTP
 MCP server on that independent address. The endpoint uses `X-Service-Token`,
 does not trust caller-supplied `X-User-*` headers, and calls the adapter with
-the fixed `KNOWLEDGE_MCP_USER_ID` / roles / permissions context.
+the configured MCP roles / permissions. Runtime scope is configured inside
+`services/knowledge-runtime` through `KNOWLEDGE_RUNTIME_SCOPE_ID`.
 
-The current native tool catalog includes retrieval, answer synthesis, KB CRUD,
 The current native tool catalog is the four read-only v1 contract:
 
 - `search`
@@ -108,11 +107,9 @@ and [`docs/services/knowledge/docs/mcp-tools.md`](../../docs/services/knowledge/
 ## Access Context
 
 Business routes require gateway-injected `X-User-Id` (from Auth service).
-Gateway user id is the audit and authorization context. Runtime calls use
-`KNOWLEDGE_PROJECT_RUNTIME_USER_ID` when configured so normal users with
-`knowledge:read` can read and search the shared project KB pool; otherwise the
-adapter falls back to the caller user id as runtime tenant context. Vendor
-login/JWT is disabled.
+The adapter uses that value only for product-level authorization and audit
+context. Runtime calls use `X-Service-Token` only; vendor login/JWT are
+disabled, and runtime access is not partitioned by product caller.
 
 Supported permission strings:
 
@@ -147,8 +144,8 @@ Rules:
 ## Data Model
 
 Goose migrations under `migrations/` retain legacy tables (`knowledge_bases`,
-`parser_configs`, etc.) for parser-config admin. Vendor metadata uses separate
-RAGFlow tables in the same PostgreSQL database when vendor PG is enabled.
+`parser_configs`, etc.) for parser-config admin. Runtime metadata uses separate
+runtime tables in the same PostgreSQL database when runtime PostgreSQL is enabled.
 
 ## Local Integration Notes
 
@@ -237,10 +234,10 @@ go build ./cmd/adapter
 ```
 
 The Knowledge service runs the contract adapter (`cmd/adapter`) which proxies
-Gateway `/internal/v1/*` routes to the RAGFlow runtime at
-`VENDOR_RUNTIME_URL` (`services/knowledge-runtime/`). Document upload, deepdoc parsing, embedding, and retrieval
-use runtime MinIO + Elasticsearch — not legacy parser or
-the removed Go ingestion worker.
+Gateway `/internal/v1/*` routes to Knowledge runtime at
+`VENDOR_RUNTIME_URL` (`services/knowledge-runtime/`). Document upload, deepdoc
+parsing, embedding, and retrieval use runtime MinIO + Elasticsearch, not legacy
+parser, Qdrant, or the removed Go ingestion worker.
 
 Contract tests under `internal/adapter` and `internal/mcp` use fake vendor HTTP
 servers or in-memory MCP transports. Live vendor tests require

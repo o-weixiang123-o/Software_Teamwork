@@ -436,7 +436,7 @@ targeted smoke -> Gateway public API -> owner services -> File/Knowledge runtime
   `services/gateway/internal/http/*_test.go`,
   `services/knowledge/internal/http`, `services/knowledge/internal/service`,
   `services/knowledge/api/openapi.yaml`, Knowledge docs, `services/knowledge-runtime/**`,
-  and local host-run env wiring for RAGFlow runtime, Redis, MinIO,
+  and local host-run env wiring for Knowledge runtime, Redis, MinIO,
   Elasticsearch/doc engine, or AI Gateway.
 
 ### 2. Signatures
@@ -464,7 +464,7 @@ targeted smoke -> Gateway public API -> owner services -> File/Knowledge runtime
 - Knowledge handlers must keep database, vendor runtime, embedding, and rerank
   access behind service/repository/platform interfaces.
 - `documents/{documentId}/content` must first authorize the Knowledge-owned
-  document, then stream raw bytes through the RAGFlow runtime/adapter boundary.
+  document, then stream raw bytes through the Knowledge runtime/adapter boundary.
   Do not return `file_ref`, object keys, File IDs, MinIO URLs, runtime URLs, or
   internal storage paths in JSON responses.
 - `knowledge-queries` must model retrieval as a resource creation, not a
@@ -491,8 +491,8 @@ targeted smoke -> Gateway public API -> owner services -> File/Knowledge runtime
 - Base: fake-backed contract tests cover active operation envelopes while
   runbooks document how to enable real runtime/doc engine or AI Gateway.
 - Bad: gateway returns `501` for an active Knowledge operation after the
-  Knowledge service route exists, or gateway directly reads RAGFlow runtime,
-  File Service, doc engine, prompt/model providers, SQL rows, or
+  Knowledge service route exists, or gateway directly reads Knowledge runtime,
+  File Service, Qdrant/doc engine, prompt/model providers, SQL rows, or
   generated sqlc types.
 
 ### 6. Tests Required
@@ -520,7 +520,7 @@ gateway /api/v1/knowledge/search -> runtime index response payload
 #### Correct
 
 ```text
-gateway /api/v1/documents/{documentId}/content -> knowledge -> RAGFlow runtime/adapter bytes
+gateway /api/v1/documents/{documentId}/content -> knowledge -> Knowledge runtime/adapter bytes
 gateway /api/v1/knowledge-queries -> knowledge -> runtime/doc-engine candidates -> Knowledge DTO hydrate
 ```
 
@@ -614,7 +614,7 @@ owned message with no citations -> authorize message -> 200 []
 
 ### 1. Scope / Trigger
 
-- Trigger: adding or changing the RAGFlow-based runtime API/worker used by
+- Trigger: adding or changing the Knowledge runtime API/worker used by
   Knowledge ingestion and retrieval.
 - Applies to `services/knowledge-runtime/`, Knowledge vendor runtime clients
   under `services/knowledge/internal/vendorclient`, runtime parser configuration,
@@ -643,7 +643,7 @@ response envelopes, parser-config administration, and adapter error mapping.
 `services/knowledge-runtime` owns document parsing, chunking, embedding/index
 work, retrieval support, runtime task execution, and vendor storage/search
 details. Runtime routes must be registered through an explicit allowlist; do not
-expose upstream RAGFlow login/JWT/API-token, UI, file-management, or MCP
+expose bundled runtime login/JWT/API-token, UI, file-management, or MCP
 surfaces as product APIs.
 
 Runtime API startup must remain separate from worker startup. The API-only path
@@ -675,11 +675,11 @@ Knowledge, QA, Gateway, or local integration scripts.
 - Base: Knowledge unit tests use fake vendor runtime clients while runtime E2E
   is gated by explicit local infrastructure.
 - Bad: restoring `services/parser`, adding a QA/Gateway direct parser client, or
-  exposing upstream RAGFlow auth/UI/MCP surfaces through the product boundary.
+  exposing bundled runtime auth/UI/MCP surfaces through the product boundary.
 
 ### 6. Tests Required
 
-- Knowledge vendor client/adapter tests assert route paths, propagated tenant
+- Knowledge vendor client/adapter tests assert route paths, propagated service
   headers, redirect blocking, sanitized failures, and error classification.
 - Runtime route registry tests assert only the allowlisted API modules are
   registered.
@@ -992,7 +992,7 @@ GET    /internal/v1/documents/{documentId}/content
 Runtime content read:
 
 ```text
-Knowledge adapter -> RAGFlow runtime document/content route
+Knowledge adapter -> Knowledge runtime document/content route
 ```
 
 Database state involved:
@@ -1000,7 +1000,7 @@ Database state involved:
 - Runtime document and task state is mapped to public Knowledge document status.
 - Runtime chunks are mapped to Knowledge `DocumentChunk` DTOs and query results.
 - Knowledge PostgreSQL may retain parser-config and migration-compatible fields,
-  but current document bytes/chunks/index facts come from RAGFlow runtime.
+  but current document bytes/chunks/index facts come from Knowledge runtime.
 
 ### 3. Contracts
 
@@ -1015,8 +1015,8 @@ Database state involved:
   fields or a body without `tags` must fail validation. Tags use the same
   trim/dedupe/max-count/max-length rules as document upload.
 - `DELETE /documents/{documentId}` applies the Knowledge document delete/hidden
-  semantics and delegates runtime document/chunk/index lifecycle to RAGFlow
-  runtime. It must not restore the old File cleanup worker path.
+  semantics and delegates runtime document/chunk/index lifecycle to Knowledge
+  runtime. It must not restore the old File/Qdrant cleanup worker path.
 - `GET /documents/{documentId}/chunks` must authorize the parent document. An
   existing document with no chunks, including pending processing states, returns
   an empty paginated list rather than `501` or a dependency error.
@@ -1045,7 +1045,7 @@ Database state involved:
   Knowledge authorizes `doc_1`, streams runtime/adapter bytes, and never returns
   runtime object storage details in JSON.
 - Base: deleting a document sets `deleted_at`, hides it from future reads, and
-  delegates runtime internal object/chunk/index lifecycle to RAGFlow runtime.
+  delegates runtime internal object/chunk/index lifecycle to Knowledge runtime.
 - Bad: Gateway returns `501` for active document lifecycle routes, Knowledge
   exposes `fileRef` or object-storage details, or deletion restores slow File
   Service or runtime-index calls inside a PostgreSQL transaction.
@@ -1093,7 +1093,7 @@ the document transaction; if cleanup fails the document stays visible
 #### Correct
 
 ```text
-DELETE /documents/doc_1 -> knowledge authorizes doc_1, delegates RAGFlow
+DELETE /documents/doc_1 -> knowledge authorizes doc_1, delegates Knowledge
 runtime document/chunk/index lifecycle, and returns 204 without exposing
 runtime storage details
 ```
@@ -1132,7 +1132,7 @@ GET /internal/v1/documents/{documentId}/chunks?knowledgeBaseId={knowledgeBaseId}
 GET /internal/v1/documents/{documentId}/content?knowledgeBaseId={knowledgeBaseId}
 ```
 
-Vendor runtime mapping (adapter → RAGFlow):
+Adapter runtime mapping:
 
 ```text
 knowledge-bases -> /api/v1/datasets
@@ -1149,7 +1149,7 @@ knowledge-queries -> /api/v1/datasets/search
 Runtime guardrail environment keys:
 
 ```text
-KNOWLEDGE_RUNTIME_AUTO_PROVISION_TENANTS=true|false
+KNOWLEDGE_RUNTIME_SCOPE_ID=knowledge_runtime
 METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT=10000
 ```
 
@@ -1157,9 +1157,11 @@ METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT=10000
 
 - Adapter must preserve Gateway-facing JSON envelopes and error codes; do not
   leak vendor `{code, message}` shapes to callers.
-- Adapter forwards tenant identity with `X-Tenant-Id` and `X-User-Id` set to
-  Gateway `X-User-Id`; RBAC checks stay in adapter using
-  `knowledge:read` / `knowledge:write` and admin permissions.
+- Adapter authenticates to the runtime with `X-Service-Token` only. Runtime
+  routes resolve a single configured `KNOWLEDGE_RUNTIME_SCOPE_ID`; product user
+  identity stays in Gateway/Auth/Knowledge and is not forwarded as runtime
+  identity. RBAC checks stay in adapter using `knowledge:read` /
+  `knowledge:write` and admin permissions.
 - Document singleton, chunk, and content routes must use the caller-provided
   `knowledgeBaseId` to access dataset-scoped runtime routes. Do not scan every
   knowledge base to infer document ownership.
@@ -1194,20 +1196,20 @@ METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT=10000
 - Object storage for uploaded documents uses vendor MinIO configuration
   (`software-teamwork-knowledge` bucket); Knowledge adapter does not call File
   Service for upload in vendor mode.
-- Vector retrieval uses the configured vendor doc engine only.
-- Gateway/Auth service owns identity; adapter forwards `X-User-Id` as vendor tenant
-  context. Vendor login/JWT/API-token surfaces remain disabled.
+- Vector retrieval uses vendor Elasticsearch or Infinity only; Qdrant is not used.
+- Gateway/Auth service owns identity; vendor login/JWT/API-token surfaces remain
+  disabled.
 - The vendored runtime HTTP surface must be registered through an explicit
   allowlist. Keep only the route modules needed for dataset, document, chunk,
   model/provider, system, and task workflows used by the adapter. Do not
-  expose upstream RAGFlow MCP, file-management, login/JWT/API-token, or UI-only
+  expose bundled runtime MCP, file-management, login/JWT/API-token, or UI-only
   routes as project runtime APIs.
 - Adapter dataset creation sends the embedding choice with vendor field
   `embedding_model`. The project env value uses the composite
   `<model>@<provider>` shape, for example `BAAI/bge-m3@SILICONFLOW`.
 - Adapter retrieval rerank config sends `rerank_id`. The runtime expects the
-  composite `<model>@<tenant>@<provider>` shape, for example
-  `BAAI/bge-reranker-v2-m3@default@SILICONFLOW`; a bare model name can resolve
+  composite `<model>@<profile>@<provider>` shape, for example
+  `BAAI/bge-reranker-v2-m3@default@AI_GATEWAY`; a bare model name can resolve
   to an empty provider and fail at runtime.
 - Retrieval trace must not invent runtime facts. Use configured runtime values
   when available; use `runtime-managed` and `embeddingDimension: -1` when the
@@ -1218,9 +1220,8 @@ METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT=10000
 - Runtime route auth declarations must include `GATEWAY`. A valid
   `X-Service-Token` is not sufficient for routes decorated only with legacy
   `JWT`/`API`/`BETA` auth types.
-- Gateway tenant auto-provisioning is controlled by
-  `KNOWLEDGE_RUNTIME_AUTO_PROVISION_TENANTS`. When disabled, auth must return a
-  clear tenant/provisioning failure and must not synthesize user or tenant rows.
+- Runtime scope is configured explicitly through `KNOWLEDGE_RUNTIME_SCOPE_ID`.
+  Auth must not synthesize runtime user, workspace, or membership rows.
 - Dataset-level RAPTOR/GraphRAG tasks use the explicit
   `DATASET_SCOPE_TASK_DOC_ID` sentinel. Real source document IDs must not equal
   the dataset-scope sentinel.
@@ -1243,7 +1244,7 @@ METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT=10000
   the binary content route as JSON metadata; `GET /api/v1/datasets/{kb}/documents/{doc}`
   is the download/content path.
 - Runtime model initialization may upsert the env-selected embedding/rerank
-  provider, model instance, and tenant defaults at startup so new datasets do
+  provider, model instance, and scope defaults at startup so new datasets do
   not silently fall back to the vendor Builtin embedding model.
 - Vendor document `run` maps to Gateway status: `RUNNING` → `parsing`, `DONE` →
   `ready`, `FAIL`/`CANCEL` → `parse_failed`.
@@ -1272,13 +1273,13 @@ METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT=10000
 | `chunkStrategy` is invalid JSON or not a JSON object | `400 validation_error`; do not silently omit `parser_config`. |
 | Vendor returns HTTP 401/403/404 with arbitrary text | Map by HTTP status to `unauthorized`/`forbidden`/`not_found`; do not inspect message substrings. |
 | Runtime route declares only legacy auth types | Reject as `unauthorized` even when `X-Service-Token` is valid. |
-| Missing runtime tenant while auto-provisioning is disabled | Reject auth clearly and perform no provisioning writes. |
+| Missing runtime scope configuration | Use the documented default or reject auth clearly; never perform identity provisioning writes. |
 | Empty chunk reaches embedding/indexing | Skip it or return a validation error; never index a vector for `"None"`. |
 | Metadata fallback candidate set exceeds cap | Return a clear too-large/degraded error; pass the cap into the loader/doc-engine request and do not load the full set into memory. |
 | Retrieval raises `index_not_found_exception` for an uncreated index | Return an empty result payload. |
 | Retrieval raises another `not_found` dependency/model/provider error | Preserve typed error mapping; do not turn it into empty success by string matching. |
 | Dataset creation lacks `KNOWLEDGE_VENDOR_EMBEDDING_ID` in vendor mode | Startup/config error or documented fallback; do not claim external embedding E2E coverage. |
-| Rerank ID is not `<model>@<tenant>@<provider>` | Retrieval may return a sanitized `502 dependency_error`; fix env wiring instead of stripping rerank. |
+| Rerank ID is not `<model>@<profile>@<provider>` | Retrieval may return a sanitized `502 dependency_error`; fix env wiring instead of stripping rerank. |
 | Metadata lookup calls the binary content route and decodes JSON | Treat as an adapter bug; use dataset document-list metadata lookup. |
 | Runtime log input includes API keys/tokens/secrets | Redact before emitting logs; never rely on caller-side masking only. |
 
@@ -1287,19 +1288,19 @@ METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT=10000
 - Good: host-run runtime startup wires `VENDOR_RUNTIME_URL`,
   `KNOWLEDGE_VENDOR_EMBEDDING_ID`, `KNOWLEDGE_VENDOR_RERANK_ID`, and matching
   `KNOWLEDGE_RUNTIME_*` provider env keys; the runtime starts with an explicit
-  route allowlist and initializes tenant defaults for embedding and rerank.
+  route allowlist and initializes scope defaults for embedding and rerank.
 - Base: adapter unit tests use fake vendor HTTP servers to assert route paths,
   field names, metadata lookup, and sanitized vendor errors without starting
   the Python runtime.
 - Bad: forwarding parser trace fields into vendor JSON, calling the binary
   content route for metadata, using bare rerank model IDs, exposing upstream
-  RAGFlow MCP, or logging raw `sk-...` provider keys.
+  runtime MCP, or logging raw `sk-...` provider keys.
 
 ### 6. Tests Required
 
 - Runtime Python tests assert the route allowlist registers only supported
-  modules, route auth rejects legacy-only declarations, tenant provisioning is
-  env-controlled, and config logging redacts nested secret/token/API-key values.
+  modules, route auth rejects legacy-only declarations, scope handling is
+  explicit, and config logging redacts nested secret/token/API-key values.
 - Adapter Go contract tests assert dataset creation uses `embedding_model`,
   retrieval sends the configured `rerank_id`, parser trace fields are filtered,
   document routes require `knowledgeBaseId` without all-KB scans, invalid

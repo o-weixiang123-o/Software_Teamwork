@@ -30,7 +30,7 @@ class _FakeEmbeddingModel:
 
 
 def _load_llm_bundle_class(monkeypatch):
-    class _StubLLM4Tenant:
+    class _StubRuntimeLLMBundle:
         def __init__(self, *args, **kwargs):
             pass
 
@@ -47,8 +47,8 @@ def _load_llm_bundle_class(monkeypatch):
     sys.modules["api.db.db_models"].LLM = object()
     monkeypatch.setitem(sys.modules, "api.db.services.common_service", ModuleType("api.db.services.common_service"))
     sys.modules["api.db.services.common_service"].CommonService = object
-    monkeypatch.setitem(sys.modules, "api.db.services.tenant_llm_service", ModuleType("api.db.services.tenant_llm_service"))
-    sys.modules["api.db.services.tenant_llm_service"].LLM4Tenant = _StubLLM4Tenant
+    monkeypatch.setitem(sys.modules, "api.db.services.runtime_llm_service", ModuleType("api.db.services.runtime_llm_service"))
+    sys.modules["api.db.services.runtime_llm_service"].RuntimeLLMBundle = _StubRuntimeLLMBundle
     monkeypatch.setitem(sys.modules, "common.token_utils", ModuleType("common.token_utils"))
     sys.modules["common.token_utils"].num_tokens_from_string = lambda text: len(str(text))
 

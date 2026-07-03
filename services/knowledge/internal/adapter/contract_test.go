@@ -369,17 +369,16 @@ func TestAdapterCreateKnowledgeBaseAppliesDefaultParserConfig(t *testing.T) {
 	}
 }
 
-func TestAdapterKnowledgeBasesUseProjectRuntimeScope(t *testing.T) {
+func TestAdapterKnowledgeBasesUseRuntimeScopeWithoutForwardingUserIdentity(t *testing.T) {
 	state := newFakeVendorState()
 	state.datasets["kb_fake_1"] = map[string]any{"id": "kb_fake_1", "name": "Boiler"}
 	vendor := startFakeVendor(t, state)
 	defer vendor.Close()
 
 	server := NewServer(adapterconfig.Config{
-		ServiceVersion:       "test",
-		VendorRuntimeURL:     vendor.URL,
-		ServiceToken:         testServiceToken,
-		ProjectRuntimeUserID: "project_runtime",
+		ServiceVersion:   "test",
+		VendorRuntimeURL: vendor.URL,
+		ServiceToken:     testServiceToken,
 	}, nil)
 
 	listReq := httptest.NewRequest(http.MethodGet, "/internal/v1/knowledge-bases", nil)
@@ -405,11 +404,11 @@ func TestAdapterKnowledgeBasesUseProjectRuntimeScope(t *testing.T) {
 
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	if len(state.listUserIDs) == 0 || state.listUserIDs[0] != "project_runtime" {
-		t.Fatalf("list user ids=%v", state.listUserIDs)
+	if len(state.listUserIDs) == 0 || state.listUserIDs[0] != "" {
+		t.Fatalf("list user ids=%v, want no forwarded runtime user identity", state.listUserIDs)
 	}
-	if len(state.createUserIDs) == 0 || state.createUserIDs[0] != "project_runtime" {
-		t.Fatalf("create user ids=%v", state.createUserIDs)
+	if len(state.createUserIDs) == 0 || state.createUserIDs[0] != "" {
+		t.Fatalf("create user ids=%v, want no forwarded runtime user identity", state.createUserIDs)
 	}
 }
 
@@ -794,10 +793,9 @@ func TestAdapterKnowledgeQueryMapsRuntimeValidationError(t *testing.T) {
 	defer vendor.Close()
 
 	server := NewServer(adapterconfig.Config{
-		ServiceVersion:       "test",
-		VendorRuntimeURL:     vendor.URL,
-		ServiceToken:         testServiceToken,
-		ProjectRuntimeUserID: "project_runtime",
+		ServiceVersion:   "test",
+		VendorRuntimeURL: vendor.URL,
+		ServiceToken:     testServiceToken,
 	}, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-queries", strings.NewReader(`{"query":"maintenance","knowledgeBaseIds":["kb_1","kb_2"]}`))
@@ -834,10 +832,9 @@ func TestAdapterKnowledgeQueryMapsRuntimeNotFoundError(t *testing.T) {
 	defer vendor.Close()
 
 	server := NewServer(adapterconfig.Config{
-		ServiceVersion:       "test",
-		VendorRuntimeURL:     vendor.URL,
-		ServiceToken:         testServiceToken,
-		ProjectRuntimeUserID: "project_runtime",
+		ServiceVersion:   "test",
+		VendorRuntimeURL: vendor.URL,
+		ServiceToken:     testServiceToken,
 	}, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-queries", strings.NewReader(`{"query":"maintenance","knowledgeBaseIds":["kb_missing"]}`))
@@ -871,10 +868,9 @@ func TestAdapterKnowledgeQueryExpandsAccessibleKnowledgeBasesWhenOmitted(t *test
 	defer vendor.Close()
 
 	server := NewServer(adapterconfig.Config{
-		ServiceVersion:       "test",
-		VendorRuntimeURL:     vendor.URL,
-		ServiceToken:         testServiceToken,
-		ProjectRuntimeUserID: "project_runtime",
+		ServiceVersion:   "test",
+		VendorRuntimeURL: vendor.URL,
+		ServiceToken:     testServiceToken,
 	}, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-queries", strings.NewReader(`{"query":"maintenance"}`))
@@ -898,15 +894,15 @@ func TestAdapterKnowledgeQueryExpandsAccessibleKnowledgeBasesWhenOmitted(t *test
 	if len(datasetIDs) != 2 || datasetIDs[0] != "kb_fake_1" || datasetIDs[1] != "kb_fake_2" {
 		t.Fatalf("dataset_ids=%v", payload["dataset_ids"])
 	}
-	if len(state.listUserIDs) == 0 || state.listUserIDs[0] != "project_runtime" {
-		t.Fatalf("list user ids=%v", state.listUserIDs)
+	if len(state.listUserIDs) == 0 || state.listUserIDs[0] != "" {
+		t.Fatalf("list user ids=%v, want no forwarded runtime user identity", state.listUserIDs)
 	}
-	if state.searchUserID != "project_runtime" {
-		t.Fatalf("search user id=%q", state.searchUserID)
+	if state.searchUserID != "" {
+		t.Fatalf("search user id=%q, want no forwarded runtime user identity", state.searchUserID)
 	}
 }
 
-func TestAdapterTrustedQAKnowledgeQueryUsesProjectRuntimeScopeWithoutKnowledgeRead(t *testing.T) {
+func TestAdapterTrustedQAKnowledgeQueryUsesRuntimeScopeWithoutKnowledgeRead(t *testing.T) {
 	state := newFakeVendorState()
 	state.datasets["kb_fake_1"] = map[string]any{"id": "kb_fake_1", "name": "Boiler", "chunk_count": 1}
 	state.datasets["kb_fake_2"] = map[string]any{"id": "kb_fake_2", "name": "Transformer", "chunk_count": 1}
@@ -914,10 +910,9 @@ func TestAdapterTrustedQAKnowledgeQueryUsesProjectRuntimeScopeWithoutKnowledgeRe
 	defer vendor.Close()
 
 	server := NewServer(adapterconfig.Config{
-		ServiceVersion:       "test",
-		VendorRuntimeURL:     vendor.URL,
-		ServiceToken:         testServiceToken,
-		ProjectRuntimeUserID: "project_runtime",
+		ServiceVersion:   "test",
+		VendorRuntimeURL: vendor.URL,
+		ServiceToken:     testServiceToken,
 	}, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-queries", strings.NewReader(`{"query":"maintenance"}`))
@@ -942,11 +937,11 @@ func TestAdapterTrustedQAKnowledgeQueryUsesProjectRuntimeScopeWithoutKnowledgeRe
 	if len(datasetIDs) != 2 || datasetIDs[0] != "kb_fake_1" || datasetIDs[1] != "kb_fake_2" {
 		t.Fatalf("dataset_ids=%v", payload["dataset_ids"])
 	}
-	if len(state.listUserIDs) == 0 || state.listUserIDs[0] != "project_runtime" {
-		t.Fatalf("list user ids=%v", state.listUserIDs)
+	if len(state.listUserIDs) == 0 || state.listUserIDs[0] != "" {
+		t.Fatalf("list user ids=%v, want no forwarded runtime user identity", state.listUserIDs)
 	}
-	if state.searchUserID != "project_runtime" {
-		t.Fatalf("search user id=%q", state.searchUserID)
+	if state.searchUserID != "" {
+		t.Fatalf("search user id=%q, want no forwarded runtime user identity", state.searchUserID)
 	}
 }
 
@@ -958,10 +953,9 @@ func TestAdapterTrustedQAGetDocumentStillRequiresKnowledgeRead(t *testing.T) {
 	defer vendor.Close()
 
 	server := NewServer(adapterconfig.Config{
-		ServiceVersion:       "test",
-		VendorRuntimeURL:     vendor.URL,
-		ServiceToken:         testServiceToken,
-		ProjectRuntimeUserID: "project_runtime",
+		ServiceVersion:   "test",
+		VendorRuntimeURL: vendor.URL,
+		ServiceToken:     testServiceToken,
 	}, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/internal/v1/documents/doc_fake_1?knowledgeBaseId=kb_fake_1", nil)
@@ -1041,7 +1035,7 @@ func TestAdapterReadRoutesRequireKnowledgeReadPermission(t *testing.T) {
 	}
 }
 
-func TestAdapterKnowledgeStatisticsUsesTenantScopedRuntimeTotals(t *testing.T) {
+func TestAdapterKnowledgeStatisticsUsesRuntimeTotals(t *testing.T) {
 	state := newFakeVendorState()
 	state.datasets["kb_fake_1"] = map[string]any{"id": "kb_fake_1", "name": "Boiler", "doc_num": 2}
 	state.datasets["kb_fake_2"] = map[string]any{"id": "kb_fake_2", "name": "Transformer", "doc_num": 1}

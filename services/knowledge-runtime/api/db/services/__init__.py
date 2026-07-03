@@ -16,8 +16,6 @@
 import re
 from pathlib import PurePath
 
-from .user_service import UserService as UserService
-
 
 def _split_name_counter(filename: str) -> tuple[str, int | None]:
     """

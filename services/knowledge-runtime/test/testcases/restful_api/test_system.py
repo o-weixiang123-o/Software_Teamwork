@@ -34,12 +34,12 @@ def test_system_version(rest_client):
 
 
 @pytest.mark.p2
-def test_system_status_requires_tenant_header(rest_client_noauth):
+def test_system_status_requires_service_token(rest_client_noauth):
     res = rest_client_noauth.get("/system/status")
     assert res.status_code == 401
     payload = res.json()
     assert payload["code"] == 401, payload
-    assert "X-Tenant-Id" in payload["message"], payload
+    assert "X-Service-Token" in payload["message"], payload
 
 
 @pytest.mark.p2

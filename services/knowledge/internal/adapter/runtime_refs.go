@@ -10,24 +10,21 @@ import (
 )
 
 type runtimeKnowledgeBaseRef struct {
-	ID       string
-	TenantID string
+	ID string
 }
 
 type runtimeDocumentRef struct {
 	ID              string
 	KnowledgeBaseID string
-	TenantID        string
 }
 
-func (s *Server) resolveKnowledgeBaseRuntimeRef(ctx context.Context, knowledgeBaseID, fallbackTenantID string) (runtimeKnowledgeBaseRef, error) {
+func (s *Server) resolveKnowledgeBaseRuntimeRef(ctx context.Context, knowledgeBaseID string) (runtimeKnowledgeBaseRef, error) {
 	kbID := strings.TrimSpace(knowledgeBaseID)
 	if kbID == "" {
 		return runtimeKnowledgeBaseRef{}, service.ValidationError("request validation failed", map[string]string{"knowledgeBaseId": "is required"})
 	}
 	ref := runtimeKnowledgeBaseRef{
-		ID:       kbID,
-		TenantID: strings.TrimSpace(fallbackTenantID),
+		ID: kbID,
 	}
 	if s.knowledgeBases == nil {
 		return ref, nil
@@ -39,26 +36,22 @@ func (s *Server) resolveKnowledgeBaseRuntimeRef(ctx context.Context, knowledgeBa
 	if len(items) == 0 {
 		return runtimeKnowledgeBaseRef{}, service.NotFoundError("knowledge base not found")
 	}
-	if tenantID := strings.TrimSpace(items[0].TenantID); tenantID != "" {
-		ref.TenantID = tenantID
-	}
 	return ref, nil
 }
 
-func (s *Server) resolveDocumentRuntimeRef(ctx context.Context, documentID, knowledgeBaseID, fallbackTenantID string) (runtimeDocumentRef, error) {
+func (s *Server) resolveDocumentRuntimeRef(ctx context.Context, documentID, knowledgeBaseID string) (runtimeDocumentRef, error) {
 	docID := strings.TrimSpace(documentID)
 	if docID == "" {
 		return runtimeDocumentRef{}, service.ValidationError("request validation failed", map[string]string{"documentId": "is required"})
 	}
 	if kbID := strings.TrimSpace(knowledgeBaseID); kbID != "" {
-		kbRef, err := s.resolveKnowledgeBaseRuntimeRef(ctx, kbID, fallbackTenantID)
+		kbRef, err := s.resolveKnowledgeBaseRuntimeRef(ctx, kbID)
 		if err != nil {
 			return runtimeDocumentRef{}, err
 		}
 		return runtimeDocumentRef{
 			ID:              docID,
 			KnowledgeBaseID: kbRef.ID,
-			TenantID:        kbRef.TenantID,
 		}, nil
 	}
 	if s.runtimeDocs == nil {
@@ -71,13 +64,12 @@ func (s *Server) resolveDocumentRuntimeRef(ctx context.Context, documentID, know
 		}
 		return runtimeDocumentRef{}, service.DependencyError("document catalog unavailable", err)
 	}
-	if strings.TrimSpace(doc.KnowledgeBaseID) == "" || strings.TrimSpace(doc.TenantID) == "" {
+	if strings.TrimSpace(doc.KnowledgeBaseID) == "" {
 		return runtimeDocumentRef{}, service.NotFoundError("document not found")
 	}
 	return runtimeDocumentRef{
 		ID:              strings.TrimSpace(doc.ID),
 		KnowledgeBaseID: strings.TrimSpace(doc.KnowledgeBaseID),
-		TenantID:        strings.TrimSpace(doc.TenantID),
 	}, nil
 }
 

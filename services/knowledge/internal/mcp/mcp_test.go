@@ -516,10 +516,10 @@ func TestGetDocumentResolvesKnowledgeBaseFromRuntimeCatalog(t *testing.T) {
 
 	catalog := runtimeCatalogStub{
 		kbs: []service.RuntimeKnowledgeBase{
-			{ID: "kb_test", TenantID: "tenant_owner", ChunkCount: 2},
+			{ID: "kb_test", ChunkCount: 2},
 		},
 		docs: []service.RuntimeDocument{
-			{ID: "doc_test", KnowledgeBaseID: "kb_test", TenantID: "tenant_owner", ChunkCount: 2},
+			{ID: "doc_test", KnowledgeBaseID: "kb_test", ChunkCount: 2},
 		},
 	}
 	adapterServer := adapter.NewServer(adapterconfig.Config{
@@ -592,10 +592,10 @@ func TestGetChunkReturnsSingleChunkByDocumentAndChunkID(t *testing.T) {
 
 	catalog := runtimeCatalogStub{
 		kbs: []service.RuntimeKnowledgeBase{
-			{ID: "kb_test", TenantID: "tenant_owner", ChunkCount: 2},
+			{ID: "kb_test", ChunkCount: 2},
 		},
 		docs: []service.RuntimeDocument{
-			{ID: "doc_test", KnowledgeBaseID: "kb_test", TenantID: "tenant_owner", ChunkCount: 2},
+			{ID: "doc_test", KnowledgeBaseID: "kb_test", ChunkCount: 2},
 		},
 	}
 	adapterServer := adapter.NewServer(adapterconfig.Config{
@@ -670,10 +670,10 @@ func TestGetChunkReadsSingleChunkByID(t *testing.T) {
 
 	catalog := runtimeCatalogStub{
 		kbs: []service.RuntimeKnowledgeBase{
-			{ID: "kb_test", TenantID: "tenant_owner", ChunkCount: 1},
+			{ID: "kb_test", ChunkCount: 1},
 		},
 		docs: []service.RuntimeDocument{
-			{ID: "doc_test", KnowledgeBaseID: "kb_test", TenantID: "tenant_owner", ChunkCount: 1},
+			{ID: "doc_test", KnowledgeBaseID: "kb_test", ChunkCount: 1},
 		},
 	}
 	adapterServer := adapter.NewServer(adapterconfig.Config{
