@@ -899,7 +899,24 @@ func sanitizeStreamUsage(rawUsage json.RawMessage) (json.RawMessage, bool) {
 	}
 	sanitizedUsage := map[string]json.RawMessage{}
 	copyRawFields(sanitizedUsage, usage, "prompt_tokens", "completion_tokens", "total_tokens")
+	if details, ok := usage["completion_tokens_details"]; ok {
+		sanitizedDetails, valid := sanitizeCompletionTokensDetails(details)
+		if valid {
+			sanitizedUsage["completion_tokens_details"] = sanitizedDetails
+		}
+	}
 	encoded, err := json.Marshal(sanitizedUsage)
+	return encoded, err == nil
+}
+
+func sanitizeCompletionTokensDetails(rawDetails json.RawMessage) (json.RawMessage, bool) {
+	var details map[string]json.RawMessage
+	if err := json.Unmarshal(rawDetails, &details); err != nil {
+		return nil, false
+	}
+	sanitized := map[string]json.RawMessage{}
+	copyRawFields(sanitized, details, "reasoning_tokens")
+	encoded, err := json.Marshal(sanitized)
 	return encoded, err == nil
 }
 

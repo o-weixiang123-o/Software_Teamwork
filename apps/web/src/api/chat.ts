@@ -26,10 +26,16 @@ export type ChatAnswerDeltaData = Record<string, unknown> & {
   seq: number
 }
 
+export type ChatReasoningDeltaData = Record<string, unknown> & {
+  content: string
+  seq: number
+}
+
 export interface ChatStreamHandlers {
   onMessageCreated?: (data: Record<string, unknown> & { seq: number }) => void
   onAgentIterationStarted?: (data: Record<string, unknown> & { seq: number }) => void
   onReasoningStep?: (data: Record<string, unknown> & { seq: number }) => void
+  onReasoningDelta?: (data: ChatReasoningDeltaData) => void
   onToolStarted?: (data: Record<string, unknown> & { seq: number }) => void
   onToolCompleted?: (data: Record<string, unknown> & { seq: number }) => void
   onToolFailed?: (data: Record<string, unknown> & { seq: number }) => void
@@ -63,6 +69,9 @@ function dispatch(event: QASseEventType, data: unknown, handlers: ChatStreamHand
       break
     case 'answer.delta':
       handlers.onAnswerDelta?.(data as ChatAnswerDeltaData)
+      break
+    case 'reasoning.delta':
+      handlers.onReasoningDelta?.(data as ChatReasoningDeltaData)
       break
     case 'citation.delta':
       handlers.onCitationDelta?.(data as Record<string, unknown> & { seq: number })
@@ -109,7 +118,7 @@ function normalizeSsePayload(
   event: QASseEventType,
   payload: Record<string, unknown> & { seq: number },
 ): Record<string, unknown> & { seq: number } {
-  if (event !== 'answer.delta') return payload
+  if (event !== 'answer.delta' && event !== 'reasoning.delta') return payload
   return {
     ...payload,
     content: getAnswerDeltaContent(payload),

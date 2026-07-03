@@ -79,6 +79,7 @@ func TestQASseEventSchemaCoversSafePublicEvents(t *testing.T) {
 		"message.created",
 		"agent.iteration.started",
 		"reasoning.step",
+		"reasoning.delta",
 		"tool.started",
 		"tool.completed",
 		"tool.failed",

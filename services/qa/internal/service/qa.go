@@ -549,6 +549,9 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 	var lastContent string
 	var lastReasoning string
 	reasoningBuf := newReasoningBuffer(4096)
+	isReasoningSafe := func(content string) bool {
+		return sanitizeReasoningContent(content) == content
+	}
 	var streamCallback func(agent.Completion)
 	if runtime.Stream {
 		streamCallback = func(completion agent.Completion) {
@@ -567,6 +570,7 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 				newContent := currentReasoning[len(lastReasoning):]
 				lastReasoning = currentReasoning
 				reasoningBuf.append(newContent)
+				reasoningBuf.confirmSafe(isReasoningSafe)
 				delta := reasoningBuf.delta()
 				if delta != "" {
 					sanitizedDelta := sanitizeReasoningContent(delta)
@@ -699,6 +703,16 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 			if sanitizedReasoning != "" {
 				emit("reasoning.delta", map[string]any{"messageId": assistantMessage.ID, "text": sanitizedReasoning})
 			}
+		}
+	} else {
+		reasoningBuf.flushAll(isReasoningSafe)
+		delta := reasoningBuf.delta()
+		if delta != "" {
+			sanitizedDelta := sanitizeReasoningContent(delta)
+			if sanitizedDelta != "" {
+				emit("reasoning.delta", map[string]any{"messageId": assistantMessage.ID, "text": sanitizedDelta})
+			}
+			reasoningBuf.markEmitted(len([]rune(delta)))
 		}
 	}
 	finalCitations := citations
@@ -1210,15 +1224,18 @@ func redactSensitiveSecrets(content string) string {
 }
 
 type reasoningBuffer struct {
-	buffer        []rune
-	emittedLength int
-	maxBufferSize int
+	buffer          []rune
+	emittedLength   int
+	confirmedLength int
+	maxBufferSize   int
+	holdbackSize    int
 }
 
 func newReasoningBuffer(maxSize int) *reasoningBuffer {
 	return &reasoningBuffer{
 		buffer:        make([]rune, 0, maxSize),
 		maxBufferSize: maxSize,
+		holdbackSize:  256,
 	}
 }
 
@@ -1226,27 +1243,59 @@ func (rb *reasoningBuffer) append(content string) {
 	newRunes := []rune(content)
 	rb.buffer = append(rb.buffer, newRunes...)
 	if len(rb.buffer) > rb.maxBufferSize {
-		keep := len(rb.buffer) - rb.maxBufferSize/2
-		if keep < 0 {
-			keep = len(rb.buffer) / 2
+		keep := rb.maxBufferSize / 2
+		if keep < rb.holdbackSize {
+			keep = rb.holdbackSize
 		}
-		if keep <= 0 {
-			keep = 1
+		if keep > len(rb.buffer) {
+			keep = len(rb.buffer)
 		}
-		rb.emittedLength = max(rb.emittedLength-keep, 0)
-		rb.buffer = rb.buffer[keep:]
+		discard := len(rb.buffer) - keep
+		rb.emittedLength = max(rb.emittedLength-discard, 0)
+		rb.confirmedLength = max(rb.confirmedLength-discard, rb.emittedLength)
+		rb.buffer = rb.buffer[discard:]
 	}
 }
 
 func (rb *reasoningBuffer) delta() string {
-	if rb.emittedLength >= len(rb.buffer) {
+	if rb.emittedLength >= rb.confirmedLength {
 		return ""
 	}
-	return string(rb.buffer[rb.emittedLength:])
+	return string(rb.buffer[rb.emittedLength:rb.confirmedLength])
 }
 
 func (rb *reasoningBuffer) markEmitted(length int) {
-	rb.emittedLength = min(rb.emittedLength+length, len(rb.buffer))
+	rb.emittedLength = min(rb.emittedLength+length, rb.confirmedLength)
+}
+
+func (rb *reasoningBuffer) confirmSafe(isSafe func(string) bool) {
+	totalLen := len(rb.buffer)
+	if totalLen <= rb.holdbackSize {
+		return
+	}
+	maxConfirm := totalLen - rb.holdbackSize
+	for i := maxConfirm; i > rb.confirmedLength; i-- {
+		testStr := string(rb.buffer[:i])
+		if isSafe(testStr) {
+			rb.confirmedLength = i
+			return
+		}
+	}
+}
+
+func (rb *reasoningBuffer) flushAll(isSafe func(string) bool) {
+	if isSafe(string(rb.buffer)) {
+		rb.confirmedLength = len(rb.buffer)
+		return
+	}
+	for i := len(rb.buffer); i > rb.confirmedLength; i-- {
+		testStr := string(rb.buffer[:i])
+		if isSafe(testStr) {
+			rb.confirmedLength = i
+			return
+		}
+	}
+	rb.confirmedLength = len(rb.buffer)
 }
 
 func (rb *reasoningBuffer) peek(length int) string {
@@ -1262,4 +1311,5 @@ func (rb *reasoningBuffer) peek(length int) string {
 func (rb *reasoningBuffer) reset() {
 	rb.buffer = rb.buffer[:0]
 	rb.emittedLength = 0
+	rb.confirmedLength = 0
 }
