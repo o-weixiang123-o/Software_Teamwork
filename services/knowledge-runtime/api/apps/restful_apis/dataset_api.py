@@ -57,6 +57,25 @@ async def _create_dataset_with_validator(tenant_id: str | None, validator):
         return get_error_data_result(message="Internal server error")
 
 
+def _with_status(response, status_code):
+    response.status_code = status_code
+    return response
+
+
+def _get_search_business_error_result(result):
+    if isinstance(result, dataset_api_service.SearchBusinessError):
+        return _with_status(get_result(code=result.code, message=result.message), result.http_status)
+    return _with_status(get_error_data_result(message=result, code=RetCode.EXCEPTION_ERROR), 502)
+
+
+def _get_search_argument_error_result(message):
+    return _with_status(get_error_argument_result(message), 400)
+
+
+def _get_search_dependency_error_result(message="Internal server error"):
+    return _with_status(get_error_data_result(message=message, code=RetCode.EXCEPTION_ERROR), 502)
+
+
 @manager.route("/datasets/tags/aggregation", methods=["GET"])  # noqa: F821
 @login_required
 @add_tenant_id_to_kwargs
@@ -505,16 +524,24 @@ async def search_datasets(tenant_id):
                "similarity_threshold": float, "vector_similarity_weight": float, "use_kg": bool,
                "cross_languages": list[str], "keyword": bool, "meta_data_filter": dict}
     Success: {"code": 0, "data": {"chunks": [...], "total": int, "labels": [...]}}
-    Errors: ARGUMENT_ERROR (101) for invalid payload; DATA_ERROR (102) for access denied or internal errors.
+    Errors: ARGUMENT_ERROR (101) with HTTP 400 for invalid payload or invalid search business input;
+            NOT_FOUND (404) with HTTP 404 for missing or hidden datasets;
+            EXCEPTION_ERROR with HTTP 502 for runtime dependency failures.
     """
     req, err = await validate_and_parse_json_request(request, SearchDatasetsReq)
     if err is not None:
-        return get_error_argument_result(err)
-    success, result = await dataset_api_service.search_datasets(tenant_id, req)
-    if success:
-        return get_result(data=result)
-    else:
-        return get_error_data_result(message=result)
+        return _get_search_argument_error_result(err)
+    try:
+        success, result = await dataset_api_service.search_datasets(tenant_id, req)
+        if success:
+            return get_result(data=result)
+        else:
+            return _get_search_business_error_result(result)
+    except Exception as e:
+        logging.exception(e)
+        if "not_found" in str(e):
+            return get_result(data=dataset_api_service._empty_search_result())
+        return _get_search_dependency_error_result()
 
 
 @manager.route("/datasets/<dataset_id>/search", methods=["POST"])  # noqa: F821
@@ -528,23 +555,25 @@ async def search(tenant_id, dataset_id):
                "similarity_threshold": float, "vector_similarity_weight": float, "use_kg": bool,
                "cross_languages": list[str], "keyword": bool, "meta_data_filter": dict}
     Success: {"code": 0, "data": {"chunks": [...], "total": int, "labels": [...]}}
-    Errors: ARGUMENT_ERROR (101) for invalid payload; DATA_ERROR (102) for access denied or internal errors.
+    Errors: ARGUMENT_ERROR (101) with HTTP 400 for invalid payload or invalid search business input;
+            NOT_FOUND (404) with HTTP 404 for missing or hidden datasets;
+            EXCEPTION_ERROR with HTTP 502 for runtime dependency failures.
     """
     req, err = await validate_and_parse_json_request(request, SearchDatasetReq)
     if err is not None:
-        return get_error_argument_result(err)
+        return _get_search_argument_error_result(err)
     req['dataset_ids'] = [dataset_id]
     try:
         success, result = await dataset_api_service.search_datasets(tenant_id, req)
         if success:
             return get_result(data=result)
         else:
-            return get_error_data_result(message=result)
+            return _get_search_business_error_result(result)
     except Exception as e:
         logging.exception(e)
         if "not_found" in str(e):
-            return get_error_data_result(message="No chunk found! Check the chunk status please!")
-        return get_error_data_result(message="Internal server error")
+            return get_result(data=dataset_api_service._empty_search_result())
+        return _get_search_dependency_error_result()
 
 
 @manager.route("/datasets/<dataset_id>/graph", methods=["GET"])  # noqa: F821

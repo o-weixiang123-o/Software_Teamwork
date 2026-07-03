@@ -223,6 +223,26 @@ func TestClientPreservesHTTPStatusOnVendorError(t *testing.T) {
 	}
 }
 
+func TestDownloadDocumentRejectsJSONErrorEnvelope(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/datasets/kb_1/documents/doc_1" {
+			t.Fatalf("unexpected vendor request: %s %s?%s", r.Method, r.URL.Path, r.URL.RawQuery)
+		}
+		writeTestVendorJSON(w, `{"code":102,"message":"document is locked","data":{}}`)
+	}))
+	defer server.Close()
+
+	client := New(server.URL, time.Second, "runtime-token")
+	_, _, err := client.DownloadDocument(context.Background(), "tenant_1", "kb_1", "doc_1")
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("DownloadDocument error = %v, want APIError", err)
+	}
+	if apiErr.Code != 102 || apiErr.Message != "document is locked" {
+		t.Fatalf("APIError=(%d,%q), want (102, document is locked)", apiErr.Code, apiErr.Message)
+	}
+}
+
 func writeTestVendorJSON(w http.ResponseWriter, body string) {
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = io.WriteString(w, body)

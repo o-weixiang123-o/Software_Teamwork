@@ -293,7 +293,12 @@ def by_paddleocr(
                 return sections, tables, pdf_parser
             except Exception as e:
                 logging.error(f"Failed to parse pdf via LLMBundle PaddleOCR ({paddleocr_llm_name}): {e}")
+                if callback:
+                    callback(-1, f"PaddleOCR parse failed: {e}")
+                return None, None, None
 
+        if callback:
+            callback(-1, "PaddleOCR not found.")
         return None, None, None
 
     if callback:
@@ -1006,9 +1011,6 @@ def chunk(filename, binary=None, from_page=0, to_page=MAXIMUM_PAGE_NUMBER, lang=
         callback(0.1, "Start to parse.")
         sections = TxtParser()(filename, binary, parser_config.get("chunk_token_num", 128), parser_config.get("delimiter", "\n!?;。；！？"))
         sections = _normalize_section_text_for_rtl_presentation_forms(sections)
-        print("\n", "-"*150, "\n")
-        print(sections)
-        print("\n", "-"*150, "\n")
         callback(0.8, "Finish parsing.")
 
     elif re.search(r"\.(md|markdown|mdx)$", filename, re.IGNORECASE):
@@ -1041,16 +1043,29 @@ def chunk(filename, binary=None, from_page=0, to_page=MAXIMUM_PAGE_NUMBER, lang=
                     images.append(section_images[idx])
 
                 if images and len(images) > 0:
-                    # If multiple images found, combine them using concat_img
-                    combined_image = reduce(concat_img, images) if len(images) > 1 else images[0]
-                    if section_images:
-                        section_images[idx] = combined_image
-                    else:
-                        section_images = [None] * len(sections)
-                        section_images[idx] = combined_image
-                    markdown_vision_parser = VisionFigureParser(vision_model=vision_model, figures_data=[((combined_image, ["markdown image"]), [(0, 0, 0, 0, 0)])], **kwargs)
-                    boosted_figures = markdown_vision_parser(callback=callback)
-                    sections[idx] = (section_text + "\n\n" + "\n\n".join([fig[0][1] for fig in boosted_figures]), sections[idx][1])
+                    try:
+                        # If multiple images found, combine them using concat_img
+                        combined_image = reduce(concat_img, images) if len(images) > 1 else images[0]
+                        if section_images:
+                            section_images[idx] = combined_image
+                        else:
+                            section_images = [None] * len(sections)
+                            section_images[idx] = combined_image
+                        markdown_vision_parser = VisionFigureParser(vision_model=vision_model, figures_data=[((combined_image, ["markdown image"]), [(0, 0, 0, 0, 0)])], **kwargs)
+                        boosted_figures = markdown_vision_parser(callback=callback)
+                        figure_descriptions = []
+                        for fig in boosted_figures:
+                            desc = fig[0][1]
+                            if isinstance(desc, list):
+                                desc = "\n".join(str(item) for item in desc if str(item).strip())
+                            else:
+                                desc = str(desc)
+                            if desc.strip():
+                                figure_descriptions.append(desc)
+                        if figure_descriptions:
+                            sections[idx] = (section_text + "\n\n" + "\n\n".join(figure_descriptions), sections[idx][1])
+                    except Exception as e:
+                        logging.warning("Markdown vision enhancement failed for section %s: %s. Skipping vision enhancement.", idx, e)
 
         else:
             logging.warning("No visual model detected. Skipping figure parsing enhancement.")

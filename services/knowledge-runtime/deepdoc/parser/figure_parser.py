@@ -274,7 +274,10 @@ class VisionFigureParser:
         for future in as_completed(futures):
             figure_num, txt = future.result()
             if txt:
-                self.descriptions[figure_num] = txt + "\n".join(self.descriptions[figure_num])
+                desc = self.descriptions[figure_num]
+                if isinstance(desc, str):
+                    desc = [desc]
+                self.descriptions[figure_num] = [txt] + list(desc)
 
         self._assemble()
 

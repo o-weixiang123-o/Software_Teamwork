@@ -93,7 +93,9 @@ class TaskService(CommonService):
             dict: Task details dictionary containing all task information and related metadata.
                  Returns None if task is not found or has exceeded retry limit.
         """
-        doc_id = cls.model.doc_id
+        doc_join = cls.model.doc_id == Document.id
+        if doc_ids:
+            doc_join = Document.id == doc_ids[0]
         fields = [
             cls.model.id,
             cls.model.doc_id,
@@ -119,7 +121,7 @@ class TaskService(CommonService):
         ]
         docs = (
             cls.model.select(*fields)
-                .join(Document, on=(doc_id == Document.id))
+                .join(Document, on=doc_join)
                 .join(Knowledgebase, on=(Document.kb_id == Knowledgebase.id))
                 .join(Tenant, on=(Knowledgebase.tenant_id == Tenant.id))
                 .where(cls.model.id == task_id)
@@ -364,6 +366,18 @@ class TaskService(CommonService):
         return cls.model.delete().where(cls.model.doc_id.in_(doc_ids)).execute()
 
 
+def _mark_parse_scheduling_failed(doc_id: str, message: str):
+    now = get_format_time()
+    DocumentService.update_by_id(doc_id, {
+        "progress": -1,
+        "run": TaskStatus.FAIL.value,
+        "progress_msg": message,
+        "process_begin_at": now,
+        "update_time": current_timestamp(),
+        "update_date": now,
+    })
+
+
 def queue_tasks(doc: dict, bucket: str, name: str, priority: int):
     """Create and queue document processing tasks.
 
@@ -421,6 +435,8 @@ def queue_tasks(doc: dict, bucket: str, name: str, priority: int):
     elif doc["parser_id"] == "table":
         file_bin = settings.STORAGE_IMPL.get(bucket, name)
         rn = RAGFlowExcelParser.row_number(doc["name"], file_bin)
+        if rn is None:
+            rn = 0
         for i in range(0, rn, 3000):
             task = new_task()
             task["from_page"] = i
@@ -428,6 +444,13 @@ def queue_tasks(doc: dict, bucket: str, name: str, priority: int):
             parse_task_array.append(task)
     else:
         parse_task_array.append(new_task())
+
+    if not parse_task_array:
+        _mark_parse_scheduling_failed(
+            doc["id"],
+            "No parse tasks were created. The file may be empty, encrypted, or unsupported.",
+        )
+        return
 
     # Determine suffix based on parser_id (consistent with SAAS version line 444)
     suffix = "common" if doc["parser_id"] != "resume" else "resume"

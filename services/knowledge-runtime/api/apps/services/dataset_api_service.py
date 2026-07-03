@@ -19,7 +19,7 @@ import os
 import re
 
 from api.db.joint_services.tenant_model_service import ensure_paddleocr_from_config, get_model_config_from_provider_instance
-from common.constants import PAGERANK_FLD
+from common.constants import PAGERANK_FLD, RetCode
 from common import settings
 from api.db.db_models import File
 from api.db.services.document_service import DocumentService, queue_raptor_o_graphrag_tasks
@@ -73,6 +73,35 @@ def _apply_parser_config_credentials(tenant_id: str, req: dict, credentials: dic
     parser_cfg = req.get("parser_config") or {}
     parser_cfg["layout_recognize"] = model_name
     req["parser_config"] = parser_cfg
+
+
+class SearchBusinessError:
+    def __init__(self, message: str, code: RetCode, http_status: int):
+        self.message = message
+        self.code = code
+        self.http_status = http_status
+
+
+def _search_validation_error(message: str) -> SearchBusinessError:
+    return SearchBusinessError(message, RetCode.ARGUMENT_ERROR, 400)
+
+
+def _search_not_found_error(message: str = "Dataset not found.") -> SearchBusinessError:
+    return SearchBusinessError(message, RetCode.NOT_FOUND, 404)
+
+
+def _is_missing_search_index_error(exc: Exception) -> bool:
+    text = f"{repr(exc)} {str(exc)}".lower()
+    return "index_not_found_exception" in text or "not_found" in text
+
+
+def _empty_search_result(labels=None):
+    return {
+        "total": 0,
+        "chunks": [],
+        "doc_aggs": [],
+        "labels": labels or {},
+    }
 
 
 async def create_dataset(tenant_id: str, req: dict):
@@ -1307,19 +1336,19 @@ async def search_datasets(tenant_id: str, req: dict):
     for kb_id in kb_ids:
         if not KnowledgebaseService.accessible(kb_id, tenant_id):
             logging.warning("search_datasets access denied: dataset=%s tenant=%s", kb_id, tenant_id)
-            return False, f"Only owner of dataset {kb_id} authorized for this operation."
+            return False, _search_not_found_error()
 
     kbs = KnowledgebaseService.get_by_ids(kb_ids)
     if not kbs:
-        return False, "Datasets not found!"
+        return False, _search_not_found_error()
 
     # All datasets must use the same embedding model
     embd_nms = list(set([split_model_name(kb.embd_id)[0] for kb in kbs]))
     if len(embd_nms) != 1:
-        return False, "Datasets use different embedding models."
+        return False, _search_validation_error("Datasets use different embedding models.")
 
     if doc_ids is not None and not isinstance(doc_ids, list):
-        return False, "`doc_ids` should be a list"
+        return False, _search_validation_error("`doc_ids` should be a list")
     local_doc_ids = list(doc_ids) if doc_ids else []
 
     meta_data_filter = req.get("meta_data_filter") or {}
@@ -1342,7 +1371,7 @@ async def search_datasets(tenant_id: str, req: dict):
                 metas_loader=lambda: DocMetadataService.get_flatted_meta_by_kbs(kb_ids),
             )
         except MetadataFilterFallbackTooLarge as exc:
-            return False, str(exc)
+            return False, _search_validation_error(str(exc))
 
     tenant_ids = []
     tenants = UserTenantService.query(user_id=tenant_id)
@@ -1351,7 +1380,7 @@ async def search_datasets(tenant_id: str, req: dict):
             tenant_ids.append(tenant.tenant_id)
             break
     else:
-        return False, "Only owner of datasets authorized for this operation."
+        return False, _search_not_found_error()
 
     kb = kbs[0]
     _question = question
@@ -1375,21 +1404,27 @@ async def search_datasets(tenant_id: str, req: dict):
         _question += await keyword_extraction(chat_mdl, _question)
 
     labels = label_question(_question, kbs)
-    ranks = await settings.retriever.retrieval(
-        _question,
-        embd_mdl,
-        tenant_ids,
-        kb_ids,
-        page,
-        size,
-        similarity_threshold,
-        vector_similarity_weight,
-        doc_ids=local_doc_ids,
-        top=top,
-        rerank_mdl=rerank_mdl,
-        rank_feature=labels,
-        trace_id=None,
-    )
+    try:
+        ranks = await settings.retriever.retrieval(
+            _question,
+            embd_mdl,
+            tenant_ids,
+            kb_ids,
+            page,
+            size,
+            similarity_threshold,
+            vector_similarity_weight,
+            doc_ids=local_doc_ids,
+            top=top,
+            rerank_mdl=rerank_mdl,
+            rank_feature=labels,
+            trace_id=None,
+        )
+    except Exception as exc:
+        if _is_missing_search_index_error(exc):
+            logging.info("search_datasets index missing: datasets=%s tenant=%s", kb_ids, tenant_id)
+            return True, _empty_search_result(labels)
+        raise
 
     if use_kg:
         try:

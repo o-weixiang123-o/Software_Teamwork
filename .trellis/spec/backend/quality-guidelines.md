@@ -269,6 +269,10 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
 - `deploy/.env.example` is the single default local configuration source.
   Startup scripts may load `deploy/.env`, but must not duplicate service env
   defaults or print long `export` blocks in user-facing docs.
+- Knowledge runtime worker timeout decorators must stay active in the default
+  host-run profile with `ENABLE_TIMEOUT_ASSERTION=1` in `deploy/.env.example`.
+  Do not remove this default unless the worker timeout mechanism is replaced
+  and the runbook documents the accepted risk or replacement behavior.
 - `run-backend.sh` must not prepare or start the retired standalone Parser.
   Knowledge parsing runs through the RAGFlow runtime API/worker path.
 - Host-run uv package downloads should use `UV_DEFAULT_INDEX` from
@@ -371,6 +375,7 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
 | Retired parser paths or env keys reappear in startup scripts | Remove the parser dependency and route document parsing through `services/knowledge-runtime`. |
 | Local startup script exits without a success or failure summary | Add or restore explicit command-line status output in the script and local seed contract checker. |
 | Go module preflight, migration, or service startup shows `Get "https://proxy.golang.org/...": i/o timeout` | Confirm the copied `deploy/.env` contains the repository `GOPROXY` / `GOSUMDB` defaults; if missing, local scripts should use the repository default for the current process and print that decision. If the mirror is unavailable, override only local `deploy/.env` or enterprise shell config. The startup script should surface failures in the terminal and exit non-zero. |
+| `ENABLE_TIMEOUT_ASSERTION` is missing or disabled in the default local profile | Restore `ENABLE_TIMEOUT_ASSERTION=1` in `deploy/.env.example` or document the replacement timeout mechanism and accepted risk in the Knowledge runtime runbook. |
 | `stop-backend.sh` only kills the wrapper PID | Start host services in a managed process group and stop the whole group; verify the script does not leave `go run` or `uv run` child services bound to ports. |
 | Seeded local AI Gateway profile uses `host.docker.internal` | Replace it with `http://localhost:11434/v1` for the host-run default path. |
 | Required Docker image is unavailable locally | Document `docker compose pull <service>` commands and report Docker runtime validation as skipped. |

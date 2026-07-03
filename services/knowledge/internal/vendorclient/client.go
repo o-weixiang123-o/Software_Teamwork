@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -365,6 +366,12 @@ func (c *Client) DownloadDocument(ctx context.Context, userID, datasetID, docume
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
+	if isJSONContentType(contentType) {
+		var payload envelope
+		if err := json.Unmarshal(raw, &payload); err == nil && payload.Code != vendorCodeSuccess && (payload.Message != "" || len(payload.Data) > 0) {
+			return "", nil, &APIError{Code: payload.Code, Message: payload.Message, HTTPStatus: res.StatusCode}
+		}
+	}
 	return contentType, raw, nil
 }
 
@@ -460,6 +467,15 @@ func (c *Client) newRequest(ctx context.Context, userID, method, path string, bo
 		req.Header.Set("X-Service-Token", c.serviceToken)
 	}
 	return req, nil
+}
+
+func isJSONContentType(contentType string) bool {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		mediaType = strings.TrimSpace(strings.Split(contentType, ";")[0])
+	}
+	mediaType = strings.ToLower(mediaType)
+	return mediaType == "application/json" || strings.HasSuffix(mediaType, "+json")
 }
 
 func decodeDatasetItems(raw json.RawMessage) ([]map[string]interface{}, error) {

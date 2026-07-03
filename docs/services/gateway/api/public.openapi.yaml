@@ -616,7 +616,7 @@ paths:
       summary: Create knowledge query
       operationId: createKnowledgeQuery
       x-owner-service: knowledge
-      description: Run a resource-mode knowledge retrieval query. Query execution is modeled as creating a knowledge-query resource, not as an action-style search path.
+      description: Run a resource-mode knowledge retrieval query. Query execution is modeled as creating a knowledge-query resource, not as an action-style search path. Empty or uncreated runtime indexes return 201 with an empty results array. Invalid dataset combinations, document filters, or metadata filters return validation_error. Missing or hidden knowledge bases return not_found. Runtime retrieval, model, or index infrastructure failures return dependency_error.
       requestBody:
         required: true
         content:
@@ -632,7 +632,13 @@ paths:
                 $ref: '#/components/schemas/KnowledgeQueryResponse'
         '400':
           $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
         '404':
+          $ref: '#/components/responses/Error'
+        '502':
           $ref: '#/components/responses/Error'
   /api/v1/admin/users:
     get:

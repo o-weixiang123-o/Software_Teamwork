@@ -340,6 +340,7 @@ paths:
     post:
       tags: [KnowledgeQueries]
       summary: Create knowledge query
+      description: Creates a knowledge retrieval query. Empty or uncreated runtime indexes return a successful empty result set; invalid dataset combinations, document filters, or metadata filters return validation_error; missing or hidden knowledge bases return not_found; runtime retrieval, model, or index infrastructure failures return dependency_error.
       requestBody:
         required: true
         content:
@@ -348,11 +349,21 @@ paths:
               $ref: '#/components/schemas/KnowledgeQueryRequest'
       responses:
         '201':
-          description: Knowledge query result
+          description: Knowledge query result. Empty indexes are represented as an empty results array.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/KnowledgeQueryResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
   /knowledge-query-tests:

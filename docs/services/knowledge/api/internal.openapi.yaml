@@ -256,6 +256,7 @@ paths:
     post:
       tags: [knowledge]
       summary: Create knowledge query
+      description: Creates a knowledge retrieval query. Empty or uncreated runtime indexes return a successful empty result set; invalid query/runtime business inputs return 400, missing or hidden datasets return 404, and runtime dependency failures return 502.
       operationId: internalCreateKnowledgeQuery
       requestBody:
         required: true
@@ -265,13 +266,15 @@ paths:
               $ref: "#/components/schemas/KnowledgeQueryRequest"
       responses:
         "201":
-          description: Knowledge query created.
+          description: Knowledge query created. Empty indexes are represented as an empty results array.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/KnowledgeQueryResponse"
         "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
         "502": { $ref: "#/components/responses/Error" }
   /internal/v1/knowledge-statistics:
     get:

@@ -276,6 +276,7 @@ func (s *Server) handleUpdateDocument(w http.ResponseWriter, r *http.Request) {
 		writeAppError(w, r, mapVendorError(err))
 		return
 	}
+	updated = documentVendorWithTags(updated, *body.Tags)
 	writeJSON(w, http.StatusOK, documentFromVendor(updated), reqCtx.RequestID)
 }
 
@@ -460,15 +461,7 @@ func (s *Server) collectKnowledgeStatistics(ctx context.Context, userID string) 
 
 	var documentCount int64
 	for _, dataset := range datasets {
-		kbID := stringField(dataset, "id")
-		if kbID == "" {
-			continue
-		}
-		_, total, err := s.vendor.ListDocuments(ctx, userID, kbID, 1, 1)
-		if err != nil {
-			return knowledgeStatisticsSummary{}, err
-		}
-		documentCount += total
+		documentCount += int64Field(dataset, "document_count", "doc_num")
 	}
 
 	return knowledgeStatisticsSummary{
@@ -496,11 +489,17 @@ func parsePositiveIntParam(r *http.Request, name string) int {
 }
 
 func decodeJSONBody(w http.ResponseWriter, r *http.Request, target any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, defaultMaxJSONBodyBytes)
 	defer r.Body.Close()
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
-		writeAppError(w, r, service.ValidationError("request validation failed", map[string]string{"body": "must be a valid JSON object"}))
+		fieldMessage := "must be a valid JSON object"
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			fieldMessage = "exceeds maximum JSON body size"
+		}
+		writeAppError(w, r, service.ValidationError("request validation failed", map[string]string{"body": fieldMessage}))
 		return false
 	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {

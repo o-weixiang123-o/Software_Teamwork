@@ -23,16 +23,19 @@ import (
 const testServiceToken = "test-service-token"
 
 type fakeVendorState struct {
-	mu                sync.Mutex
-	datasets          map[string]map[string]any
-	documents         map[string]map[string]any
-	parseCalls        []string
-	deleteCalls       []deleteCall
-	listDatasetsCalls int
-	failParse         bool
-	searchBody        []byte
-	createBody        []byte
-	createPath        string
+	mu                 sync.Mutex
+	datasets           map[string]map[string]any
+	documents          map[string]map[string]any
+	parseCalls         []string
+	deleteCalls        []deleteCall
+	listDatasetsCalls  int
+	listDocumentsCalls int
+	failParse          bool
+	searchStatus       int
+	searchResponse     map[string]any
+	searchBody         []byte
+	createBody         []byte
+	createPath         string
 }
 
 type deleteCall struct {
@@ -146,6 +149,7 @@ func startFakeVendor(t *testing.T, state *fakeVendorState) *httptest.Server {
 			writeVendorJSON(w, http.StatusOK, map[string]any{"code": 0, "data": doc})
 			return
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/v1/datasets/") && strings.HasSuffix(r.URL.Path, "/documents"):
+			state.listDocumentsCalls++
 			kbID := strings.TrimPrefix(r.URL.Path, "/api/v1/datasets/")
 			kbID = strings.TrimSuffix(kbID, "/documents")
 			docs := make([]map[string]any, 0)
@@ -156,9 +160,42 @@ func startFakeVendor(t *testing.T, state *fakeVendorState) *httptest.Server {
 			}
 			writeVendorJSON(w, http.StatusOK, map[string]any{"code": 0, "data": map[string]any{"total": len(docs), "docs": docs}})
 			return
+		case r.Method == http.MethodPatch && strings.HasPrefix(r.URL.Path, "/api/v1/datasets/") && strings.Contains(r.URL.Path, "/documents/"):
+			trimmed := strings.TrimPrefix(r.URL.Path, "/api/v1/datasets/")
+			parts := strings.Split(trimmed, "/documents/")
+			if len(parts) != 2 {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			docID := parts[1]
+			doc, ok := state.documents[docID]
+			if !ok {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode update body: %v", err)
+			}
+			if meta, ok := body["meta_fields"].(map[string]any); ok {
+				doc["meta_fields"] = meta
+			}
+			response := map[string]any{}
+			for key, value := range doc {
+				if key == "meta_fields" {
+					continue
+				}
+				response[key] = value
+			}
+			writeVendorJSON(w, http.StatusOK, map[string]any{"code": 0, "data": response})
+			return
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/datasets/search":
 			raw, _ := io.ReadAll(r.Body)
 			state.searchBody = append([]byte(nil), raw...)
+			if state.searchStatus != 0 {
+				writeVendorJSON(w, state.searchStatus, state.searchResponse)
+				return
+			}
 			writeVendorJSON(w, http.StatusOK, map[string]any{
 				"code": 0,
 				"data": map[string]any{"total": 0, "chunks": []any{}},
@@ -466,6 +503,84 @@ func TestAdapterKnowledgeQueryForwardsDocumentIDs(t *testing.T) {
 	}
 }
 
+func TestAdapterKnowledgeQueryMapsRuntimeValidationError(t *testing.T) {
+	state := newFakeVendorState()
+	state.searchStatus = http.StatusBadRequest
+	state.searchResponse = map[string]any{
+		"code":    101,
+		"message": "Datasets use different embedding models.",
+	}
+	vendor := startFakeVendor(t, state)
+	defer vendor.Close()
+
+	server := NewServer(adapterconfig.Config{
+		ServiceVersion:   "test",
+		VendorRuntimeURL: vendor.URL,
+		ServiceToken:     testServiceToken,
+	}, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-queries", strings.NewReader(`{"query":"maintenance","knowledgeBaseIds":["kb_1","kb_2"]}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-Id", "usr_test")
+	req.Header.Set("X-Service-Token", testServiceToken)
+	req.Header.Set("X-User-Permissions", "knowledge:read")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if body.Error.Code != string(service.CodeValidation) {
+		t.Fatalf("error code=%q", body.Error.Code)
+	}
+}
+
+func TestAdapterKnowledgeQueryMapsRuntimeNotFoundError(t *testing.T) {
+	state := newFakeVendorState()
+	state.searchStatus = http.StatusNotFound
+	state.searchResponse = map[string]any{
+		"code":    404,
+		"message": "Dataset not found.",
+	}
+	vendor := startFakeVendor(t, state)
+	defer vendor.Close()
+
+	server := NewServer(adapterconfig.Config{
+		ServiceVersion:   "test",
+		VendorRuntimeURL: vendor.URL,
+		ServiceToken:     testServiceToken,
+	}, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-queries", strings.NewReader(`{"query":"maintenance","knowledgeBaseIds":["kb_missing"]}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-Id", "usr_test")
+	req.Header.Set("X-Service-Token", testServiceToken)
+	req.Header.Set("X-User-Permissions", "knowledge:read")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if body.Error.Code != string(service.CodeNotFound) {
+		t.Fatalf("error code=%q", body.Error.Code)
+	}
+}
+
 func TestAdapterReadRoutesRequireKnowledgeReadPermission(t *testing.T) {
 	state := newFakeVendorState()
 	vendor := startFakeVendor(t, state)
@@ -524,8 +639,8 @@ func TestAdapterReadRoutesRequireKnowledgeReadPermission(t *testing.T) {
 
 func TestAdapterKnowledgeStatisticsUsesTenantScopedRuntimeTotals(t *testing.T) {
 	state := newFakeVendorState()
-	state.datasets["kb_fake_1"] = map[string]any{"id": "kb_fake_1", "name": "Boiler"}
-	state.datasets["kb_fake_2"] = map[string]any{"id": "kb_fake_2", "name": "Transformer"}
+	state.datasets["kb_fake_1"] = map[string]any{"id": "kb_fake_1", "name": "Boiler", "doc_num": 2}
+	state.datasets["kb_fake_2"] = map[string]any{"id": "kb_fake_2", "name": "Transformer", "doc_num": 1}
 	state.documents["doc_fake_1"] = map[string]any{"id": "doc_fake_1", "kb_id": "kb_fake_1", "dataset_id": "kb_fake_1"}
 	state.documents["doc_fake_2"] = map[string]any{"id": "doc_fake_2", "kb_id": "kb_fake_1", "dataset_id": "kb_fake_1"}
 	state.documents["doc_fake_3"] = map[string]any{"id": "doc_fake_3", "kb_id": "kb_fake_2", "dataset_id": "kb_fake_2"}
@@ -558,6 +673,84 @@ func TestAdapterKnowledgeStatisticsUsesTenantScopedRuntimeTotals(t *testing.T) {
 	}
 	if body.Data.KnowledgeBaseCount != 2 || body.Data.DocumentCount != 3 {
 		t.Fatalf("stats=(%d,%d), want (2,3)", body.Data.KnowledgeBaseCount, body.Data.DocumentCount)
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.listDocumentsCalls != 0 {
+		t.Fatalf("listDocumentsCalls=%d, want no per-KB document scan", state.listDocumentsCalls)
+	}
+}
+
+func TestAdapterUpdateDocumentPreservesTagsInImmediateResponse(t *testing.T) {
+	state := newFakeVendorState()
+	state.documents["doc_fake_1"] = map[string]any{
+		"id": "doc_fake_1", "kb_id": "kb_fake_1", "dataset_id": "kb_fake_1", "name": "notes.txt",
+	}
+	vendor := startFakeVendor(t, state)
+	defer vendor.Close()
+
+	server := NewServer(adapterconfig.Config{
+		ServiceVersion:   "test",
+		VendorRuntimeURL: vendor.URL,
+		ServiceToken:     testServiceToken,
+	}, nil)
+
+	req := httptest.NewRequest(http.MethodPatch, "/internal/v1/documents/doc_fake_1?knowledgeBaseId=kb_fake_1", strings.NewReader(`{"tags":["锅炉","检修"]}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-Id", "usr_test")
+	req.Header.Set("X-Service-Token", testServiceToken)
+	req.Header.Set("X-User-Permissions", "knowledge:write")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Data struct {
+			Tags []string `json:"tags"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body.Data.Tags) != 2 || body.Data.Tags[0] != "锅炉" || body.Data.Tags[1] != "检修" {
+		t.Fatalf("tags=%v", body.Data.Tags)
+	}
+}
+
+func TestAdapterRejectsOversizedJSONBody(t *testing.T) {
+	state := newFakeVendorState()
+	vendor := startFakeVendor(t, state)
+	defer vendor.Close()
+
+	server := NewServer(adapterconfig.Config{
+		ServiceVersion:   "test",
+		VendorRuntimeURL: vendor.URL,
+		ServiceToken:     testServiceToken,
+	}, nil)
+
+	oversizedName := strings.Repeat("a", int(defaultMaxJSONBodyBytes)+1)
+	req := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-bases", strings.NewReader(`{"name":"`+oversizedName+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-Id", "usr_test")
+	req.Header.Set("X-Service-Token", testServiceToken)
+	req.Header.Set("X-User-Permissions", "knowledge:write")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Error struct {
+			Code   string            `json:"code"`
+			Fields map[string]string `json:"fields"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if body.Error.Code != string(service.CodeValidation) || body.Error.Fields["body"] != "exceeds maximum JSON body size" {
+		t.Fatalf("error=%+v", body.Error)
 	}
 }
 

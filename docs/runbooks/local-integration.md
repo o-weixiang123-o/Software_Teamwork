@@ -176,6 +176,8 @@ RAGFlow runtime 启动慢：
 - 如果此前用 `--skip-knowledge-runtime-deps` 跳过，可按
   `services/knowledge-runtime/README.md` 手工补跑 runtime 下载脚本。
 - runtime API 和 worker 走宿主机启动，不通过根级 Docker Compose 构建或运行。
+- 默认保留 `deploy/.env.example` 里的 `ENABLE_TIMEOUT_ASSERTION=1`，让 runtime
+  worker 的解析、embedding 和存储调用超时保护生效。
 - 不要恢复 `services/parser`；PDF 解析、切块、embedding、索引和检索由 RAGFlow
   runtime worker 完成。
 

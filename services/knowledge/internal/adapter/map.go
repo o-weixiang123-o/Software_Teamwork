@@ -14,6 +14,13 @@ import (
 )
 
 const defaultMaxUploadBytes = int64(32 << 20)
+const defaultMaxJSONBodyBytes = int64(1 << 20)
+
+const (
+	vendorRetCodeArgument       = 101
+	vendorRetCodePermission     = 108
+	vendorRetCodeAuthentication = 109
+)
 
 const (
 	ragflowLayoutDeepDOC        = "DeepDOC"
@@ -161,19 +168,25 @@ func mapVendorError(err error) error {
 	}
 	var apiErr *vendorclient.APIError
 	if errors.As(err, &apiErr) {
+		msg := strings.TrimSpace(apiErr.Message)
 		switch {
-		case apiErr.MatchesHTTPStatus(http.StatusUnauthorized):
+		case apiErr.MatchesHTTPStatus(http.StatusBadRequest) || apiErr.Code == http.StatusBadRequest || apiErr.Code == vendorRetCodeArgument:
+			if msg == "" {
+				msg = "vendor runtime validation failed"
+			}
+			return service.ValidationError(msg, nil)
+		case apiErr.MatchesHTTPStatus(http.StatusUnauthorized) || apiErr.Code == http.StatusUnauthorized:
 			return service.UnauthorizedError()
-		case apiErr.MatchesHTTPStatus(http.StatusForbidden):
-			return service.ForbiddenError(apiErr.Message)
-		case apiErr.MatchesHTTPStatus(http.StatusNotFound):
-			msg := strings.TrimSpace(apiErr.Message)
+		case apiErr.Code == vendorRetCodeAuthentication:
+			return service.UnauthorizedError()
+		case apiErr.MatchesHTTPStatus(http.StatusForbidden) || apiErr.Code == http.StatusForbidden || apiErr.Code == vendorRetCodePermission:
+			return service.ForbiddenError(msg)
+		case apiErr.MatchesHTTPStatus(http.StatusNotFound) || apiErr.Code == http.StatusNotFound:
 			if msg == "" {
 				msg = "resource not found"
 			}
 			return service.NotFoundError(msg)
 		}
-		msg := strings.TrimSpace(apiErr.Message)
 		if msg == "" {
 			msg = "vendor runtime request failed"
 		}
@@ -340,13 +353,10 @@ func mapRetrievalChunk(raw map[string]interface{}) knowledgeQueryResult {
 	docID := stringField(raw, "doc_id", "document_id")
 	chunkID := stringField(raw, "chunk_id", "id")
 	docName := stringField(raw, "docnm_kwd", "document_name", "doc_name")
-	content := stringField(raw, "content_with_weight", "content")
-	if len(content) > 240 {
-		content = content[:240]
-	}
+	content := retrievalContentPreview(stringField(raw, "content_with_weight", "content"))
 	var chunkIndex *int
-	if idx := intField(raw, "chunk_index", "page_num_int"); idx >= 0 {
-		chunkIndex = &idx
+	if idx := optionalIntField(raw, "chunk_index", "page_num_int"); idx != nil && *idx >= 0 {
+		chunkIndex = idx
 	}
 	return knowledgeQueryResult{
 		Score:           score,
@@ -357,6 +367,13 @@ func mapRetrievalChunk(raw map[string]interface{}) knowledgeQueryResult {
 		ChunkIndex:      chunkIndex,
 		ContentPreview:  content,
 	}
+}
+
+func retrievalContentPreview(content string) string {
+	if len(content) <= 240 {
+		return content
+	}
+	return strings.ToValidUTF8(content[:240], "")
 }
 
 func buildCreateDatasetBody(req createKnowledgeBaseRequest, defaultParserConfig map[string]any, opts createDatasetOptions) ([]byte, error) {
@@ -649,6 +666,7 @@ func buildRetrievalBody(req knowledgeQueryRequest, opts retrievalBuildOptions) (
 		"question":    query,
 		"dataset_ids": req.KnowledgeBaseIDs,
 		"top_k":       topK,
+		"size":        topK,
 	}
 	if req.ScoreThreshold != nil {
 		payload["similarity_threshold"] = *req.ScoreThreshold
@@ -672,6 +690,22 @@ func buildRetrievalBody(req knowledgeQueryRequest, opts retrievalBuildOptions) (
 		}
 	}
 	return json.Marshal(payload)
+}
+
+func documentVendorWithTags(raw map[string]interface{}, tags []string) map[string]interface{} {
+	out := make(map[string]interface{}, len(raw)+1)
+	for key, value := range raw {
+		out[key] = value
+	}
+	metaFields := map[string]interface{}{}
+	if existing, ok := raw["meta_fields"].(map[string]interface{}); ok {
+		for key, value := range existing {
+			metaFields[key] = value
+		}
+	}
+	metaFields["tags"] = append([]string(nil), tags...)
+	out["meta_fields"] = metaFields
+	return out
 }
 
 func vendorMetaDataFilter(req knowledgeQueryRequest) map[string]any {
@@ -801,6 +835,35 @@ func optionalInt64Field(raw map[string]interface{}, keys ...string) *int64 {
 
 func intField(raw map[string]interface{}, keys ...string) int {
 	return int(int64Field(raw, keys...))
+}
+
+func optionalIntField(raw map[string]interface{}, keys ...string) *int {
+	for _, key := range keys {
+		value, ok := raw[key]
+		if !ok || value == nil {
+			continue
+		}
+		switch typed := value.(type) {
+		case float64:
+			parsed := int(typed)
+			return &parsed
+		case int64:
+			parsed := int(typed)
+			return &parsed
+		case int:
+			return &typed
+		case json.Number:
+			if parsed, err := typed.Int64(); err == nil {
+				value := int(parsed)
+				return &value
+			}
+		case string:
+			if parsed, err := strconv.Atoi(strings.TrimSpace(typed)); err == nil {
+				return &parsed
+			}
+		}
+	}
+	return nil
 }
 
 func floatField(raw map[string]interface{}, keys ...string) float64 {

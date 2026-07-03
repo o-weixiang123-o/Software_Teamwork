@@ -35,7 +35,7 @@ from api.db.joint_services.tenant_model_service import (
     get_model_config_from_provider_instance
 )
 from api.db.services.llm_service import LLMBundle
-from api.db.services.task_service import GRAPH_RAPTOR_FAKE_DOC_ID
+from api.db.services.task_service import GRAPH_RAPTOR_FAKE_DOC_ID, TaskService
 from common.constants import LLMType
 from common.exceptions import TaskCanceledException
 from common.connection_utils import timeout
@@ -401,6 +401,11 @@ class TaskHandler:
         logging.info("Build document {}: {:.2f}s".format(ctx.name, timer() - start_ts))
 
         if not chunks:
+            task = TaskService.get_or_none(id=ctx.id)
+            if task and task.progress == -1:
+                logging.warning("No chunk built from %s after task was marked failed; preserving failure state.", ctx.name)
+                ctx.recording_context.record("empty_chunks_after_failure", True)
+                return
             ctx.progress_cb(1., msg=f"No chunk built from {ctx.name}")
             return
 
