@@ -388,7 +388,10 @@ adapter 到 runtime 的链路。
 
 `http://localhost:8086/readyz` 在 placeholder profile 下返回 `503 degraded` 是预期行为，
 表示还没配置真实模型 provider credential，不代表 AI Gateway 进程失败。
-默认本地模型 profile 的 OpenAI-compatible 地址是 `http://localhost:11434/v1`。
+默认本地模型 profile 的 OpenAI-compatible 地址是 `http://localhost:11434/v1`。如果
+`deploy/.env` 设置 `AI_GATEWAY_LOCAL_SEED_ENABLED=true`，`dev-up.sh` 会用
+`AI_GATEWAY_LOCAL_*` 覆盖 `default-chat`、`default-embedding`、`default-rerank`
+三条默认 profile，并同步激活 QA 的 LLM 配置到同一个 `default-chat` model。
 Document MCP 的默认 endpoint 是 `http://localhost:8085/mcp`，QA 将其工具暴露为
 `document__<tool>`；完整工具参数和 Agent 工作流见
 [Document MCP 工具契约](../docs/services/document/docs/mcp-tools.md)。
@@ -416,6 +419,26 @@ Seeded local resources:
 | Document | material `22222222-2222-4222-8222-222222222201`, report `22222222-2222-4222-8222-222222222301`, outline `22222222-2222-4222-8222-222222222401` |
 | AI Gateway | optional placeholder profiles `default-chat`, `default-embedding`, and `default-rerank`; `.env` local seed can replace their provider `base_url` and encrypted `api_key` |
 | QA | conversation `33333333-3333-4333-8333-333333333301`, user message `33333333-3333-4333-8333-333333333401`, assistant message `33333333-3333-4333-8333-333333333402`; default KB list intentionally empty for global Knowledge MCP search |
+
+AI Gateway 的静态 seed 不保存真实 provider key，只保存可识别的本地 placeholder。
+需要本机真实 provider 时，在 `deploy/.env` 中设置：
+
+```bash
+AI_GATEWAY_LOCAL_SEED_ENABLED=true
+AI_GATEWAY_LOCAL_PROVIDER=siliconflow
+AI_GATEWAY_LOCAL_PROVIDER_BASE_URL=https://api.siliconflow.cn/v1
+AI_GATEWAY_LOCAL_PROVIDER_API_KEY=<local-provider-api-key>
+AI_GATEWAY_LOCAL_CHAT_MODEL=deepseek-ai/DeepSeek-V3
+AI_GATEWAY_LOCAL_EMBEDDING_MODEL=BAAI/bge-m3
+AI_GATEWAY_LOCAL_EMBEDDING_DIMENSIONS=1024
+AI_GATEWAY_LOCAL_RERANK_MODEL=BAAI/bge-reranker-v2-m3
+AI_GATEWAY_LOCAL_RERANK_TOP_N=5
+```
+
+再次运行 `./scripts/local/dev-up.sh` 后，脚本会用
+`AI_GATEWAY_CREDENTIAL_ENCRYPTION_KEY` 加密 provider key，更新 AI Gateway 默认
+profiles，并新增/激活一条 QA `llm_config_versions` 记录，使 QA 请求的 model 与
+`default-chat` profile 一致。生成的 SQL 不应提交，真实 key 只留在本机 `.env`。
 
 `minio-init` 会创建两个本地 bucket：`software-teamwork-local` 供 File service
 使用，`software-teamwork-knowledge` 供 RAGFlow Knowledge runtime 使用。
@@ -464,8 +487,9 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env down -v
 ```
 
 AI Gateway 的本地 placeholder profile 只用于 readiness 检查，里面不是可用的真实
-provider key。真正调用模型前，需要运维或开发者配置真实 provider credential。默认
-OpenAI-compatible 地址是 `http://host.docker.internal:11434/v1`。
+provider key。真正调用模型前，需要通过管理端配置真实 provider credential，或在
+`deploy/.env` 中启用 `AI_GATEWAY_LOCAL_SEED_ENABLED=true` 的本地 overlay。默认
+OpenAI-compatible 地址是 `http://localhost:11434/v1`。
 
 ## Request ID 排障
 

@@ -213,6 +213,9 @@ migration 和 demo seed。
 
 `ai-gateway /readyz` 在 placeholder credential 下返回 `503 degraded` 是预期行为，
 不代表服务没起。默认本地模型 profile 指向宿主机 `http://localhost:11434/v1`。
+本机需要真实 provider 时，在 `deploy/.env` 设置 `AI_GATEWAY_LOCAL_SEED_ENABLED=true`
+和 `AI_GATEWAY_LOCAL_*` 后重新运行 `./scripts/local/dev-up.sh`；脚本会加密写入默认
+AI Gateway profiles，并同步 QA active LLM model。
 完整排障见 [deploy/README.md](deploy/README.md) 和
 [Docker 镜像拉取环境与镜像源](docs/runbooks/docker-image-pull-environment.md)。
 

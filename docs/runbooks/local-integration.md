@@ -544,6 +544,14 @@ job 依赖可用的 AI Gateway chat profile/provider。
 PR #487 之后 AI Gateway 作为本机进程运行（不再有 AI Gateway Docker 业务服务）。
 `dev-up.sh` 会自动执行 ai-gateway migration 并写入本地 placeholder profile；`run-backend.sh`
 会随其他服务一起启动 ai-gateway。
+如果 `deploy/.env` 设置 `AI_GATEWAY_LOCAL_SEED_ENABLED=true`，`dev-up.sh` 会在静态
+seed 后读取 `AI_GATEWAY_LOCAL_PROVIDER`、`AI_GATEWAY_LOCAL_PROVIDER_BASE_URL`、
+`AI_GATEWAY_LOCAL_PROVIDER_API_KEY`、`AI_GATEWAY_LOCAL_CHAT_MODEL`、
+`AI_GATEWAY_LOCAL_EMBEDDING_MODEL`、`AI_GATEWAY_LOCAL_EMBEDDING_DIMENSIONS`、
+`AI_GATEWAY_LOCAL_RERANK_MODEL` 和 `AI_GATEWAY_LOCAL_RERANK_TOP_N`，生成加密
+credential，并覆盖 `default-chat`、`default-embedding`、`default-rerank`。同一
+overlay 还会新增/激活一条 QA LLM 配置版本，让 QA 的 active model 与
+`default-chat` profile model 一致。
 
 AI Gateway 服务 token 运行时只接受 hash，如需手动验证：
 
@@ -570,16 +578,18 @@ go run ./cmd/server
 ### 报告大纲/正文 AI 生成配置
 
 报告大纲生成（`outline_generation`）和正文生成（`content_generation`）调用 AI Gateway 的
-`default-chat` profile。**SQL 本地 seed 写入的是 Ollama 占位 URL，不带真实模型，默认不可用。**
+`default-chat` profile。**本地 seed 写入的是 placeholder URL，不带真实模型，默认不可用。**
 拉取最新 develop 后如果点击"生成大纲"一直失败，根本原因就是 AI Gateway 没有指向可用的
 LLM provider。
 
-优先用 `.env` 驱动的本地 seed 配置后重试：
+可以选择用 `deploy/.env` overlay 自动配置，或按以下管理端步骤手动配置后重试。
+overlay 配置示例：
 
-```text
+```bash
+AI_GATEWAY_LOCAL_SEED_ENABLED=true
 AI_GATEWAY_LOCAL_PROVIDER=siliconflow
 AI_GATEWAY_LOCAL_PROVIDER_BASE_URL=https://api.siliconflow.cn/v1
-AI_GATEWAY_LOCAL_PROVIDER_API_KEY=<your provider key>
+AI_GATEWAY_LOCAL_PROVIDER_API_KEY=<local-provider-api-key>
 AI_GATEWAY_LOCAL_CHAT_MODEL=deepseek-ai/DeepSeek-V3
 AI_GATEWAY_LOCAL_EMBEDDING_MODEL=BAAI/bge-m3
 AI_GATEWAY_LOCAL_EMBEDDING_DIMENSIONS=1024
@@ -587,9 +597,10 @@ AI_GATEWAY_LOCAL_RERANK_MODEL=BAAI/bge-reranker-v2-m3
 AI_GATEWAY_LOCAL_RERANK_TOP_N=5
 ```
 
-重新运行 `./scripts/local/dev-up.sh` 后，`services/ai-gateway/cmd/local-seed`
-会用 `AI_GATEWAY_CREDENTIAL_ENCRYPTION_KEY` 加密 API key，并更新
-`default-chat`、`default-embedding`、`default-rerank`。如果 `MODEL_ID` 或
+修改后重新运行 `./scripts/local/dev-up.sh`，再启动或重启后端。脚本会用
+`AI_GATEWAY_CREDENTIAL_ENCRYPTION_KEY` 加密 API key，只把密文写入 PostgreSQL。
+`default-chat`、`default-embedding`、`default-rerank` 会被更新；如果配置了 chat model，
+脚本还会激活一条匹配的 QA LLM config version。若 `MODEL_ID` 或
 `DOCUMENT_AI_GATEWAY_MODEL` 仍是 `local-placeholder-chat`，`./scripts/local/run-backend.sh`
 会在本次启动里自动改用 `AI_GATEWAY_LOCAL_CHAT_MODEL`。
 
@@ -696,9 +707,10 @@ bodies.
    accepted it.
 3. Create or patch chat, embedding, and rerank profiles through
    `/internal/v1/model-profiles` with `X-Service-Token`,
-   `X-Caller-Service`, and `X-Request-Id`, or set the `AI_GATEWAY_LOCAL_*`
-   variables in `deploy/.env` and rerun `./scripts/local/dev-up.sh`. The `model`
-   in smoke requests must exactly match the selected profile.
+   `X-Caller-Service`, and `X-Request-Id`. The `model` in smoke requests must
+   exactly match the selected profile. For local-only validation you may instead
+   set `AI_GATEWAY_LOCAL_SEED_ENABLED=true` and the `AI_GATEWAY_LOCAL_*` values
+   in `deploy/.env`, then rerun `./scripts/local/dev-up.sh`.
 4. Run direct AI Gateway smoke with
    `AI_GATEWAY_REAL_PROVIDER_SMOKE=1`. Chat is the minimum; embedding and rerank
    run only when the provider and env vars support them.

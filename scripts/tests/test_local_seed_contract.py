@@ -151,6 +151,10 @@ class LocalSeedContractTests(unittest.TestCase):
                 "Cosine\n",
                 encoding="utf-8",
             )
+            (root / "scripts" / "local" / "render_ai_gateway_local_seed.go").write_text(
+                "package main\n",
+                encoding="utf-8",
+            )
             (root / "scripts" / "local" / "run-backend.sh").write_text(
                 "[backend]\n"
                 "[ok]\n"
@@ -265,6 +269,7 @@ class LocalSeedContractTests(unittest.TestCase):
             runbook="",
             env_example="VENDOR_RUNTIME_URL=http://127.0.0.1:9380\n",
             dev_up_script="",
+            ai_gateway_local_seed_renderer="",
             run_backend_script="",
             run_knowledge_runtime_api_script="",
             start_knowledge_runtime_worker_script="",

@@ -6,6 +6,7 @@ import textwrap
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Optional
 
 
 class LocalDevUpScriptTests(unittest.TestCase):
@@ -73,6 +74,50 @@ class LocalDevUpScriptTests(unittest.TestCase):
             self.assertIn("--with nltk>=3.9.4", uv_calls)
             self.assertIn("--with huggingface-hub>=1.3.1", uv_calls)
             self.assertIn("ragflow_deps/download_deps.py --china", uv_calls)
+
+    def test_ai_gateway_local_seed_overlay_runs_when_enabled(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.prepare_runtime(Path(directory))
+            with (root / "deploy" / ".env").open("a", encoding="utf-8") as env_file:
+                env_file.write(
+                    textwrap.dedent(
+                        """\
+                        AI_GATEWAY_LOCAL_SEED_ENABLED=true
+                        AI_GATEWAY_LOCAL_PROVIDER=siliconflow
+                        AI_GATEWAY_LOCAL_PROVIDER_BASE_URL=https://api.siliconflow.cn/v1
+                        AI_GATEWAY_LOCAL_PROVIDER_API_KEY=local-provider-key-for-tests
+                        AI_GATEWAY_LOCAL_CHAT_MODEL=deepseek-ai/DeepSeek-V3
+                        AI_GATEWAY_LOCAL_EMBEDDING_MODEL=BAAI/bge-m3
+                        AI_GATEWAY_LOCAL_EMBEDDING_DIMENSIONS=1024
+                        AI_GATEWAY_LOCAL_RERANK_MODEL=BAAI/bge-reranker-v2-m3
+                        AI_GATEWAY_LOCAL_RERANK_TOP_N=5
+                        AI_GATEWAY_CREDENTIAL_ENCRYPTION_KEY=local-demo-credential-key-change-me
+                        AI_GATEWAY_CREDENTIAL_ENCRYPTION_KEY_REF=local-demo-key-v1
+                        """
+                    )
+                )
+
+            result = self.run_dev_up(root)
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertIn("[dev-up] applying AI Gateway local env seed overlay", result.stdout)
+            self.assertIn("[ok] applying AI Gateway local env seed overlay succeeded", result.stdout)
+            go_calls = (root / "go-calls.log").read_text(encoding="utf-8")
+            self.assertIn("render_ai_gateway_local_seed.go", go_calls)
+            psql_stdin = (root / "psql-stdin.sql").read_text(encoding="utf-8")
+            self.assertIn("-- rendered AI Gateway local overlay", psql_stdin)
+            self.assertIn("deepseek-ai/DeepSeek-V3", psql_stdin)
+
+    def test_ai_gateway_local_seed_overlay_skips_when_disabled(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.prepare_runtime(Path(directory))
+
+            result = self.run_dev_up(root)
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertIn("AI_GATEWAY_LOCAL_SEED_ENABLED is not true", result.stdout)
+            go_calls = (root / "go-calls.log").read_text(encoding="utf-8")
+            self.assertNotIn("render_ai_gateway_local_seed.go", go_calls)
 
     def prepare_runtime(self, root: Path) -> Path:
         script_source = Path.cwd() / "scripts" / "local" / "dev-up.sh"
@@ -156,6 +201,11 @@ class LocalDevUpScriptTests(unittest.TestCase):
             fake_bin / "go",
             """\
             #!/usr/bin/env bash
+            echo "$*" >> "$FAKE_GO_CALLS"
+            if [[ "$1" == "run" && "$2" == *"render_ai_gateway_local_seed.go" ]]; then
+              echo "-- rendered AI Gateway local overlay"
+              echo "SELECT '${AI_GATEWAY_LOCAL_CHAT_MODEL:-missing-chat-model}';"
+            fi
             exit 0
             """,
         )
@@ -163,6 +213,9 @@ class LocalDevUpScriptTests(unittest.TestCase):
             fake_bin / "psql",
             """\
             #!/usr/bin/env bash
+            if [[ ! -t 0 ]]; then
+              cat >> "$FAKE_PSQL_STDIN"
+            fi
             exit 0
             """,
         )
@@ -179,13 +232,15 @@ class LocalDevUpScriptTests(unittest.TestCase):
     def run_dev_up(
         self,
         root: Path,
-        extra_env: dict[str, str] | None = None,
-        args: list[str] | None = None,
+        extra_env: Optional[dict[str, str]] = None,
+        args: Optional[list[str]] = None,
     ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env.update(extra_env or {})
         env["FAKE_DOCKER_CALLS"] = str(root / "docker-calls.log")
         env["FAKE_DOCKER_ENV"] = str(root / "docker-env.log")
+        env["FAKE_GO_CALLS"] = str(root / "go-calls.log")
+        env["FAKE_PSQL_STDIN"] = str(root / "psql-stdin.sql")
         env["FAKE_UV_CALLS"] = str(root / "uv-calls.log")
         if extra_env and "PATH" in extra_env:
             env["PATH"] = extra_env["PATH"]

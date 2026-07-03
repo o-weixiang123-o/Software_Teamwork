@@ -372,6 +372,16 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
 - Seeded local AI Gateway model profiles must use a host-resolvable base URL,
   currently `http://localhost:11434/v1`; do not use container-only names such as
   `host.docker.internal` in the host-run default path.
+- Optional real-provider local AI Gateway bootstrap is controlled only by
+  `AI_GATEWAY_LOCAL_SEED_ENABLED=true` plus `AI_GATEWAY_LOCAL_PROVIDER`,
+  `AI_GATEWAY_LOCAL_PROVIDER_BASE_URL`, `AI_GATEWAY_LOCAL_PROVIDER_API_KEY`,
+  `AI_GATEWAY_LOCAL_CHAT_MODEL`, `AI_GATEWAY_LOCAL_EMBEDDING_MODEL`,
+  `AI_GATEWAY_LOCAL_EMBEDDING_DIMENSIONS`, `AI_GATEWAY_LOCAL_RERANK_MODEL`, and
+  `AI_GATEWAY_LOCAL_RERANK_TOP_N` in untracked `deploy/.env`. The bootstrap must
+  encrypt provider credentials with the same AES-GCM/HMAC contract as
+  `services/ai-gateway/internal/service/crypto.go`, update the three default AI
+  Gateway profiles, and append/activate a matching QA `llm_config_versions` row
+  so QA requests do not keep sending the placeholder chat model.
 
 ### 4. Validation & Error Matrix
 
@@ -390,6 +400,8 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
 | `ENABLE_TIMEOUT_ASSERTION` is missing or disabled in the default local profile | Restore `ENABLE_TIMEOUT_ASSERTION=1` in `deploy/.env.example` or document the replacement timeout mechanism and accepted risk in the Knowledge runtime runbook. |
 | `stop-backend.sh` only kills the wrapper PID | Start host services in a managed process group and stop the whole group; verify the script does not leave `go run` or `uv run` child services bound to ports. |
 | Seeded local AI Gateway profile uses `host.docker.internal` | Replace it with `http://localhost:11434/v1` for the host-run default path. |
+| `AI_GATEWAY_LOCAL_SEED_ENABLED=true` updates AI Gateway profiles but QA still sends `local-placeholder-chat` | Update the same overlay to append/activate a QA `llm_config_versions` row for `provider='ai-gateway'`, `profile_id='default-chat'`, and `model_name=AI_GATEWAY_LOCAL_CHAT_MODEL`. |
+| Generated provider credential decrypts in SQL but AI Gateway invocation fails with credential decrypt errors | Regenerate credentials with the service crypto contract: `SHA-256(AI_GATEWAY_CREDENTIAL_ENCRYPTION_KEY)` as AES-GCM key and keyed HMAC fingerprint derived from `ai-gateway credential fingerprint v1`; do not invent a bash/OpenSSL-only format. |
 | Required Docker image is unavailable locally | Document `docker compose pull <service>` commands and report Docker runtime validation as skipped. |
 | Same component appears with multiple Docker tags | Use the documented baseline or record the reason in the implementation document. |
 | Compose infrastructure image pull is slow or blocked | Prefer `./scripts/local/dev-up.sh --china`, which applies pinned DaoCloud `*_IMAGE` values for that run, or local untracked `deploy/.env` overrides; if using daemon mirror, prove it with `scripts/check_docker_environment.py`; use Docker daemon proxy only when registry rewrite and mirror paths are unavailable. |
@@ -424,6 +436,9 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
 - Run the local seed contract checker and its unit tests when seed SQL, seed
   docs, startup scripts, Knowledge runtime startup defaults, or host-run Go
   module proxy defaults change.
+- For AI Gateway local provider overlay changes, test disabled overlay output,
+  enabled overlay SQL redaction/no raw key leakage, missing env validation, and
+  `dev-up.sh` piping the generated SQL into `psql`.
 - Search Docker and docs for duplicate image tags such as `redis:7` vs
   `redis:7-alpine`, and MinIO server/client tags before declaring version
   cleanup complete.
@@ -446,6 +461,7 @@ deploy/.env.example -> real provider API key
 document worker -> file /internal/v1/files without X-Service-Token
 seed SQL -> inserts model_profiles before ai-gateway migrations
 root Compose -> business service or unapproved build entry
+AI_GATEWAY_LOCAL_* overlay -> updates default-chat only, QA active LLM remains local-placeholder-chat
 ```
 
 #### Correct
@@ -455,8 +471,8 @@ frontend -> gateway http://localhost:8080/api/v1/knowledge-bases
 deploy/.env.example -> local placeholder secrets only
 document worker -> file /internal/v1/files with DOCUMENT_FILE_SERVICE_TOKEN
 seed SQL -> idempotent local/demo data after host-run service migrations
-root Compose default -> postgres, redis, qdrant, minio, minio-init only
-root Compose opt-in -> elasticsearch only under profile knowledge-runtime
+AI_GATEWAY_LOCAL_* overlay -> updates chat/embedding/rerank profiles and activates matching QA LLM config
+root Compose -> postgres, redis, minio, minio-init, elasticsearch only
 ```
 
 ---

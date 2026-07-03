@@ -372,6 +372,18 @@ initialize_qdrant_collection() {
   esac
 }
 
+apply_ai_gateway_local_seed_overlay() {
+  case "${AI_GATEWAY_LOCAL_SEED_ENABLED:-}" in
+    ""|0|false|False|FALSE|no|No|NO|off|Off|OFF)
+      log_info "AI_GATEWAY_LOCAL_SEED_ENABLED is not true; keeping seeded placeholder model profiles"
+      return
+      ;;
+  esac
+
+  go run "$ROOT_DIR/scripts/local/render_ai_gateway_local_seed.go" |
+    psql "$POSTGRES_ADMIN_URL" -v ON_ERROR_STOP=1
+}
+
 run_step "checking local tool dependencies" check_required_commands
 if (( CHINA_MIRRORS )); then
   run_step "preparing Knowledge runtime dependencies with China mirrors" prepare_knowledge_runtime_deps
@@ -406,16 +418,6 @@ psql "$POSTGRES_ADMIN_URL" \
   -f "$ROOT_DIR/deploy/seeds/004-qa-default-knowledge-base.sql"
 log_success "${CURRENT_STEP} succeeded"
 
-CURRENT_STEP="applying AI Gateway local provider seed"
-log_info "${CURRENT_STEP}"
-# Optional env-driven credential seed:
-# AI_GATEWAY_LOCAL_PROVIDER_BASE_URL, AI_GATEWAY_LOCAL_PROVIDER_API_KEY, and
-# AI_GATEWAY_LOCAL_CHAT_MODEL / AI_GATEWAY_LOCAL_EMBEDDING_MODEL /
-# AI_GATEWAY_LOCAL_RERANK_MODEL are read by services/ai-gateway/cmd/local-seed.
-(
-  cd "$ROOT_DIR/services/ai-gateway"
-  go run ./cmd/local-seed
-)
-log_success "${CURRENT_STEP} succeeded"
+run_step "applying AI Gateway local env seed overlay" apply_ai_gateway_local_seed_overlay
 
 log_success "infra, migrations, and seed are ready"

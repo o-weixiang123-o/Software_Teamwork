@@ -20,6 +20,7 @@ ENV_EXAMPLE = Path("deploy/.env.example")
 GITIGNORE = Path(".gitignore")
 AUTH_MIGRATIONS_DIR = Path("services/auth/migrations")
 DEV_UP_SCRIPT = Path("scripts/local/dev-up.sh")
+AI_GATEWAY_LOCAL_SEED_RENDERER = Path("scripts/local/render_ai_gateway_local_seed.go")
 RUN_BACKEND_SCRIPT = Path("scripts/local/run-backend.sh")
 RUN_KNOWLEDGE_RUNTIME_API_SCRIPT = Path("scripts/local/run-knowledge-runtime-api.sh")
 START_KNOWLEDGE_RUNTIME_WORKER_SCRIPT = Path("scripts/local/start-knowledge-runtime-worker.sh")
@@ -138,6 +139,9 @@ REQUIRED_DOC_TOKENS = [
     "./scripts/local/dev-up.sh",
     "./scripts/local/run-backend.sh",
     "down -v",
+    "AI_GATEWAY_LOCAL_SEED_ENABLED=true",
+    "AI_GATEWAY_LOCAL_PROVIDER_API_KEY=<local-provider-api-key>",
+    "default-chat",
 ]
 
 REQUIRED_DEV_UP_TOKENS = [
@@ -176,11 +180,6 @@ REQUIRED_DEV_UP_TOKENS = [
     "004-qa-default-knowledge-base.sql",
     "--wait",
     "--wait-timeout",
-    "initialize_qdrant_collection",
-    "QDRANT_URL",
-    "QDRANT_COLLECTION",
-    "EMBEDDING_DIMENSION",
-    "Cosine",
     "AUTH_DATABASE_URL",
     "FILE_DATABASE_URL",
     "KNOWLEDGE_DATABASE_URL",
@@ -188,11 +187,9 @@ REQUIRED_DEV_UP_TOKENS = [
     "DOCUMENT_DATABASE_URL",
     "AI_GATEWAY_DATABASE_URL",
     "POSTGRES_ADMIN_URL",
-    "cmd/local-seed",
-    "applying AI Gateway local provider seed",
-    "AI_GATEWAY_LOCAL_PROVIDER_BASE_URL",
-    "AI_GATEWAY_LOCAL_PROVIDER_API_KEY",
-    "AI_GATEWAY_LOCAL_CHAT_MODEL",
+    "AI_GATEWAY_LOCAL_SEED_ENABLED",
+    "render_ai_gateway_local_seed.go",
+    "applying AI Gateway local env seed overlay",
 ]
 
 REQUIRED_RUN_BACKEND_TOKENS = [
@@ -334,13 +331,16 @@ REQUIRED_ENV_TOKENS = [
     "KNOWLEDGE_RUNTIME_WORKER_IDLE_CHECK_SECONDS=15",
     "# DOC_ENGINE=elasticsearch",
     "KNOWLEDGE_RUNTIME_ES_URL=http://127.0.0.1:9200",
-    "KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=false",
     "KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE=docker.elastic.co/elasticsearch/elasticsearch:8.15.3",
-    "AI_GATEWAY_LOCAL_PROVIDER_BASE_URL=https://api.siliconflow.cn/v1",
-    "AI_GATEWAY_LOCAL_PROVIDER_API_KEY=",
-    "AI_GATEWAY_LOCAL_CHAT_MODEL=deepseek-ai/DeepSeek-V3",
-    "AI_GATEWAY_LOCAL_EMBEDDING_MODEL=BAAI/bge-m3",
-    "AI_GATEWAY_LOCAL_RERANK_MODEL=BAAI/bge-reranker-v2-m3",
+    "AI_GATEWAY_LOCAL_SEED_ENABLED=false",
+    "# AI_GATEWAY_LOCAL_PROVIDER=siliconflow",
+    "# AI_GATEWAY_LOCAL_PROVIDER_BASE_URL=https://api.siliconflow.cn/v1",
+    "# AI_GATEWAY_LOCAL_PROVIDER_API_KEY=<local-provider-api-key>",
+    "# AI_GATEWAY_LOCAL_CHAT_MODEL=deepseek-ai/DeepSeek-V3",
+    "# AI_GATEWAY_LOCAL_EMBEDDING_MODEL=BAAI/bge-m3",
+    "# AI_GATEWAY_LOCAL_EMBEDDING_DIMENSIONS=1024",
+    "# AI_GATEWAY_LOCAL_RERANK_MODEL=BAAI/bge-reranker-v2-m3",
+    "# AI_GATEWAY_LOCAL_RERANK_TOP_N=5",
     "DOCUMENT_AI_GATEWAY_MODEL=local-placeholder-chat",
     "KNOWLEDGE_VENDOR_EMBEDDING_ID=BAAI/bge-m3@default@SILICONFLOW",
 ]
@@ -381,6 +381,7 @@ def verify_local_seed_contract(root: Path) -> list[str]:
     runbook = read_required(root, LOCAL_RUNBOOK, issues)
     env_example = read_required(root, ENV_EXAMPLE, issues)
     dev_up_script = read_required(root, DEV_UP_SCRIPT, issues)
+    ai_gateway_local_seed_renderer = read_required(root, AI_GATEWAY_LOCAL_SEED_RENDERER, issues)
     run_backend_script = read_required(root, RUN_BACKEND_SCRIPT, issues)
     run_knowledge_runtime_api_script = read_required(root, RUN_KNOWLEDGE_RUNTIME_API_SCRIPT, issues)
     start_knowledge_runtime_worker_script = read_required(root, START_KNOWLEDGE_RUNTIME_WORKER_SCRIPT, issues)
@@ -401,6 +402,7 @@ def verify_local_seed_contract(root: Path) -> list[str]:
             runbook,
             env_example,
             dev_up_script,
+            ai_gateway_local_seed_renderer,
             run_backend_script,
             run_knowledge_runtime_api_script,
             start_knowledge_runtime_worker_script,
@@ -548,6 +550,7 @@ def validate_docs(
     runbook: str,
     env_example: str,
     dev_up_script: str,
+    ai_gateway_local_seed_renderer: str,
     run_backend_script: str,
     run_knowledge_runtime_api_script: str,
     start_knowledge_runtime_worker_script: str,
@@ -569,6 +572,21 @@ def validate_docs(
     for token in REQUIRED_DEV_UP_TOKENS:
         if token not in dev_up_script:
             issues.append(f"{DEV_UP_SCRIPT} missing local seed runner token `{token}`")
+    for token in [
+        "AI_GATEWAY_LOCAL_PROVIDER",
+        "AI_GATEWAY_LOCAL_PROVIDER_BASE_URL",
+        "AI_GATEWAY_LOCAL_PROVIDER_API_KEY",
+        "AI_GATEWAY_LOCAL_CHAT_MODEL",
+        "AI_GATEWAY_LOCAL_EMBEDDING_MODEL",
+        "AI_GATEWAY_LOCAL_EMBEDDING_DIMENSIONS",
+        "AI_GATEWAY_LOCAL_RERANK_MODEL",
+        "AI_GATEWAY_LOCAL_RERANK_TOP_N",
+        "provider_credentials",
+        "llm_config_versions",
+        "fingerprintContext",
+    ]:
+        if token not in ai_gateway_local_seed_renderer:
+            issues.append(f"{AI_GATEWAY_LOCAL_SEED_RENDERER} missing local overlay token `{token}`")
     for token in REQUIRED_RUN_BACKEND_TOKENS:
         if token not in run_backend_script:
             issues.append(f"{RUN_BACKEND_SCRIPT} missing backend startup token `{token}`")
@@ -616,6 +634,7 @@ def validate_forbidden_content(root: Path) -> list[str]:
         LOCAL_RUNBOOK,
         ENV_EXAMPLE,
         DEV_UP_SCRIPT,
+        AI_GATEWAY_LOCAL_SEED_RENDERER,
         RUN_BACKEND_SCRIPT,
         RUN_KNOWLEDGE_RUNTIME_API_SCRIPT,
         START_KNOWLEDGE_RUNTIME_WORKER_SCRIPT,
