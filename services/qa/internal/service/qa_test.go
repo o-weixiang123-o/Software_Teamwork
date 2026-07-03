@@ -177,6 +177,26 @@ func (r cancelAfterCompletedRunner) RunWithToolResultCallback(ctx context.Contex
 	return r.RunWithObserver(ctx, input, observer)
 }
 
+type cancelAfterCompletedCitationRunner struct{ cancel context.CancelFunc }
+
+func (r cancelAfterCompletedCitationRunner) RunWithObserver(_ context.Context, input []agent.Message, observer agent.Observer) (agent.Result, error) {
+	observer(agent.Event{Type: agent.EventModelStarted, Iteration: 1})
+	observer(agent.Event{Type: agent.EventModelCompleted, Iteration: 1, Usage: agent.TokenUsage{PromptTokens: 7, CompletionTokens: 3, TotalTokens: 10}})
+	r.cancel()
+	tool := agent.Message{
+		Role:    agent.RoleTool,
+		Name:    "search_knowledge",
+		Content: `{"results":[{"documentId":"doc-1","documentName":"Doc","chunkId":"chunk-1","text":"quoted"}]}`,
+	}
+	final := agent.Message{Role: agent.RoleAssistant, Content: "answer with citation"}
+	messages := append(append([]agent.Message(nil), input...), tool, final)
+	return agent.Result{Final: final, Messages: messages, Iterations: 1}, nil
+}
+
+func (r cancelAfterCompletedCitationRunner) RunWithToolResultCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver) (agent.Result, error) {
+	return r.RunWithObserver(ctx, input, observer)
+}
+
 type cancelBeforeCompletedObserverRunner struct{ cancel context.CancelFunc }
 
 func (r cancelBeforeCompletedObserverRunner) RunWithObserver(_ context.Context, input []agent.Message, observer agent.Observer) (agent.Result, error) {
@@ -539,14 +559,20 @@ func (p fakeRuntimeProvider) Acquire() (RuntimeSnapshot, func(), error) {
 }
 
 type fakeCitationSourceChecker struct {
-	availability map[string]bool
-	userID       string
-	documentIDs  []string
+	availability               map[string]bool
+	failWhenContextIsCancelled bool
+	userID                     string
+	documentIDs                []string
 }
 
-func (c *fakeCitationSourceChecker) CheckCitationSources(_ context.Context, userID string, documentIDs []string) (map[string]bool, error) {
+func (c *fakeCitationSourceChecker) CheckCitationSources(ctx context.Context, userID string, documentIDs []string) (map[string]bool, error) {
 	c.userID = userID
 	c.documentIDs = append([]string(nil), documentIDs...)
+	if c.failWhenContextIsCancelled {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+	}
 	return c.availability, nil
 }
 
@@ -832,6 +858,41 @@ func TestAskFinalizesSuccessfulRunAfterRequestContextCancelled(t *testing.T) {
 	}
 	if repository.finalization.Status != "completed" || repository.finalization.TerminationReason != "completed" {
 		t.Fatalf("finalization=%+v", repository.finalization)
+	}
+}
+
+func TestAskRevalidatesFinalCitationsAfterRequestContextCancelled(t *testing.T) {
+	now := time.Date(2026, 6, 29, 10, 0, 0, 0, time.UTC)
+	repository := &fakeRepository{
+		conversation:             Conversation{ID: "conversation-id", OwnerUserID: "user-id", Status: "active", CreatedAt: now, UpdatedAt: now},
+		failOnCanceledFinalizing: true,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	qa, err := NewQAService(repository, fakeRuntimeProvider{runner: cancelAfterCompletedCitationRunner{cancel: cancel}, prompt: "system"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	qa.now = func() time.Time { return now }
+	checker := &fakeCitationSourceChecker{
+		availability:               map[string]bool{"doc-1": true},
+		failWhenContextIsCancelled: true,
+	}
+	qa.SetCitationSourceChecker(checker)
+	result, err := qa.Ask(ctx, "user-id", "conversation-id", AskInput{Message: "disconnect after model with citation"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ResponseRun.Status != "completed" || repository.finalization.Status != "completed" {
+		t.Fatalf("result=%+v finalization=%+v", result.ResponseRun, repository.finalization)
+	}
+	if len(repository.finalization.Citations) != 1 {
+		t.Fatalf("citations=%+v", repository.finalization.Citations)
+	}
+	if !repository.finalization.Citations[0].IsSourceAvailable {
+		t.Fatalf("citation source availability was lost after request cancellation: %+v", repository.finalization.Citations[0])
+	}
+	if checker.userID != "user-id" || len(checker.documentIDs) != 1 || checker.documentIDs[0] != "doc-1" {
+		t.Fatalf("checker user=%q documents=%v", checker.userID, checker.documentIDs)
 	}
 }
 

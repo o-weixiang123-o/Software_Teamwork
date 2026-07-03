@@ -1,5 +1,0 @@
-{"file": ".trellis/spec/backend/mcp-agent-runtime.md", "reason": "QA Agent Loop, SSE, cancellation, replay, and model-client contracts for the implementation."}
-{"file": ".trellis/spec/backend/api-contracts.md", "reason": "Public/internal API error and SSE contract constraints that must remain stable."}
-{"file": "docs/services/qa/README.md", "reason": "Authoritative QA SSE event semantics and safety boundaries."}
-{"file": "docs/services/qa/docs/implementation.md", "reason": "Current QA implementation facts and documentation drift to update."}
-{"file": "docs/testing/reports/2026-07-03/qa-sse-behavior-test-report.md", "reason": "Reproduction evidence and acceptance context for #604 and #605."}

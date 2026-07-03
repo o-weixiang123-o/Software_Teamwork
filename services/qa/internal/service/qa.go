@@ -701,15 +701,17 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 	}
 	assistantMessage.Content = result.Final.Content
 	assistantMessage.Status = "completed"
+	finalizeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
 	finalCitations := citations
 	if len(finalCitations) == 0 {
 		finalCitations = citationsFromAgentMessages(assistantMessage.ID, run.ID, result.Messages)
-		finalCitations = revalidateCitationSources(ctx, userID, s.sourceChecker, finalCitations)
+		finalCitations = revalidateCitationSources(finalizeCtx, userID, s.sourceChecker, finalCitations)
 		for _, citation := range finalCitations {
 			emit("citation.delta", map[string]any{"citation": citation})
 		}
 	} else {
-		finalCitations = revalidateCitationSources(ctx, userID, s.sourceChecker, finalCitations)
+		finalCitations = revalidateCitationSources(finalizeCtx, userID, s.sourceChecker, finalCitations)
 	}
 	assistantMessage.Citations = finalCitations
 	streamedAnswerText := streamedAnswer.String()
@@ -721,9 +723,7 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 		publicMessage := "answer stream did not match final answer"
 		assistantMessage.Status = "failed"
 		emit("error", map[string]any{"responseRunId": run.ID, "code": string(CodeDependency), "message": publicMessage})
-		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer cancel()
-		finalized, finalizeErr := s.repository.FinalizeResponseRun(cleanupCtx, userID, ResponseRunFinalization{
+		finalized, finalizeErr := s.repository.FinalizeResponseRun(finalizeCtx, userID, ResponseRunFinalization{
 			RunID: run.ID, AssistantMessage: assistantMessage, ReasoningSteps: steps, StreamEvents: events,
 			Citations: finalCitations,
 			Status:    "failed", TerminationReason: "answer_stream_mismatch", CurrentIteration: result.Iterations,
@@ -743,9 +743,7 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 		"totalTokens":   usage.TotalTokens,
 		"latencyMs":     int(s.now().Sub(startedAt).Milliseconds()),
 	})
-	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-	defer cancel()
-	run, err = s.repository.FinalizeResponseRun(cleanupCtx, userID, ResponseRunFinalization{
+	run, err = s.repository.FinalizeResponseRun(finalizeCtx, userID, ResponseRunFinalization{
 		RunID: run.ID, AssistantMessage: assistantMessage, ReasoningSteps: steps, StreamEvents: events,
 		Citations: finalCitations,
 		Status:    "completed", TerminationReason: "completed", CurrentIteration: result.Iterations,
