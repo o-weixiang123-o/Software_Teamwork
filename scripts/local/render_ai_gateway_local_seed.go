@@ -311,7 +311,7 @@ func last4(value string) string {
 
 func renderSQL(cfg localSeedConfig, credentials []encryptedCredential) string {
 	var b strings.Builder
-	b.WriteString("-- Generated from deploy/.env by scripts/local/render_ai_gateway_local_seed.go.\n")
+	b.WriteString("-- Generated from the loaded config profile by scripts/local/render_ai_gateway_local_seed.go.\n")
 	b.WriteString("-- Generated SQL contains encrypted provider credentials; do not commit generated output.\n")
 	b.WriteString("\\connect ai_gateway_system\n\n")
 	b.WriteString("BEGIN;\n\n")

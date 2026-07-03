@@ -1,0 +1,364 @@
+version: 1
+profile: base
+description: Shared non-sensitive defaults and secret references for all profiles.
+env:
+  COMPOSE_PROJECT_NAME:
+    value: software-teamwork-local
+    description: Local Docker Compose project name.
+  POSTGRES_PORT:
+    value: "5432"
+  REDIS_PORT:
+    value: "6379"
+  MINIO_API_PORT:
+    value: "9000"
+  MINIO_CONSOLE_PORT:
+    value: "9001"
+  KNOWLEDGE_RUNTIME_ELASTICSEARCH_PORT:
+    value: "9200"
+  POSTGRES_IMAGE:
+    value: postgres:16-alpine
+  REDIS_IMAGE:
+    value: redis:7-alpine
+  MINIO_IMAGE:
+    value: minio/minio:RELEASE.2025-09-07T16-13-09Z
+  MINIO_MC_IMAGE:
+    value: minio/mc:RELEASE.2025-08-13T08-35-41Z
+  GATEWAY_HTTP_PORT:
+    value: "8080"
+  AUTH_HTTP_PORT:
+    value: "8001"
+  FILE_HTTP_PORT:
+    value: "8082"
+  KNOWLEDGE_HTTP_PORT:
+    value: "8083"
+  QA_HTTP_PORT:
+    value: "8084"
+  DOCUMENT_HTTP_PORT:
+    value: "8085"
+  AI_GATEWAY_HTTP_PORT:
+    value: "8086"
+
+  POSTGRES_PASSWORD:
+    fromEnv: POSTGRES_PASSWORD
+    required: true
+    sensitive: true
+  MINIO_ROOT_USER:
+    fromEnv: MINIO_ROOT_USER
+    required: true
+    sensitive: true
+  MINIO_ROOT_PASSWORD:
+    fromEnv: MINIO_ROOT_PASSWORD
+    required: true
+    sensitive: true
+  INTERNAL_SERVICE_TOKEN:
+    fromEnv: INTERNAL_SERVICE_TOKEN
+    required: true
+    sensitive: true
+  AUTH_GATEWAY_ADMIN_SERVICE_TOKEN:
+    fromEnv: AUTH_GATEWAY_ADMIN_SERVICE_TOKEN
+    required: true
+    sensitive: true
+  GATEWAY_AUTH_ADMIN_SERVICE_TOKEN:
+    fromEnv: GATEWAY_AUTH_ADMIN_SERVICE_TOKEN
+    required: true
+    sensitive: true
+  TOKEN_HASH_SECRET:
+    fromEnv: TOKEN_HASH_SECRET
+    required: true
+    sensitive: true
+  AI_GATEWAY_SERVICE_TOKEN_HASHES:
+    fromEnv: AI_GATEWAY_SERVICE_TOKEN_HASHES
+    required: true
+    sensitive: true
+  AI_GATEWAY_CREDENTIAL_ENCRYPTION_KEY:
+    fromEnv: AI_GATEWAY_CREDENTIAL_ENCRYPTION_KEY
+    required: true
+    sensitive: true
+  AI_GATEWAY_CREDENTIAL_ENCRYPTION_KEY_REF:
+    fromEnv: AI_GATEWAY_CREDENTIAL_ENCRYPTION_KEY_REF
+    required: true
+    sensitive: true
+  LOCAL_ADMIN_USERNAME:
+    fromEnv: LOCAL_ADMIN_USERNAME
+    required: true
+  LOCAL_ADMIN_PASSWORD:
+    fromEnv: LOCAL_ADMIN_PASSWORD
+    required: true
+    sensitive: true
+  LOCAL_SUPER_ADMIN_USERNAME:
+    fromEnv: LOCAL_SUPER_ADMIN_USERNAME
+    required: true
+  LOCAL_SUPER_ADMIN_PASSWORD:
+    fromEnv: LOCAL_SUPER_ADMIN_PASSWORD
+    required: true
+    sensitive: true
+
+  POSTGRES_ADMIN_URL:
+    fromEnv: POSTGRES_ADMIN_URL
+    required: true
+    sensitive: true
+  AUTH_DATABASE_URL:
+    fromEnv: AUTH_DATABASE_URL
+    required: true
+    sensitive: true
+  FILE_DATABASE_URL:
+    fromEnv: FILE_DATABASE_URL
+    required: true
+    sensitive: true
+  KNOWLEDGE_DATABASE_URL:
+    fromEnv: KNOWLEDGE_DATABASE_URL
+    required: true
+    sensitive: true
+  QA_DATABASE_URL:
+    fromEnv: QA_DATABASE_URL
+    required: true
+    sensitive: true
+  DOCUMENT_DATABASE_URL:
+    fromEnv: DOCUMENT_DATABASE_URL
+    required: true
+    sensitive: true
+  AI_GATEWAY_DATABASE_URL:
+    fromEnv: AI_GATEWAY_DATABASE_URL
+    required: true
+    sensitive: true
+  DB_TYPE:
+    value: postgres
+
+  UV_DEFAULT_INDEX:
+    value: https://pypi.org/simple
+  HF_ENDPOINT:
+    fromEnv: HF_ENDPOINT
+    sensitive: false
+    description: Optional local/runtime model mirror; unset by default.
+  GOPROXY:
+    value: https://proxy.golang.org,direct
+  GOSUMDB:
+    value: sum.golang.org
+
+  AUTH_HTTP_ADDR:
+    value: ":8001"
+  FILE_HTTP_ADDR:
+    value: ":8082"
+  KNOWLEDGE_HTTP_ADDR:
+    value: ":8083"
+  QA_HTTP_ADDR:
+    value: ":8084"
+  DOCUMENT_HTTP_ADDR:
+    value: ":8085"
+  AI_GATEWAY_HTTP_ADDR:
+    value: ":8086"
+  GATEWAY_HTTP_ADDR:
+    value: ":8080"
+
+  GATEWAY_CORS_ALLOWED_ORIGINS:
+    value: http://localhost:5173,http://127.0.0.1:5173
+  GATEWAY_REDIS_ADDR:
+    value: localhost:6379
+  GATEWAY_AUTH_BASE_URL:
+    value: http://localhost:8001
+  GATEWAY_KNOWLEDGE_BASE_URL:
+    value: http://localhost:8083
+  GATEWAY_QA_BASE_URL:
+    value: http://localhost:8084
+  GATEWAY_DOCUMENT_BASE_URL:
+    value: http://localhost:8085
+  GATEWAY_AI_GATEWAY_BASE_URL:
+    value: http://localhost:8086
+  GATEWAY_APP_VERSION_CURRENT_SHA:
+    fromEnv: GATEWAY_APP_VERSION_CURRENT_SHA
+  GATEWAY_APP_VERSION_ALLOWED_SHAS:
+    fromEnv: GATEWAY_APP_VERSION_ALLOWED_SHAS
+  GATEWAY_GITHUB_TOKEN:
+    fromEnv: GATEWAY_GITHUB_TOKEN
+    sensitive: true
+
+  FILE_STORAGE_BACKEND:
+    value: minio
+  FILE_MINIO_ENDPOINT:
+    value: localhost:9000
+  FILE_MINIO_ACCESS_KEY:
+    fromEnv: FILE_MINIO_ACCESS_KEY
+    required: true
+    sensitive: true
+  FILE_MINIO_SECRET_KEY:
+    fromEnv: FILE_MINIO_SECRET_KEY
+    required: true
+    sensitive: true
+  FILE_MINIO_BUCKET:
+    value: software-teamwork-local
+  FILE_MINIO_USE_SSL:
+    value: "false"
+  FILE_MINIO_REGION:
+    fromEnv: FILE_MINIO_REGION
+  FILE_MINIO_TIMEOUT:
+    value: 10s
+
+  KNOWLEDGE_REDIS_ADDR:
+    value: localhost:6379
+  KNOWLEDGE_SERVICE_TOKEN:
+    fromEnv: KNOWLEDGE_SERVICE_TOKEN
+    required: true
+    sensitive: true
+  FILE_SERVICE_BASE_URL:
+    value: http://localhost:8082
+  KNOWLEDGE_MCP_ADDR:
+    fromEnv: KNOWLEDGE_MCP_ADDR
+  KNOWLEDGE_MCP_CALLER_ID:
+    value: knowledge_mcp
+  KNOWLEDGE_MCP_PERMISSIONS:
+    value: knowledge:read
+  KNOWLEDGE_MCP_ROLES:
+    fromEnv: KNOWLEDGE_MCP_ROLES
+  KNOWLEDGE_MCP_URL:
+    value: http://localhost:8093/mcp
+  KNOWLEDGE_MCP_TOKEN:
+    fromEnv: KNOWLEDGE_MCP_TOKEN
+    sensitive: true
+  KNOWLEDGE_MCP_TOKEN_HEADER:
+    value: X-Service-Token
+  KNOWLEDGE_MCP_ALIAS:
+    value: knowledge
+  KNOWLEDGE_MCP_TIMEOUT:
+    value: 30s
+
+  AI_GATEWAY_BASE_URL:
+    value: http://localhost:8086
+  AI_GATEWAY_SERVICE_TOKEN:
+    fromEnv: AI_GATEWAY_SERVICE_TOKEN
+    required: true
+    sensitive: true
+  AI_GATEWAY_URL:
+    value: http://localhost:8086/internal/v1/chat/completions
+  AI_GATEWAY_TOKEN:
+    fromEnv: AI_GATEWAY_TOKEN
+    required: true
+    sensitive: true
+  AI_GATEWAY_TOKEN_HEADER:
+    value: X-Service-Token
+  AI_GATEWAY_PROFILE_ID:
+    value: default-chat
+  MODEL_ID:
+    value: local-placeholder-chat
+
+  AI_GATEWAY_LOCAL_SEED_ENABLED:
+    value: "false"
+  AI_GATEWAY_LOCAL_PROVIDER:
+    fromEnv: AI_GATEWAY_LOCAL_PROVIDER
+  AI_GATEWAY_LOCAL_PROVIDER_BASE_URL:
+    fromEnv: AI_GATEWAY_LOCAL_PROVIDER_BASE_URL
+  AI_GATEWAY_LOCAL_PROVIDER_API_KEY:
+    fromEnv: AI_GATEWAY_LOCAL_PROVIDER_API_KEY
+    sensitive: true
+  AI_GATEWAY_LOCAL_CHAT_MODEL:
+    fromEnv: AI_GATEWAY_LOCAL_CHAT_MODEL
+  AI_GATEWAY_LOCAL_EMBEDDING_MODEL:
+    fromEnv: AI_GATEWAY_LOCAL_EMBEDDING_MODEL
+  AI_GATEWAY_LOCAL_EMBEDDING_DIMENSIONS:
+    fromEnv: AI_GATEWAY_LOCAL_EMBEDDING_DIMENSIONS
+  AI_GATEWAY_LOCAL_RERANK_MODEL:
+    fromEnv: AI_GATEWAY_LOCAL_RERANK_MODEL
+  AI_GATEWAY_LOCAL_RERANK_TOP_N:
+    fromEnv: AI_GATEWAY_LOCAL_RERANK_TOP_N
+
+  QA_SETTINGS_OPEN:
+    value: "false"
+  QA_ADMIN_USER_IDS:
+    fromEnv: QA_ADMIN_USER_IDS
+  MCP_TRANSPORT:
+    value: streamable_http
+  MCP_SERVER_ALIAS:
+    value: document
+  MCP_SERVER_URL:
+    value: http://localhost:8085/mcp
+  MCP_SERVER_TOKEN:
+    fromEnv: MCP_SERVER_TOKEN
+    required: true
+    sensitive: true
+  MCP_SERVER_TOKEN_HEADER:
+    value: Authorization
+
+  DOCUMENT_REDIS_ADDR:
+    value: localhost:6379
+  DOCUMENT_FILE_SERVICE_URL:
+    value: http://localhost:8082
+  DOCUMENT_FILE_SERVICE_TOKEN:
+    fromEnv: DOCUMENT_FILE_SERVICE_TOKEN
+    required: true
+    sensitive: true
+  DOCUMENT_AI_GATEWAY_URL:
+    value: http://localhost:8086
+  DOCUMENT_AI_GATEWAY_PROFILE_ID:
+    value: default-chat
+  DOCUMENT_AI_GATEWAY_MODEL:
+    value: local-placeholder-chat
+  DOCUMENT_AI_GATEWAY_SERVICE_TOKEN:
+    fromEnv: DOCUMENT_AI_GATEWAY_SERVICE_TOKEN
+    required: true
+    sensitive: true
+  DOCUMENT_KNOWLEDGE_SERVICE_URL:
+    value: http://localhost:8083
+  DOCUMENT_KNOWLEDGE_SERVICE_TOKEN:
+    fromEnv: DOCUMENT_KNOWLEDGE_SERVICE_TOKEN
+    required: true
+    sensitive: true
+
+  VENDOR_RUNTIME_URL:
+    value: http://127.0.0.1:9380
+  VENDOR_RUNTIME_SERVICE_TOKEN:
+    fromEnv: VENDOR_RUNTIME_SERVICE_TOKEN
+    required: true
+    sensitive: true
+  KNOWLEDGE_RUNTIME_SERVICE_TOKEN:
+    fromEnv: KNOWLEDGE_RUNTIME_SERVICE_TOKEN
+    required: true
+    sensitive: true
+  KNOWLEDGE_RUNTIME_SCOPE_ID:
+    value: knowledge_runtime
+  KNOWLEDGE_RUNTIME_INDEX_ID:
+    value: runtime
+  KNOWLEDGE_RUNTIME_READINESS_MODE:
+    value: query
+  KNOWLEDGE_AUTO_START_INGESTION:
+    value: "true"
+  KNOWLEDGE_RUNTIME_WORKER_IDLE_SHUTDOWN_SECONDS:
+    value: "300"
+  KNOWLEDGE_RUNTIME_WORKER_IDLE_CHECK_SECONDS:
+    value: "15"
+  ENABLE_TIMEOUT_ASSERTION:
+    value: "1"
+  DOC_ENGINE:
+    value: elasticsearch
+  KNOWLEDGE_RUNTIME_ES_URL:
+    value: http://127.0.0.1:9200
+  KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE:
+    value: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+  KNOWLEDGE_RUNTIME_ELASTICSEARCH_JAVA_OPTS:
+    value: -Xms512m -Xmx512m
+  KNOWLEDGE_RUNTIME_AI_GATEWAY_SERVICE_TOKEN:
+    fromEnv: KNOWLEDGE_RUNTIME_AI_GATEWAY_SERVICE_TOKEN
+    sensitive: true
+  KNOWLEDGE_RUNTIME_AI_GATEWAY_CALLER_SERVICE:
+    value: knowledge
+  KNOWLEDGE_RUNTIME_AI_GATEWAY_EMBEDDING_PROFILE_ID:
+    value: default-embedding
+  KNOWLEDGE_RUNTIME_AI_GATEWAY_RERANK_PROFILE_ID:
+    value: default-rerank
+  KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY:
+    value: AI_GATEWAY
+  KNOWLEDGE_RUNTIME_EMBEDDING_MODEL:
+    value: BAAI/bge-m3
+  KNOWLEDGE_RUNTIME_EMBEDDING_BASE_URL:
+    value: http://127.0.0.1:8086/internal/v1
+  KNOWLEDGE_RUNTIME_RERANK_FACTORY:
+    value: AI_GATEWAY
+  KNOWLEDGE_RUNTIME_RERANK_MODEL:
+    value: BAAI/bge-reranker-v2-m3
+  KNOWLEDGE_RUNTIME_RERANK_BASE_URL:
+    value: http://127.0.0.1:8086/internal/v1
+  KNOWLEDGE_VENDOR_EMBEDDING_ID:
+    value: BAAI/bge-m3@default@AI_GATEWAY
+  KNOWLEDGE_VENDOR_RERANK_ID:
+    value: BAAI/bge-reranker-v2-m3@default@AI_GATEWAY
+  KNOWLEDGE_RUNTIME_MODEL_API_KEY:
+    fromEnv: KNOWLEDGE_RUNTIME_MODEL_API_KEY
+    sensitive: true

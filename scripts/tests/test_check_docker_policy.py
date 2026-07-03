@@ -66,12 +66,37 @@ VALID_ENV = textwrap.dedent(
     """
 )
 
+VALID_CONFIG_BASE = textwrap.dedent(
+    """
+    version: 1
+    profile: base
+    env:
+      POSTGRES_IMAGE:
+        value: postgres:16-alpine
+      REDIS_IMAGE:
+        value: redis:7-alpine
+      MINIO_IMAGE:
+        value: minio/minio:RELEASE.2025-09-07T16-13-09Z
+      MINIO_MC_IMAGE:
+        value: minio/mc:RELEASE.2025-08-13T08-35-41Z
+      KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE:
+        value: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+      GOPROXY:
+        value: https://proxy.golang.org,direct
+      GOSUMDB:
+        value: sum.golang.org
+      HF_ENDPOINT:
+        fromEnv: HF_ENDPOINT
+    """
+)
+
 class DockerPolicyTests(unittest.TestCase):
     def test_valid_policy_files_have_no_issues(self) -> None:
         issues = self.verify(
             files={
                 "deploy/docker-compose.yml": VALID_COMPOSE,
-                "deploy/.env.example": VALID_ENV,
+                ".env.example": VALID_ENV,
+                "config/base.yaml": VALID_CONFIG_BASE,
             }
         )
 
@@ -190,18 +215,23 @@ class DockerPolicyTests(unittest.TestCase):
         self.assertIssueContains(issues, "business service Dockerfile")
         self.assertIssueContains(issues, "services/parser is retired")
 
-    def test_env_example_regressions_are_reported(self) -> None:
-        env = (
-            VALID_ENV
-            + "\nPOSTGRES_IMAGE=postgres:latest\n"
-            + "KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE=docker.m.daocloud.io/docker.elastic.co/elasticsearch/elasticsearch:8.15.3\n"
-            + "HF_ENDPOINT=https://hf-mirror.com\n"
+    def test_config_source_regressions_are_reported(self) -> None:
+        config = (
+            VALID_CONFIG_BASE.replace("value: postgres:16-alpine", "value: postgres:latest")
+            + "\n  HF_ENDPOINT:\n"
+            + "    value: https://hf-mirror.com\n"
+        )
+        env = VALID_ENV + "\nKNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE=docker.m.daocloud.io/docker.elastic.co/elasticsearch/elasticsearch:8.15.3\n"
+
+        issues = self.verify(
+            files={
+                "config/base.yaml": config,
+                ".env.example": env,
+            }
         )
 
-        issues = self.verify(files={"deploy/.env.example": env})
-
         self.assertIssueContains(issues, "POSTGRES_IMAGE")
-        self.assertIssueContains(issues, "KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE")
+        self.assertIssueContains(issues, "third-party registry rewrite")
         self.assertIssueContains(issues, "must not be active by default")
         self.assertIssueContains(issues, "must not use latest")
         self.assertIssueContains(issues, "HF_ENDPOINT=https://hf-mirror.com")
@@ -229,7 +259,8 @@ class DockerPolicyTests(unittest.TestCase):
             root = Path(directory)
             all_files = dict(files)
             all_files.setdefault("deploy/docker-compose.yml", VALID_COMPOSE)
-            all_files.setdefault("deploy/.env.example", VALID_ENV)
+            all_files.setdefault(".env.example", VALID_ENV)
+            all_files.setdefault("config/base.yaml", VALID_CONFIG_BASE)
             for relative, content in all_files.items():
                 path = root / relative
                 path.parent.mkdir(parents=True, exist_ok=True)

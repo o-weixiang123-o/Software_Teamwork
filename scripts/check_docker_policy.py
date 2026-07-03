@@ -402,30 +402,42 @@ def parse_profiles(raw: str) -> tuple[str, ...]:
 
 
 def validate_env_example(root: Path) -> list[str]:
-    env_file = root / "deploy" / ".env.example"
-    if not env_file.exists():
-        return ["deploy/.env.example is required for local startup defaults"]
-
-    content = env_file.read_text(encoding="utf-8")
-    values = parse_env_file(content)
+    env_file = root / ".env.example"
+    config_file = root / "config" / "base.yaml"
     issues: list[str] = []
+    if not env_file.exists():
+        issues.append(".env.example is required as the local secret template")
+    if not config_file.exists():
+        issues.append("config/base.yaml is required for committed local startup defaults")
+    if issues:
+        return issues
+
+    template_content = env_file.read_text(encoding="utf-8")
+    template_values = parse_env_file(template_content)
+    config_content = config_file.read_text(encoding="utf-8")
+    config_values = parse_config_env_values(config_content)
 
     for key, expected_default in EXPECTED_IMAGE_DEFAULTS.items():
-        value = values.get(key)
-        if value is not None and value != expected_default:
+        value = config_values.get(key)
+        if value != expected_default:
             issues.append(
-                f"deploy/.env.example: `{key}` must default to official pinned `{expected_default}` under the official-by-default source policy; use ./scripts/local/dev-up.sh --china or local deploy/.env overrides"
+                f"config/base.yaml: `{key}` must default to official pinned `{expected_default}` under the official-by-default source policy; use ./scripts/local/dev-up.sh --china or local .env.local overrides"
             )
 
-    for key, value in values.items():
+    for key, value in config_values.items():
         if key.endswith("_IMAGE") and uses_latest_tag(value):
-            issues.append(f"deploy/.env.example: `{key}` must not use latest")
-    if values.get("HF_ENDPOINT") == "https://hf-mirror.com":
+            issues.append(f"config/base.yaml: `{key}` must not use latest")
+    for key, value in template_values.items():
+        if key.endswith("_IMAGE") and uses_latest_tag(value):
+            issues.append(f".env.example: `{key}` must not use latest")
+        if value.startswith("docker.m.daocloud.io/"):
+            issues.append(f".env.example: `{key}` must not enable third-party registry rewrite by default")
+    if config_values.get("HF_ENDPOINT") == "https://hf-mirror.com" or template_values.get("HF_ENDPOINT") == "https://hf-mirror.com":
         issues.append(
-            "deploy/.env.example: `HF_ENDPOINT=https://hf-mirror.com` must not be active by default; use run-knowledge-parse-stack.sh --china or local deploy/.env overrides"
+            ".env.example/config/base.yaml: `HF_ENDPOINT=https://hf-mirror.com` must not be active by default; use run-knowledge-parse-stack.sh --china or local .env.local overrides"
         )
-    if values.get("GO_DOCKER_GOSUMDB") == "off":
-        issues.append("deploy/.env.example: must not disable Go checksum verification")
+    if template_values.get("GO_DOCKER_GOSUMDB") == "off" or config_values.get("GO_DOCKER_GOSUMDB") == "off" or config_values.get("GOSUMDB") == "off":
+        issues.append(".env.example/config/base.yaml: must not disable Go checksum verification")
 
     return issues
 
@@ -438,6 +450,25 @@ def parse_env_file(content: str) -> dict[str, str]:
             continue
         key, value = stripped.split("=", 1)
         values[key.strip()] = value.strip().strip("'\"")
+    return values
+
+
+def parse_config_env_values(content: str) -> dict[str, str]:
+    values: dict[str, str] = {}
+    current_key = ""
+    for line in content.splitlines():
+        key_match = re.match(r"^  ([A-Z][A-Z0-9_]*):\s*$", line)
+        if key_match:
+            current_key = key_match.group(1)
+            continue
+        if not current_key:
+            continue
+        value_match = re.match(r"^    value:\s*(.*?)\s*$", line)
+        if value_match:
+            values[current_key] = value_match.group(1).strip().strip("'\"")
+            continue
+        if re.match(r"^  [A-Za-z0-9_]+:\s*$", line):
+            current_key = ""
     return values
 
 

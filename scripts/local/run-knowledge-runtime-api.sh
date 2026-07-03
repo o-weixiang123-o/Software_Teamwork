@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-ENV_FILE="${KNOWLEDGE_ENV_FILE:-$ROOT_DIR/deploy/.env}"
+CONFIG_LOADER="$ROOT_DIR/scripts/config/load-profile.sh"
 RUN_DIR="$ROOT_DIR/.local/run"
 LOG_DIR="$ROOT_DIR/.local/logs"
 RUNTIME_DIR="$ROOT_DIR/services/knowledge-runtime"
@@ -121,7 +121,7 @@ print_required_env_hint() {
 Required local Knowledge runtime API settings are missing.
 
 Start from the tracked defaults, then add private provider credentials:
-  cp deploy/.env.example deploy/.env
+  cp .env.example .env.local
 
 Required for this script:
   VENDOR_RUNTIME_SERVICE_TOKEN or KNOWLEDGE_RUNTIME_SERVICE_TOKEN
@@ -181,7 +181,7 @@ require_env() {
   export LITELLM_LOCAL_MODEL_COST_MAP="${LITELLM_LOCAL_MODEL_COST_MAP:-True}"
   if (( CHINA_MIRRORS )) && [[ -z "${HF_ENDPOINT:-}" ]]; then
     export HF_ENDPOINT="https://hf-mirror.com"
-    echo "using HF_ENDPOINT=https://hf-mirror.com for this run (--china); deploy/.env is not modified"
+    echo "using HF_ENDPOINT=https://hf-mirror.com for this run (--china); profile files and .env.local are not modified"
   fi
 
   append_no_proxy "127.0.0.1"
@@ -379,16 +379,9 @@ wait_for_http_ok() {
 echo "knowledge runtime API startup: starting runtime API only"
 parse_args "$@"
 
-if [[ ! -f "$ENV_FILE" ]]; then
-  echo "missing deploy/.env; run: cp deploy/.env.example deploy/.env" >&2
-  exit 1
-fi
-
 export SOFTWARE_TEAMWORK_ROOT="$ROOT_DIR"
-set -a
 # shellcheck disable=SC1090
-. "$ENV_FILE"
-set +a
+. "$CONFIG_LOADER"
 
 require_env
 if ! command -v setsid >/dev/null 2>&1 && ! command -v python3 >/dev/null 2>&1; then

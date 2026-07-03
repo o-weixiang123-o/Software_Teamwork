@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-ENV_FILE="$ROOT_DIR/deploy/.env"
+CONFIG_LOADER="$ROOT_DIR/scripts/config/load-profile.sh"
 COMPOSE_FILE="$ROOT_DIR/deploy/docker-compose.yml"
 CURRENT_STEP="initializing"
 INFRA_SERVICES=(postgres redis minio elasticsearch)
@@ -116,6 +116,7 @@ parse_args() {
 
 on_exit() {
   status=$?
+  local compose_env_hint="${CONFIG_COMPOSE_ENV_FILE:-.local/config/${CONFIG_PROFILE:-dev}.env}"
   if (( status == 0 )); then
     log_success "completed successfully"
   else
@@ -125,13 +126,13 @@ on_exit() {
         log_hint "Install the missing host tool(s), then rerun ./scripts/local/dev-up.sh."
         ;;
       "initializing MinIO buckets")
-        log_hint "Check MinIO logs: docker compose -f deploy/docker-compose.yml --env-file deploy/.env logs minio-init"
-        log_hint "Check Docker status: docker compose -f deploy/docker-compose.yml --env-file deploy/.env ps"
+        log_hint "Check MinIO logs: docker compose -f deploy/docker-compose.yml --env-file $compose_env_hint logs minio-init"
+        log_hint "Check Docker status: docker compose -f deploy/docker-compose.yml --env-file $compose_env_hint ps"
         ;;
       *)
-        log_hint "Check Docker status: docker compose -f deploy/docker-compose.yml --env-file deploy/.env ps"
+        log_hint "Check Docker status: docker compose -f deploy/docker-compose.yml --env-file $compose_env_hint ps"
         log_hint "Mainland China network: rerun ./scripts/local/dev-up.sh --china."
-        log_hint "Official mode: confirm deploy/.env contains GOPROXY=https://proxy.golang.org,direct and GOSUMDB=sum.golang.org."
+        log_hint "Official mode: confirm config/base.yaml or .env.local keeps GOPROXY=https://proxy.golang.org,direct and GOSUMDB=sum.golang.org."
         ;;
     esac
   fi
@@ -169,7 +170,7 @@ run_minio_init() {
   CURRENT_STEP="initializing MinIO buckets"
   log_info "${CURRENT_STEP}"
   if ! "${compose[@]}" up --no-deps --exit-code-from minio-init minio-init; then
-    log_error "minio-init failed; inspect logs with: docker compose -f deploy/docker-compose.yml --env-file deploy/.env logs minio-init"
+    log_error "minio-init failed; inspect logs with: docker compose -f deploy/docker-compose.yml --env-file $CONFIG_COMPOSE_ENV_FILE logs minio-init"
     return 1
   fi
   log_success "${CURRENT_STEP} succeeded"
@@ -193,18 +194,18 @@ ensure_go_module_settings() {
 
   if [[ -z "${GOPROXY:-}" && ( -z "$effective_goproxy" || "$effective_goproxy" == *"proxy.golang.org"* ) ]]; then
     export GOPROXY="$default_goproxy"
-    log_info "deploy/.env did not set GOPROXY; using selected default for this run: $GOPROXY"
+    log_info "profile did not set GOPROXY; using selected default for this run: $GOPROXY"
   elif [[ -z "${GOPROXY:-}" ]]; then
     export GOPROXY="$effective_goproxy"
-    log_info "deploy/.env did not set GOPROXY; using global go env value: $GOPROXY"
+    log_info "profile did not set GOPROXY; using global go env value: $GOPROXY"
   fi
 
   if [[ -z "${GOSUMDB:-}" && ( -z "$effective_gosumdb" || "$effective_gosumdb" == "sum.golang.org" ) ]]; then
     export GOSUMDB="$default_gosumdb"
-    log_info "deploy/.env did not set GOSUMDB; using selected default for this run: $GOSUMDB"
+    log_info "profile did not set GOSUMDB; using selected default for this run: $GOSUMDB"
   elif [[ -z "${GOSUMDB:-}" ]]; then
     export GOSUMDB="$effective_gosumdb"
-    log_info "deploy/.env did not set GOSUMDB; using global go env value: $GOSUMDB"
+    log_info "profile did not set GOSUMDB; using global go env value: $GOSUMDB"
   fi
 
   if [[ "$GOPROXY" == *"proxy.golang.org"* && "$CHINA_MIRRORS" == "0" ]]; then
@@ -222,7 +223,7 @@ apply_china_mirrors() {
   export UV_DEFAULT_INDEX="$CHINA_UV_DEFAULT_INDEX"
   export GOPROXY="$CHINA_GOPROXY"
   export GOSUMDB="$CHINA_GOSUMDB"
-  log_info "using mainland China mirrors for this run (--china); deploy/.env is not modified"
+  log_info "using mainland China mirrors for this run (--china); profile files and .env.local are not modified"
 }
 
 warn_legacy_mirror_env() {
@@ -242,8 +243,8 @@ warn_legacy_mirror_env() {
     esac
   done
   if (( ${#mirrored[@]} > 0 )); then
-    log_warn "deploy/.env still contains mainland China mirror values while --china was not passed."
-    log_warn "continuing with deploy/.env as user configuration; remove those values for official defaults or rerun with --china."
+    log_warn "local profile output contains mainland China mirror values while --china was not passed."
+    log_warn "continuing with user configuration; remove those values from .env.local or rerun with --china."
   fi
 }
 
@@ -284,18 +285,9 @@ trap on_exit EXIT
 
 log_info "starting infra, migrations, and seed"
 
-if [[ ! -f "$ENV_FILE" ]]; then
-  log_error "missing deploy/.env; run: cp deploy/.env.example deploy/.env"
-  exit 1
-fi
-
-# deploy/.env is copied by the user from deploy/.env.example. The script does
-# not own defaults; it only exposes that file to host migration/seed commands.
 export SOFTWARE_TEAMWORK_ROOT="$ROOT_DIR"
-set -a
 # shellcheck disable=SC1090
-. "$ENV_FILE"
-set +a
+. "$CONFIG_LOADER"
 
 if (( CHINA_MIRRORS )); then
   apply_china_mirrors
@@ -306,7 +298,7 @@ else
   warn_legacy_mirror_env
 fi
 
-compose=(docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE")
+compose=(docker compose -f "$COMPOSE_FILE" --env-file "$CONFIG_COMPOSE_ENV_FILE")
 
 apply_ai_gateway_local_seed_overlay() {
   case "${AI_GATEWAY_LOCAL_SEED_ENABLED:-}" in

@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-ENV_FILE="${KNOWLEDGE_ENV_FILE:-$ROOT_DIR/deploy/.env}"
+CONFIG_LOADER="$ROOT_DIR/scripts/config/load-profile.sh"
 RUN_DIR="$ROOT_DIR/.local/run"
 LOG_DIR="$ROOT_DIR/.local/logs"
 RUNTIME_DIR="$ROOT_DIR/services/knowledge-runtime"
@@ -110,7 +110,7 @@ require_env() {
   export LITELLM_LOCAL_MODEL_COST_MAP="${LITELLM_LOCAL_MODEL_COST_MAP:-True}"
   if (( CHINA_MIRRORS )) && [[ -z "${HF_ENDPOINT:-}" ]]; then
     export HF_ENDPOINT="https://hf-mirror.com"
-    echo "using HF_ENDPOINT=https://hf-mirror.com for this run (--china); deploy/.env is not modified"
+    echo "using HF_ENDPOINT=https://hf-mirror.com for this run (--china); profile files and .env.local are not modified"
   fi
 }
 
@@ -318,9 +318,9 @@ start_idle_shutdown_watcher() {
   worker_pid="$(cat "$WORKER_PID_FILE")"
   [[ "$worker_pid" =~ ^[0-9]+$ ]] || return 0
   if command -v setsid >/dev/null 2>&1; then
-    KNOWLEDGE_ENV_FILE="$ENV_FILE" setsid "$WATCHER_SCRIPT" "$worker_pid" >>"$WATCHER_LOG_FILE" 2>&1 &
+    CONFIG_PROFILE="$CONFIG_PROFILE" CONFIG_SECRET_FILE="$CONFIG_SECRET_FILE" setsid "$WATCHER_SCRIPT" "$worker_pid" >>"$WATCHER_LOG_FILE" 2>&1 &
   else
-    KNOWLEDGE_ENV_FILE="$ENV_FILE" nohup "$WATCHER_SCRIPT" "$worker_pid" >>"$WATCHER_LOG_FILE" 2>&1 &
+    CONFIG_PROFILE="$CONFIG_PROFILE" CONFIG_SECRET_FILE="$CONFIG_SECRET_FILE" nohup "$WATCHER_SCRIPT" "$worker_pid" >>"$WATCHER_LOG_FILE" 2>&1 &
   fi
   echo "knowledge-runtime-worker idle watcher started"
 }
@@ -328,16 +328,9 @@ start_idle_shutdown_watcher() {
 echo "knowledge runtime worker startup: starting worker only"
 parse_args "$@"
 
-if [[ ! -f "$ENV_FILE" ]]; then
-  echo "missing deploy/.env; run: cp deploy/.env.example deploy/.env" >&2
-  exit 1
-fi
-
 export SOFTWARE_TEAMWORK_ROOT="$ROOT_DIR"
-set -a
 # shellcheck disable=SC1090
-. "$ENV_FILE"
-set +a
+. "$CONFIG_LOADER"
 
 require_env
 if ! command -v setsid >/dev/null 2>&1 && ! command -v python3 >/dev/null 2>&1; then

@@ -324,7 +324,7 @@
 2. Gateway 做管理员鉴权和响应归一化，转发到 AI Gateway。
 3. AI Gateway 保存 profile、provider、model、默认参数、超时和 credential 写入状态。
 4. `qa`、`knowledge` 或 `document` 使用内部 service token、`X-Caller-Service` 和 request id 调模型 endpoint。
-5. AI Gateway 解析 profile，校验 purpose、enabled、credential 和 model exact-match。
+5. AI Gateway 解析 profile，校验 purpose、enabled、credential；调用方显式传 `model` 时再做 profile model exact-match。
 6. AI Gateway 调 provider 并归一化响应或错误。
 7. AI Gateway 保存脱敏 invocation summary 和 usage aggregate。
 
@@ -577,7 +577,7 @@ Knowledge 长期知识库。长期知识库检索通过内置 `search_knowledge`
 | 分类 | 分支 |
 | --- | --- |
 | Dependency | 根级 Compose 只启动 PostgreSQL、Redis、MinIO、`minio-init` 和 Elasticsearch，业务服务必须 host-run；该依赖基线不证明完整 E2E。 |
-| Config | `deploy/.env.example` / `deploy/.env`、service token hash、AI profile seed、NO_PROXY/proxy、host-run 端口设置。 |
+| Config | `config/base.yaml` / `config/{profile}.yaml`、根 `.env.example` / 未跟踪 `.env.local`、service token hash、AI profile seed、NO_PROXY/proxy、host-run 端口设置。 |
 | Resource | seed data 只覆盖本地登录、基础报告类型、示例知识库、QA 会话样例和 AI profile placeholder。 |
 | Current State | File PostgreSQL + MinIO smoke、Knowledge runtime PDF E2E、Gateway -> Knowledge -> QA RAG smoke、QA -> Document MCP report tools smoke 和 Issue #125 smoke slices 可显式启用；AI Gateway real provider smoke env-gated。 |
 | Leakage | 本地日志和失败输出不应包含 token、API key、数据库连接串、object key、完整 prompt。 |

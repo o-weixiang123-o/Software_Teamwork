@@ -9,7 +9,7 @@ provider, Knowledge runtime, Docker, or seed dependencies passed.
 Use the local integration baseline first:
 
 ```bash
-cp deploy/.env.example deploy/.env
+cp .env.example .env.local
 ./scripts/local/dev-up.sh
 ./scripts/local/run-backend.sh
 ```
@@ -40,7 +40,7 @@ blocked dependency instead of marking the full smoke as passed.
 
 ## Common Environment
 
-`scripts/run_issue_125_smoke.sh` reads `deploy/.env` when it exists, without
+`scripts/run_issue_125_smoke.sh` reads `.env.local` when it exists, without
 overriding variables already exported in the shell. The script derives the
 default Gateway, owner-service, AI Gateway, Redis, admin, and Document MCP
 settings from that file and the standard host-run ports.
@@ -128,7 +128,7 @@ bash scripts/run_issue_125_smoke.sh --document-mcp
 
 The Document MCP slice defaults to `MCP_TRANSPORT=streamable_http`,
 `MCP_SERVER_ALIAS=document`, `${DOCUMENT_SERVICE_BASE_URL}/mcp`, and the local
-Document MCP service token from `deploy/.env`. Override the `MCP_SERVER_*`
+Document MCP service token from `.env.local`. Override the `MCP_SERVER_*`
 variables only when testing a non-default endpoint.
 
 Run all slices:
@@ -165,9 +165,9 @@ bash scripts/run_issue_125_smoke.sh --all
 | --- | --- | --- |
 | Auth/Gateway/Redis | `redis is not reachable` | Check `docker compose ps redis`, `GATEWAY_REDIS_ADDR`, and `NO_PROXY`. |
 | Auth/Gateway/Redis full | `blocked: auth migration apply failed` | Check PostgreSQL is healthy, `AUTH_GATEWAY_REDIS_DATABASE_URL` points at the Auth database, and `deploy/postgres/init/001-create-databases.sql` ran for a fresh volume. |
-| Auth/Gateway/Redis full | `blocked: postgres/redis infrastructure did not become healthy` | Check Docker daemon state, registry rewrite/image pulls, and `docker compose -f deploy/docker-compose.yml --env-file deploy/.env ps`. |
+| Auth/Gateway/Redis full | `blocked: postgres/redis infrastructure did not become healthy` | Check Docker daemon state, registry rewrite/image pulls, and `docker compose -f deploy/docker-compose.yml --env-file .local/config/dev.env ps`. |
 | File owner | `no knowledge bases available` | Run local seed or create a knowledge base through Gateway first. |
 | Knowledge runtime | Runtime dependency preparation or startup fails | Check Knowledge runtime API/worker logs, `UV_DEFAULT_INDEX`, `VENDOR_RUNTIME_URL`, and runtime prerequisites; record the blocked dependency if it cannot be prepared. |
-| Go services | Go module download fails during host-run startup | Check the terminal summary and relevant `.local/logs/*.log` for `proxy.golang.org` timeout. On mainland China networks rerun the local script with `--china`; otherwise confirm `deploy/.env` or enterprise env contains a reachable `GOPROXY` / `GOSUMDB`. |
+| Go services | Go module download fails during host-run startup | Check the terminal summary and relevant `.local/logs/*.log` for `proxy.golang.org` timeout. On mainland China networks rerun the local script with `--china`; otherwise confirm `.env.local` or enterprise env contains a reachable `GOPROXY` / `GOSUMDB`. |
 | QA RAG | AI Gateway/provider unavailable | Check #234 profile seed/provider setup; placeholder profiles are not real provider proof. |
 | Document MCP | `initialize MCP session` / unauthorized | Check Document `/mcp`, `MCP_SERVER_TOKEN`, `DOCUMENT_MCP_SERVICE_TOKEN`, and token header. |

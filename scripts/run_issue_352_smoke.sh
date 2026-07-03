@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ENV_FILE="${AUTH_GATEWAY_REDIS_ENV_FILE:-$ROOT_DIR/deploy/.env}"
+CONFIG_LOADER="$ROOT_DIR/scripts/config/load-profile.sh"
 COMPOSE_FILE="$ROOT_DIR/deploy/docker-compose.yml"
 NO_PROXY_VALUE="${NO_PROXY:-localhost,127.0.0.1,::1}"
 export NO_PROXY="$NO_PROXY_VALUE"
@@ -24,9 +24,8 @@ host, and executes the env-gated Go smoke:
 Expected pass output includes:
   AUTH_GATEWAY_REDIS_FULL_SMOKE_RESULT pass ...
 
-Environment defaults are read from deploy/.env when it exists, otherwise from
-deploy/.env.example. Export variables before invoking this script to override
-the local defaults.
+Environment defaults are rendered from config/ profiles plus .env.local.
+Export variables before invoking this script to override the local defaults.
 
 Common overrides:
   AUTH_GATEWAY_REDIS_DATABASE_URL
@@ -57,28 +56,9 @@ if ! command -v go >/dev/null 2>&1; then
   exit 2
 fi
 
-load_env_defaults() {
-  local file="$1"
-  local line key value
-  if [[ ! -f "$file" ]]; then
-    return
-  fi
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
-    key="${line%%=*}"
-    value="${line#*=}"
-    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
-    if [[ -z "${!key+x}" ]]; then
-      export "$key=$value"
-    fi
-  done <"$file"
-}
-
-if [[ -f "$ENV_FILE" ]]; then
-  load_env_defaults "$ENV_FILE"
-else
-  load_env_defaults "$ROOT_DIR/deploy/.env.example"
-fi
+export SOFTWARE_TEAMWORK_ROOT="$ROOT_DIR"
+# shellcheck disable=SC1090
+. "$CONFIG_LOADER"
 
 : "${AUTH_GATEWAY_REDIS_DATABASE_URL:=${AUTH_DATABASE_URL:-postgres://auth_app:auth_app_dev@localhost:5432/auth_system?sslmode=disable}}"
 : "${AUTH_GATEWAY_REDIS_ADDR:=${GATEWAY_REDIS_ADDR:-localhost:6379}}"
@@ -89,10 +69,7 @@ export AUTH_GATEWAY_REDIS_DATABASE_URL AUTH_GATEWAY_REDIS_ADDR
 export AUTH_GATEWAY_REDIS_SERVICE_TOKEN AUTH_GATEWAY_REDIS_ADMIN_SERVICE_TOKEN AUTH_GATEWAY_REDIS_TOKEN_HASH_SECRET
 export AUTH_GATEWAY_REDIS_FULL_SMOKE=1
 
-compose_env_file="$ENV_FILE"
-if [[ ! -f "$compose_env_file" ]]; then
-  compose_env_file="$ROOT_DIR/deploy/.env.example"
-fi
+compose_env_file="$CONFIG_COMPOSE_ENV_FILE"
 compose=(docker compose -f "$COMPOSE_FILE" --env-file "$compose_env_file")
 
 if ! "${compose[@]}" config --quiet; then

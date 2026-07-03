@@ -16,7 +16,9 @@ SEED_004 = Path("deploy/seeds/004-qa-default-knowledge-base.sql")
 CLEANUP_SEED = Path("deploy/seeds/099-local-demo-cleanup.sql")
 DEPLOY_README = Path("deploy/README.md")
 LOCAL_RUNBOOK = Path("docs/runbooks/local-integration.md")
-ENV_EXAMPLE = Path("deploy/.env.example")
+ENV_EXAMPLE = Path(".env.example")
+CONFIG_README = Path("config/README.md")
+CONFIG_BASE = Path("config/base.yaml")
 GITIGNORE = Path(".gitignore")
 AUTH_MIGRATIONS_DIR = Path("services/auth/migrations")
 DEV_UP_SCRIPT = Path("scripts/local/dev-up.sh")
@@ -121,14 +123,17 @@ REQUIRED_AUTH_MIGRATION_TOKENS = {
 }
 
 REQUIRED_DOC_TOKENS = [
-    "唯一默认配置来源",
+    "configuration authority",
+    "config/base.yaml",
+    "config/dev.yaml",
+    ".env.local",
     "LOCAL_ADMIN_USERNAME=admin",
     "LOCAL_ADMIN_PASSWORD=LocalDemoAdmin#12345",
     "LOCAL_SUPER_ADMIN_USERNAME=superadmin",
     "LOCAL_SUPER_ADMIN_PASSWORD=LocalDemoAdmin#12345",
     "admin / LocalDemoAdmin#12345",
     "superadmin / LocalDemoAdmin#12345",
-    "cp deploy/.env.example deploy/.env",
+    "cp .env.example .env.local",
     "Go modules 下载默认读取",
     "源选择采用新策略",
     "旧的大陆优先默认镜像契约已废弃",
@@ -175,7 +180,7 @@ REQUIRED_DEV_UP_TOKENS = [
     "PULL_SERVICES=(postgres redis minio minio-init elasticsearch)",
     "initializing MinIO buckets",
     "--exit-code-from minio-init",
-    "docker compose -f deploy/docker-compose.yml --env-file deploy/.env logs minio-init",
+    "CONFIG_COMPOSE_ENV_FILE",
     "001-local-demo-seed.sql",
     "002-ai-gateway-model-profiles.sql",
     "003-qa-document-mcp.sql",
@@ -310,33 +315,39 @@ REQUIRED_STOP_BACKEND_TOKENS = [
 ]
 
 REQUIRED_ENV_TOKENS = [
-    "UV_DEFAULT_INDEX=https://pypi.org/simple",
-    "# HF_ENDPOINT=https://hf-mirror.com",
-    "GOPROXY=https://proxy.golang.org,direct",
-    "GOSUMDB=sum.golang.org",
-    "# POSTGRES_IMAGE=docker.m.daocloud.io/library/postgres:16-alpine",
-    "# REDIS_IMAGE=docker.m.daocloud.io/library/redis:7-alpine",
-    "# MINIO_IMAGE=docker.m.daocloud.io/minio/minio:RELEASE.2025-09-07T16-13-09Z",
-    "# MINIO_MC_IMAGE=docker.m.daocloud.io/minio/mc:RELEASE.2025-08-13T08-35-41Z",
-    "MCP_TRANSPORT=streamable_http",
-    "MCP_SERVER_ALIAS=document",
-    "MCP_SERVER_URL=http://localhost:8085/mcp",
+    "POSTGRES_PASSWORD=local-demo-postgres-password",
+    "MINIO_ROOT_USER=minio_local_demo",
+    "MINIO_ROOT_PASSWORD=minio-local-demo-password",
+    "INTERNAL_SERVICE_TOKEN=local-dev-internal-service-token-change-me",
+    "AUTH_GATEWAY_ADMIN_SERVICE_TOKEN=local-dev-gateway-admin-token-change-me",
+    "GATEWAY_AUTH_ADMIN_SERVICE_TOKEN=local-dev-gateway-admin-token-change-me",
+    "TOKEN_HASH_SECRET=local-demo-token-hash-secret-change-me",
+    "AI_GATEWAY_SERVICE_TOKEN_HASHES=sha256:",
+    "AI_GATEWAY_CREDENTIAL_ENCRYPTION_KEY=local-demo-credential-key-change-me",
+    "AI_GATEWAY_CREDENTIAL_ENCRYPTION_KEY_REF=local-demo-key-v1",
+    "LOCAL_ADMIN_USERNAME=admin",
+    "LOCAL_ADMIN_PASSWORD=LocalDemoAdmin#12345",
+    "LOCAL_SUPER_ADMIN_USERNAME=superadmin",
+    "LOCAL_SUPER_ADMIN_PASSWORD=LocalDemoAdmin#12345",
+    "POSTGRES_ADMIN_URL=postgres://postgres:local-demo-postgres-password@localhost:5432/postgres?sslmode=disable",
+    "AUTH_DATABASE_URL=postgres://auth_app:auth_app_dev@localhost:5432/auth_system?sslmode=disable",
+    "FILE_DATABASE_URL=postgres://file_app:file_app_dev@localhost:5432/file_system?sslmode=disable",
+    "KNOWLEDGE_DATABASE_URL=postgres://knowledge_app:knowledge_app_dev@localhost:5432/knowledge_system?sslmode=disable",
+    "QA_DATABASE_URL=postgres://qa_app:qa_app_dev@localhost:5432/qa_system?sslmode=disable",
+    "DOCUMENT_DATABASE_URL=postgres://document_app:document_app_dev@localhost:5432/document_system?sslmode=disable",
+    "AI_GATEWAY_DATABASE_URL=postgres://ai_gateway_app:ai_gateway_app_dev@localhost:5432/ai_gateway_system?sslmode=disable",
+    "FILE_MINIO_ACCESS_KEY=minio_local_demo",
+    "FILE_MINIO_SECRET_KEY=minio-local-demo-password",
+    "KNOWLEDGE_SERVICE_TOKEN=local-dev-internal-service-token-change-me",
+    "AI_GATEWAY_SERVICE_TOKEN=local-dev-internal-service-token-change-me",
+    "AI_GATEWAY_TOKEN=local-dev-internal-service-token-change-me",
     "MCP_SERVER_TOKEN=local-dev-internal-service-token-change-me",
-    "MCP_SERVER_TOKEN_HEADER=Authorization",
-    "DB_TYPE=postgres",
-    "VENDOR_RUNTIME_URL=http://127.0.0.1:9380",
-    "VENDOR_RUNTIME_SERVICE_TOKEN=",
-    "KNOWLEDGE_RUNTIME_SERVICE_TOKEN=",
-    "KNOWLEDGE_RUNTIME_READINESS_MODE=query",
-    "KNOWLEDGE_AUTO_START_INGESTION=true",
-    "SOFTWARE_TEAMWORK_ROOT=${SOFTWARE_TEAMWORK_ROOT:-.}",
-    "KNOWLEDGE_RUNTIME_WORKER_START_COMMAND=${SOFTWARE_TEAMWORK_ROOT}/scripts/local/start-knowledge-runtime-worker.sh",
-    "KNOWLEDGE_RUNTIME_WORKER_START_TIMEOUT=10m",
-    "KNOWLEDGE_RUNTIME_WORKER_IDLE_SHUTDOWN_SECONDS=300",
-    "KNOWLEDGE_RUNTIME_WORKER_IDLE_CHECK_SECONDS=15",
-    "DOC_ENGINE=elasticsearch",
-    "KNOWLEDGE_RUNTIME_ES_URL=http://127.0.0.1:9200",
-    "KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE=docker.elastic.co/elasticsearch/elasticsearch:8.15.3",
+    "DOCUMENT_FILE_SERVICE_TOKEN=local-dev-internal-service-token-change-me",
+    "DOCUMENT_AI_GATEWAY_SERVICE_TOKEN=local-dev-internal-service-token-change-me",
+    "DOCUMENT_KNOWLEDGE_SERVICE_TOKEN=local-dev-internal-service-token-change-me",
+    "VENDOR_RUNTIME_SERVICE_TOKEN=local-dev-runtime-service-token-change-me",
+    "KNOWLEDGE_RUNTIME_SERVICE_TOKEN=local-dev-runtime-service-token-change-me",
+    "KNOWLEDGE_RUNTIME_AI_GATEWAY_SERVICE_TOKEN=local-dev-internal-service-token-change-me",
     "AI_GATEWAY_LOCAL_SEED_ENABLED=false",
     "# AI_GATEWAY_LOCAL_PROVIDER=siliconflow",
     "# AI_GATEWAY_LOCAL_PROVIDER_BASE_URL=https://api.siliconflow.cn/v1",
@@ -346,9 +357,51 @@ REQUIRED_ENV_TOKENS = [
     "# AI_GATEWAY_LOCAL_EMBEDDING_DIMENSIONS=1024",
     "# AI_GATEWAY_LOCAL_RERANK_MODEL=BAAI/bge-reranker-v2-m3",
     "# AI_GATEWAY_LOCAL_RERANK_TOP_N=5",
-    "DOCUMENT_AI_GATEWAY_MODEL=local-placeholder-chat",
-    "KNOWLEDGE_VENDOR_EMBEDDING_ID=BAAI/bge-m3@default@AI_GATEWAY",
-    "KNOWLEDGE_VENDOR_RERANK_ID=BAAI/bge-reranker-v2-m3@default@AI_GATEWAY",
+    "# KNOWLEDGE_RUNTIME_MODEL_API_KEY=",
+    "# UV_DEFAULT_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple",
+    "# GOPROXY=https://goproxy.cn,direct",
+    "# GOSUMDB=sum.golang.google.cn",
+]
+
+REQUIRED_CONFIG_TOKENS = [
+    "COMPOSE_PROJECT_NAME:",
+    "POSTGRES_IMAGE:",
+    "value: postgres:16-alpine",
+    "REDIS_IMAGE:",
+    "value: redis:7-alpine",
+    "MINIO_IMAGE:",
+    "value: minio/minio:RELEASE.2025-09-07T16-13-09Z",
+    "MINIO_MC_IMAGE:",
+    "value: minio/mc:RELEASE.2025-08-13T08-35-41Z",
+    "UV_DEFAULT_INDEX:",
+    "value: https://pypi.org/simple",
+    "GOPROXY:",
+    "value: https://proxy.golang.org,direct",
+    "GOSUMDB:",
+    "value: sum.golang.org",
+    "DB_TYPE:",
+    "value: postgres",
+    "MCP_TRANSPORT:",
+    "MCP_SERVER_ALIAS:",
+    "MCP_SERVER_URL:",
+    "MCP_SERVER_TOKEN_HEADER:",
+    "VENDOR_RUNTIME_URL:",
+    "value: http://127.0.0.1:9380",
+    "KNOWLEDGE_RUNTIME_READINESS_MODE:",
+    "KNOWLEDGE_AUTO_START_INGESTION:",
+    "KNOWLEDGE_RUNTIME_WORKER_IDLE_SHUTDOWN_SECONDS:",
+    "KNOWLEDGE_RUNTIME_WORKER_IDLE_CHECK_SECONDS:",
+    "DOC_ENGINE:",
+    "KNOWLEDGE_RUNTIME_ES_URL:",
+    "value: http://127.0.0.1:9200",
+    "KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE:",
+    "value: docker.elastic.co/elasticsearch/elasticsearch:8.15.3",
+    "MODEL_ID:",
+    "DOCUMENT_AI_GATEWAY_MODEL:",
+    "KNOWLEDGE_VENDOR_EMBEDDING_ID:",
+    "value: BAAI/bge-m3@default@AI_GATEWAY",
+    "KNOWLEDGE_VENDOR_RERANK_ID:",
+    "value: BAAI/bge-reranker-v2-m3@default@AI_GATEWAY",
 ]
 
 FORBIDDEN_STARTUP_DOC_TOKENS = [
@@ -386,6 +439,8 @@ def verify_local_seed_contract(root: Path) -> list[str]:
     deploy_readme = read_required(root, DEPLOY_README, issues)
     runbook = read_required(root, LOCAL_RUNBOOK, issues)
     env_example = read_required(root, ENV_EXAMPLE, issues)
+    config_readme = read_required(root, CONFIG_README, issues)
+    config_base = read_required(root, CONFIG_BASE, issues)
     dev_up_script = read_required(root, DEV_UP_SCRIPT, issues)
     ai_gateway_local_seed_renderer = read_required(root, AI_GATEWAY_LOCAL_SEED_RENDERER, issues)
     run_backend_script = read_required(root, RUN_BACKEND_SCRIPT, issues)
@@ -408,6 +463,8 @@ def verify_local_seed_contract(root: Path) -> list[str]:
             deploy_readme,
             runbook,
             env_example,
+            config_readme,
+            config_base,
             dev_up_script,
             ai_gateway_local_seed_renderer,
             run_backend_script,
@@ -557,6 +614,8 @@ def validate_docs(
     deploy_readme: str,
     runbook: str,
     env_example: str,
+    config_readme: str,
+    config_base: str,
     dev_up_script: str,
     ai_gateway_local_seed_renderer: str,
     run_backend_script: str,
@@ -568,13 +627,16 @@ def validate_docs(
     ai_gateway_local_seed_main: str,
 ) -> list[str]:
     issues: list[str] = []
-    combined = "\n".join([deploy_readme, runbook, env_example])
+    combined = "\n".join([deploy_readme, runbook, env_example, config_readme])
     for token in REQUIRED_DOC_TOKENS:
         if token not in combined:
             issues.append(f"seed documentation missing `{token}`")
     for token in REQUIRED_ENV_TOKENS:
         if token not in env_example:
             issues.append(f"{ENV_EXAMPLE} missing local default `{token}`")
+    for token in REQUIRED_CONFIG_TOKENS:
+        if token not in config_base:
+            issues.append(f"{CONFIG_BASE} missing committed config default `{token}`")
     for token in FORBIDDEN_STARTUP_DOC_TOKENS:
         if token in combined:
             issues.append(f"startup documentation must not include `{token}`")

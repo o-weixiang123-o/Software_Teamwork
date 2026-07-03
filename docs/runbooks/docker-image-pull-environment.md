@@ -10,12 +10,12 @@
 
 业务服务、migration、seed、Knowledge runtime 和前端都不通过 Docker 启动。
 Knowledge runtime 的 `uv sync` 下载 Python 包，不走 Docker registry。uv 默认包索引由
-`deploy/.env.example` 里的 `UV_DEFAULT_INDEX` 控制；默认是官方 PyPI。中国大陆网络运行
+`config/base.yaml` 里的 `UV_DEFAULT_INDEX` 控制；默认是官方 PyPI。中国大陆网络运行
 `./scripts/local/dev-up.sh --china` 时会一并准备 runtime 依赖和 GitHub release/raw 等
 artifact；如果用 `--skip-knowledge-runtime-deps` 跳过，可按
 `services/knowledge-runtime/README.md` 手工补跑 runtime 下载脚本。不要把
 `pyproject.toml` 或 `uv.lock` 的默认 URL 改成第三方代理。
-Go 后端 host-run 期间的模块下载由 `deploy/.env.example` 里的 `GOPROXY` /
+Go 后端 host-run 期间的模块下载由 `config/base.yaml` 里的 `GOPROXY` /
 `GOSUMDB` 控制；默认是官方 `proxy.golang.org` / `sum.golang.org`。中国大陆网络用
 `./scripts/local/dev-up.sh --china` 或 `./scripts/local/run-backend.sh --china`
 临时切换 Go mirrors，也不属于 Docker registry 问题。
@@ -25,14 +25,14 @@ Go 后端 host-run 期间的模块下载由 `deploy/.env.example` 里的 `GOPROX
 当前契约是默认官方源、国内网络显式 `--china`。旧的大陆优先默认镜像契约已废弃。
 PR review 和 agent 检查应把 active 第三方镜像默认值视为回归；缺少这些 active 默认值
 不是回归。中国大陆用户的一等路径是带 `--china` 的本地启动命令，或本机未提交的
-`deploy/.env` / 企业镜像覆盖。
+`.env.local` / 企业镜像覆盖。
 
 ## 默认路径
 
 默认使用 Compose 里的 Docker Hub pinned tags：
 
 ```bash
-cp deploy/.env.example deploy/.env
+cp .env.example .env.local
 ./scripts/local/dev-up.sh
 ```
 
@@ -45,13 +45,13 @@ cp deploy/.env.example deploy/.env
 该模式只在本次进程设置 `POSTGRES_IMAGE`、`REDIS_IMAGE`、`MINIO_IMAGE`、
 `MINIO_MC_IMAGE` 和 `KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE`
 的 DaoCloud registry rewrite，不改写
-`deploy/.env`。
+`.env.local`。
 
 脚本内部会执行 Compose config、pull、up、migration 和 seed。只想验证 Docker 配置时：
 
 ```bash
-docker compose -f deploy/docker-compose.yml --env-file deploy/.env config --quiet
-docker compose -f deploy/docker-compose.yml --env-file deploy/.env config --services
+docker compose -f deploy/docker-compose.yml --env-file .local/config/dev.env config --quiet
+docker compose -f deploy/docker-compose.yml --env-file .local/config/dev.env config --services
 ```
 
 服务清单只能包含 `postgres`、`redis`、`minio`、`minio-init`、
@@ -60,10 +60,10 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env config --serv
 ## Docker 镜像源选择
 
 Compose 文件本身保留 Docker Hub pinned defaults。需要企业 registry 或长期本地
-override 时，可只在本机 `deploy/.env` 设置 `POSTGRES_IMAGE`、`REDIS_IMAGE`、
+override 时，可只在本机 `.env.local` 设置 `POSTGRES_IMAGE`、`REDIS_IMAGE`、
 `MINIO_IMAGE`、`MINIO_MC_IMAGE` 和 `KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE`，
 不要提交成默认值。已有旧
-`deploy/.env` 如果仍保留 DaoCloud 值，脚本会尊重本地配置；不传 `--china` 时会提示
+`.env.local` 如果仍保留 DaoCloud 值，脚本会尊重本地配置；不传 `--china` 时会提示
 这是本地覆盖。
 
 优先级固定为：
@@ -74,7 +74,7 @@ registry rewrite > daemon mirror > proxy
 
 原因：
 
-- registry rewrite 通过 `--china` 或本地 `deploy/.env` 显式选择，团队可审查、可复制。
+- registry rewrite 通过 `--china` 或本地 `.env.local` 显式选择，团队可审查、可复制。
 - daemon mirror 是个人机器状态，适合已有稳定镜像站的人。
 - proxy 依赖 shell、Docker daemon 和系统代理是否同时生效，最容易出现“终端能访问但 Docker 不走代理”。
 
@@ -109,11 +109,11 @@ python3 scripts/check_docker_environment.py --skip-network --clean-env
 拉取进度卡住时，先区分是哪个镜像卡住：
 
 ```bash
-docker compose -f deploy/docker-compose.yml --env-file deploy/.env pull postgres
-docker compose -f deploy/docker-compose.yml --env-file deploy/.env pull redis
-docker compose -f deploy/docker-compose.yml --env-file deploy/.env pull minio
-docker compose -f deploy/docker-compose.yml --env-file deploy/.env pull minio-init
-docker compose -f deploy/docker-compose.yml --env-file deploy/.env pull elasticsearch
+docker compose -f deploy/docker-compose.yml --env-file .local/config/dev.env pull postgres
+docker compose -f deploy/docker-compose.yml --env-file .local/config/dev.env pull redis
+docker compose -f deploy/docker-compose.yml --env-file .local/config/dev.env pull minio
+docker compose -f deploy/docker-compose.yml --env-file .local/config/dev.env pull minio-init
+docker compose -f deploy/docker-compose.yml --env-file .local/config/dev.env pull elasticsearch
 ```
 
 如果 DaoCloud 路径异常，先用环境诊断脚本确认 manifest 是否可用，再决定是否临时去掉
@@ -135,7 +135,8 @@ placeholder provider credential；`/healthz` 成功表示服务进程可用。ho
 ```bash
 python3 scripts/check_docker_policy.py
 python3 -m unittest scripts.tests.test_check_docker_policy scripts.tests.test_check_docker_environment
-docker compose -f deploy/docker-compose.yml --env-file deploy/.env.example config --quiet
+CONFIG_SECRET_FILE=.env.example ./scripts/config/load-profile.sh --print-compose-env
+docker compose -f deploy/docker-compose.yml --env-file .local/config/dev.env config --quiet
 ```
 
 策略要求：
@@ -144,6 +145,6 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env.example confi
   `minio-init`、`elasticsearch`。
 - 根 Compose 不包含 `build:`。
 - 默认镜像不能是 `latest`。
-- `deploy/.env.example` 不能默认启用第三方基础设施镜像 rewrite；大陆网络使用
-  `./scripts/local/dev-up.sh --china` 或本地 `deploy/.env` override。
+- `config/base.yaml` 和 `.env.example` 不能默认启用第三方基础设施镜像 rewrite；大陆网络使用
+  `./scripts/local/dev-up.sh --china` 或本地 `.env.local` override。
 - 所有基础设施镜像 tag 必须 pinned，不能使用 `latest`。

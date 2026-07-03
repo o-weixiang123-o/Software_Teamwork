@@ -1312,7 +1312,8 @@ METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT=10000
   fallback caps fail before unbounded in-memory scans.
 - Docker/Compose checks must include:
   `python3 scripts/check_docker_policy.py`,
-  `docker compose --env-file deploy/.env.example config --quiet`.
+  `CONFIG_SECRET_FILE=.env.example ./scripts/config/load-profile.sh --print-compose-env`,
+  `docker compose -f deploy/docker-compose.yml --env-file .local/config/dev.env config --quiet`.
 - For real runtime E2E, upload, parse, chunk, and query `DL_T_673-1999.pdf`
   when available; report document readiness, chunk count, query hit count, and
   the fact that no real provider key was committed.

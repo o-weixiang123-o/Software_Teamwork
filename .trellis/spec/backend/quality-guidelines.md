@@ -237,10 +237,11 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
 ### 2. Signatures
 
 - Compose entrypoint:
-  - `docker compose -f deploy/docker-compose.yml --env-file deploy/.env.example config --quiet`
-  - `docker compose -f deploy/docker-compose.yml --env-file deploy/.env.example config --services`
+  - `CONFIG_SECRET_FILE=.env.example ./scripts/config/load-profile.sh --print-compose-env`
+  - `docker compose -f deploy/docker-compose.yml --env-file .local/config/dev.env config --quiet`
+  - `docker compose -f deploy/docker-compose.yml --env-file .local/config/dev.env config --services`
 - Runtime entrypoint:
-  - `cp deploy/.env.example deploy/.env`
+  - `cp .env.example .env.local`
   - `./scripts/local/dev-up.sh`
   - `./scripts/local/run-backend.sh`
   - `cd apps/web && bun install && bun run dev`
@@ -266,19 +267,22 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
   QA, Document, Gateway, and frontend.
 - Frontend and browser-facing documentation must route traffic through gateway;
   internal service ports may be exposed only for local debugging.
+- `config/` is the single default local configuration source for committed
+  non-sensitive defaults and profile overrides. Root `.env.example` is the
+  local secret template; `.env.local` is untracked local input.
 - `.env.example` values must be local placeholders and must not contain real
   provider keys, tokens, passwords, or production credentials.
-- `deploy/.env.example` is the single default local configuration source.
-  Startup scripts may load `deploy/.env`, but must not duplicate service env
-  defaults or print long `export` blocks in user-facing docs.
+- Startup scripts must use `config/ctl` through `scripts/config/load-profile.sh`
+  to render `.local/config/<profile>.env` and `.env.sh`; they must not source
+  `deploy/.env` as the authoritative default or duplicate service env defaults.
 - Knowledge runtime worker timeout decorators must stay active in the default
-  host-run profile with `ENABLE_TIMEOUT_ASSERTION=1` in `deploy/.env.example`.
+  host-run profile with `ENABLE_TIMEOUT_ASSERTION=1` in `config/base.yaml`.
   Do not remove this default unless the worker timeout mechanism is replaced
   and the runbook documents the accepted risk or replacement behavior.
 - `run-backend.sh` must not prepare or start the retired standalone Parser.
   Knowledge parsing runs through the Knowledge runtime API/worker path.
 - Host-run uv package downloads should use `UV_DEFAULT_INDEX` from
-  `deploy/.env.example`, with official PyPI as the committed default. Mainland
+  `config/base.yaml`, with official PyPI as the committed default. Mainland
   China mirror usage must be explicit, preferably through `dev-up.sh --china`
   which prepares Knowledge runtime dependencies/artifacts, or through local
   untracked env overrides. `ragflow_deps/download_deps.py --china` remains the
@@ -295,7 +299,7 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
   model download mirrors are explicit through
   `run-knowledge-parse-stack.sh --china` or local untracked env overrides.
 - Host-run Go module downloads should use `GOPROXY` and `GOSUMDB` from
-  `deploy/.env.example`, with official upstream values as the committed
+  `config/base.yaml`, with official upstream values as the committed
   default. Mainland China mirror usage must be explicit through
   `dev-up.sh --china`, `run-backend.sh --china`, or local untracked env
   overrides. This covers `dev-up.sh` goose migrations and `run-backend.sh` Go
@@ -305,8 +309,8 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
   migrations, and `run-backend.sh` should preflight Go module downloads with
   `go mod download` for each host-run Go service before forking background
   processes. If `--china` is passed, scripts may use mainland China mirrors for
-  the current process without rewriting `deploy/.env`. If an old `deploy/.env`
-  still contains mirror values while `--china` was not passed, scripts should
+  the current process without rewriting `config/` or `.env.local`. If `.env.local`
+  contains mirror values while `--china` was not passed, scripts should
   warn but respect the user's local config. If module download still fails, the
   script must fail in the terminal with the current effective values and
   remediation hints instead of only writing `go run` errors to
@@ -342,7 +346,7 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
 - For mainland China Docker usage, prefer explicit `dev-up.sh --china`
   registry rewrite or local untracked `*_IMAGE` overrides over daemon mirrors
   and proxies. Do not make third-party registries active defaults in
-  `deploy/.env.example`. Existing daemon mirrors or proxies are acceptable only
+  committed config. Existing daemon mirrors or proxies are acceptable only
   after `python3 scripts/check_docker_environment.py --profile all --clean-env`
   proves their manifest path is healthy.
 - Local Docker image tags must stay pinned and version-aligned across Compose,
@@ -368,7 +372,7 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
   `AI_GATEWAY_LOCAL_PROVIDER_BASE_URL`, `AI_GATEWAY_LOCAL_PROVIDER_API_KEY`,
   `AI_GATEWAY_LOCAL_CHAT_MODEL`, `AI_GATEWAY_LOCAL_EMBEDDING_MODEL`,
   `AI_GATEWAY_LOCAL_EMBEDDING_DIMENSIONS`, `AI_GATEWAY_LOCAL_RERANK_MODEL`, and
-  `AI_GATEWAY_LOCAL_RERANK_TOP_N` in untracked `deploy/.env`. The bootstrap must
+  `AI_GATEWAY_LOCAL_RERANK_TOP_N` in untracked `.env.local`. The bootstrap must
   encrypt provider credentials with the same AES-GCM/HMAC contract as
   `services/ai-gateway/internal/service/crypto.go`, update the three default AI
   Gateway profiles, and append/activate a matching QA `llm_config_versions` row
@@ -386,15 +390,15 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
 | Docker policy checker fails | Fix the Compose/docs/script regression or update `scripts/check_docker_policy.py` and the runbook in the same PR when the policy intentionally changes. |
 | Retired parser paths or env keys reappear in startup scripts | Remove the parser dependency and route document parsing through `services/knowledge-runtime`. |
 | Local startup script exits without a success or failure summary | Add or restore explicit command-line status output in the script and local seed contract checker. |
-| Go module preflight, migration, or service startup shows `Get "https://proxy.golang.org/...": i/o timeout` | Confirm the copied `deploy/.env` contains the repository `GOPROXY` / `GOSUMDB` defaults; if missing, local scripts should use the repository default for the current process and print that decision. If the mirror is unavailable, override only local `deploy/.env` or enterprise shell config. The startup script should surface failures in the terminal and exit non-zero. |
-| `ENABLE_TIMEOUT_ASSERTION` is missing or disabled in the default local profile | Restore `ENABLE_TIMEOUT_ASSERTION=1` in `deploy/.env.example` or document the replacement timeout mechanism and accepted risk in the Knowledge runtime runbook. |
+| Go module preflight, migration, or service startup shows `Get "https://proxy.golang.org/...": i/o timeout` | Confirm `config/base.yaml` contains the repository `GOPROXY` / `GOSUMDB` defaults and `.env.local` has not overridden them unexpectedly. If the mirror is unavailable, override only local `.env.local` or enterprise shell config. The startup script should surface failures in the terminal and exit non-zero. |
+| `ENABLE_TIMEOUT_ASSERTION` is missing or disabled in the default local profile | Restore `ENABLE_TIMEOUT_ASSERTION=1` in `config/base.yaml` or document the replacement timeout mechanism and accepted risk in the Knowledge runtime runbook. |
 | `stop-backend.sh` only kills the wrapper PID | Start host services in a managed process group and stop the whole group; verify the script does not leave `go run` or `uv run` child services bound to ports. |
 | Seeded local AI Gateway profile uses `host.docker.internal` | Replace it with `http://localhost:11434/v1` for the host-run default path. |
 | `AI_GATEWAY_LOCAL_SEED_ENABLED=true` updates AI Gateway profiles but QA still sends `local-placeholder-chat` | Update the same overlay to append/activate a QA `llm_config_versions` row for `provider='ai-gateway'`, `profile_id='default-chat'`, and `model_name=AI_GATEWAY_LOCAL_CHAT_MODEL`. |
 | Generated provider credential decrypts in SQL but AI Gateway invocation fails with credential decrypt errors | Regenerate credentials with the service crypto contract: `SHA-256(AI_GATEWAY_CREDENTIAL_ENCRYPTION_KEY)` as AES-GCM key and keyed HMAC fingerprint derived from `ai-gateway credential fingerprint v1`; do not invent a bash/OpenSSL-only format. |
 | Required Docker image is unavailable locally | Document `docker compose pull <service>` commands and report Docker runtime validation as skipped. |
 | Same component appears with multiple Docker tags | Use the documented baseline or record the reason in the implementation document. |
-| Compose infrastructure image pull is slow or blocked | Prefer `./scripts/local/dev-up.sh --china`, which applies pinned DaoCloud `*_IMAGE` values for that run, or local untracked `deploy/.env` overrides; if using daemon mirror, prove it with `scripts/check_docker_environment.py`; use Docker daemon proxy only when registry rewrite and mirror paths are unavailable. |
+| Compose infrastructure image pull is slow or blocked | Prefer `./scripts/local/dev-up.sh --china`, which applies pinned DaoCloud `*_IMAGE` values for that run, or local untracked `.env.local` overrides; if using daemon mirror, prove it with `scripts/check_docker_environment.py`; use Docker daemon proxy only when registry rewrite and mirror paths are unavailable. |
 | File calls return `401 unauthorized` while `file /readyz` is healthy | Verify `FILE_INTERNAL_SERVICE_TOKEN` on file and matching `KNOWLEDGE_SERVICE_TOKEN`, `DOCUMENT_FILE_SERVICE_TOKEN`, or propagated `X-Service-Token` on callers. |
 | Gateway readiness fails | Check Redis and Auth first, then search logs by `X-Request-Id`. |
 | Auth/document/ai-gateway readiness fails | Inspect PostgreSQL, host-run migration status, and service logs. |
@@ -406,7 +410,7 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
 - Good: `deploy/README.md` documents infra pulls, default Compose
   Elasticsearch startup, host-run migrations, host-run services, seed data,
   request-id troubleshooting, and common dependency failures; default Compose
-  config parses and lists only the six infra services.
+  config parses and lists only the five infra services.
 - Base: Docker runtime smoke tests are skipped when images are missing, but the
   exact image pull commands and skipped validation are reported.
 - Bad: documentation tells new contributors to run business services through
@@ -446,7 +450,7 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
 
 ```text
 frontend -> http://localhost:8083/internal/v1/knowledge-bases
-deploy/.env.example -> real provider API key
+.env.example -> real provider API key
 document worker -> file /internal/v1/files without X-Service-Token
 seed SQL -> inserts model_profiles before ai-gateway migrations
 AI_GATEWAY_LOCAL_* seed -> updates default-chat only; QA active LLM remains local-placeholder-chat
@@ -457,7 +461,7 @@ root Compose -> business service or unapproved build entry
 
 ```text
 frontend -> gateway http://localhost:8080/api/v1/knowledge-bases
-deploy/.env.example -> local placeholder secrets only
+config/base.yaml + .env.example -> non-sensitive defaults plus local placeholder secrets only
 document worker -> file /internal/v1/files with DOCUMENT_FILE_SERVICE_TOKEN
 seed SQL -> idempotent local/demo data after host-run service migrations
 AI_GATEWAY_LOCAL_* overlay -> updates chat/embedding/rerank profiles and activates matching QA LLM config

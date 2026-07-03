@@ -31,7 +31,7 @@ class LocalSeedContractTests(unittest.TestCase):
             root = Path(directory)
             (root / "deploy" / "seeds").mkdir(parents=True)
             (root / "docs" / "runbooks").mkdir(parents=True)
-            (root / "deploy" / ".env.example").write_text(
+            (root / ".env.example").write_text(
                 "LOCAL_ADMIN_USERNAME=admin\n"
                 "LOCAL_ADMIN_PASSWORD=LocalDemoAdmin#12345\n"
                 "LOCAL_SUPER_ADMIN_USERNAME=superadmin\n"
@@ -48,9 +48,6 @@ class LocalSeedContractTests(unittest.TestCase):
                 "KNOWLEDGE_RUNTIME_SERVICE_TOKEN=local-dev-runtime-service-token-change-me\n"
                 "KNOWLEDGE_RUNTIME_READINESS_MODE=query\n"
                 "KNOWLEDGE_AUTO_START_INGESTION=true\n"
-                "SOFTWARE_TEAMWORK_ROOT=${SOFTWARE_TEAMWORK_ROOT:-.}\n"
-                "KNOWLEDGE_RUNTIME_WORKER_START_COMMAND=${SOFTWARE_TEAMWORK_ROOT}/scripts/local/start-knowledge-runtime-worker.sh\n"
-                "KNOWLEDGE_RUNTIME_WORKER_START_TIMEOUT=10m\n"
                 "KNOWLEDGE_RUNTIME_WORKER_IDLE_SHUTDOWN_SECONDS=300\n"
                 "KNOWLEDGE_RUNTIME_WORKER_IDLE_CHECK_SECONDS=15\n"
                 "DOC_ENGINE=elasticsearch\n",
@@ -85,8 +82,11 @@ class LocalSeedContractTests(unittest.TestCase):
                 encoding="utf-8",
             )
             (root / "deploy" / "README.md").write_text(
-                "deploy/.env.example 是唯一默认配置来源\n"
-                "cp deploy/.env.example deploy/.env\n"
+                "configuration authority\n"
+                "config/base.yaml\n"
+                "config/dev.yaml\n"
+                ".env.local\n"
+                "cp .env.example .env.local\n"
                 "./scripts/local/dev-up.sh\n"
                 "./scripts/local/run-backend.sh\n"
                 "LOCAL_ADMIN_USERNAME=admin\n"
@@ -95,7 +95,7 @@ class LocalSeedContractTests(unittest.TestCase):
                 "LOCAL_SUPER_ADMIN_PASSWORD=LocalDemoAdmin#12345\n"
                 "admin / LocalDemoAdmin#12345\n"
                 "superadmin / LocalDemoAdmin#12345\n"
-                "Go modules 下载默认读取 `deploy/.env`\n"
+                "Go modules 下载默认读取 profile\n"
                 "源选择采用新策略\n"
                 "旧的大陆优先默认镜像契约已废弃\n"
                 "默认使用官方源\n"
@@ -104,6 +104,19 @@ class LocalSeedContractTests(unittest.TestCase):
                 "GOPROXY=https://proxy.golang.org,direct\n"
                 "GOSUMDB=sum.golang.org\n"
                 "cleanup with down -v\n",
+                encoding="utf-8",
+            )
+            (root / "config").mkdir(parents=True)
+            (root / "config" / "README.md").write_text(
+                "configuration authority\nconfig/base.yaml\nconfig/dev.yaml\n.env.local\n",
+                encoding="utf-8",
+            )
+            (root / "config" / "base.yaml").write_text(
+                "COMPOSE_PROJECT_NAME:\n"
+                "POSTGRES_IMAGE:\nvalue: postgres:16-alpine\n"
+                "REDIS_IMAGE:\nvalue: redis:7-alpine\n"
+                "MINIO_IMAGE:\nvalue: minio/minio:RELEASE.2025-09-07T16-13-09Z\n"
+                "MINIO_MC_IMAGE:\nvalue: minio/mc:RELEASE.2025-08-13T08-35-41Z\n",
                 encoding="utf-8",
             )
             (root / "scripts" / "local").mkdir(parents=True)
@@ -137,7 +150,7 @@ class LocalSeedContractTests(unittest.TestCase):
                 "PULL_SERVICES=(postgres redis minio minio-init elasticsearch)\n"
                 "initializing MinIO buckets\n"
                 "--exit-code-from minio-init\n"
-                "docker compose -f deploy/docker-compose.yml --env-file deploy/.env logs minio-init\n"
+                "CONFIG_COMPOSE_ENV_FILE\n"
                 "001-local-demo-seed.sql\n"
                 "002-ai-gateway-model-profiles.sql\n"
                 "003-qa-document-mcp.sql\n"
@@ -267,6 +280,8 @@ class LocalSeedContractTests(unittest.TestCase):
             deploy_readme="唯一默认配置来源\n",
             runbook="",
             env_example="VENDOR_RUNTIME_URL=http://127.0.0.1:9380\n",
+            config_readme="",
+            config_base="",
             dev_up_script="",
             ai_gateway_local_seed_renderer="",
             run_backend_script="",
@@ -278,7 +293,7 @@ class LocalSeedContractTests(unittest.TestCase):
             ai_gateway_local_seed_main="",
         )
 
-        self.assertIssueContains(issues, "DOC_ENGINE=elasticsearch")
+        self.assertIssueContains(issues, "DOC_ENGINE:")
         self.assertIssueContains(issues, "./cmd/adapter")
 
     def test_verifier_reports_missing_local_runtime_gitignore(self) -> None:

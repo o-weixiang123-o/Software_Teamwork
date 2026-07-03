@@ -36,9 +36,10 @@ class LocalDevUpScriptTests(unittest.TestCase):
             self.assertNotEqual(0, result.returncode)
             self.assertNotIn("[dev-up] migrating auth", result.stdout)
             self.assertIn(
-                "minio-init failed; inspect logs with: docker compose -f deploy/docker-compose.yml --env-file deploy/.env logs minio-init",
+                "minio-init failed; inspect logs with: docker compose -f deploy/docker-compose.yml --env-file",
                 result.stderr,
             )
+            self.assertIn(".local/config/dev.env logs minio-init", result.stderr)
 
     def test_missing_psql_fails_before_docker_work(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -56,6 +57,19 @@ class LocalDevUpScriptTests(unittest.TestCase):
             self.assertNotIn("[dev-up] pulling infrastructure images", result.stdout)
             self.assertFalse((root / "docker-calls.log").exists())
 
+    def test_missing_go_fails_before_profile_render_docker_work(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.prepare_runtime(Path(directory))
+            (root / "fake-bin" / "go").unlink()
+
+            result = self.run_dev_up(root, {"PATH": str(root / "fake-bin")})
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("go is required to render config profiles with config/ctl", result.stderr)
+            self.assertIn("install Go 1.25.x or run from an environment with go on PATH", result.stderr)
+            self.assertNotIn("[dev-up] pulling infrastructure images", result.stdout)
+            self.assertFalse((root / "docker-calls.log").exists())
+
     def test_china_flag_uses_mirrors_for_current_process_only(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = self.prepare_runtime(Path(directory))
@@ -64,7 +78,7 @@ class LocalDevUpScriptTests(unittest.TestCase):
 
             self.assertEqual(0, result.returncode, result.stderr)
             self.assertIn("using mainland China mirrors for this run (--china)", result.stdout)
-            env_text = (root / "deploy" / ".env").read_text(encoding="utf-8")
+            env_text = (root / ".env.local").read_text(encoding="utf-8")
             self.assertIn("GOPROXY=https://proxy.golang.org,direct", env_text)
             docker_env = (root / "docker-env.log").read_text(encoding="utf-8")
             self.assertIn("POSTGRES_IMAGE=docker.m.daocloud.io/library/postgres:16-alpine", docker_env)
@@ -95,7 +109,7 @@ class LocalDevUpScriptTests(unittest.TestCase):
     def test_ai_gateway_local_seed_overlay_runs_when_enabled(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = self.prepare_runtime(Path(directory))
-            with (root / "deploy" / ".env").open("a", encoding="utf-8") as env_file:
+            with (root / ".env.local").open("a", encoding="utf-8") as env_file:
                 env_file.write(
                     textwrap.dedent(
                         """\
@@ -142,10 +156,16 @@ class LocalDevUpScriptTests(unittest.TestCase):
         script_target.parent.mkdir(parents=True)
         shutil.copy2(script_source, script_target)
         script_target.chmod(script_target.stat().st_mode | stat.S_IXUSR)
+        loader_source = Path.cwd() / "scripts" / "config" / "load-profile.sh"
+        loader_target = root / "scripts" / "config" / "load-profile.sh"
+        loader_target.parent.mkdir(parents=True)
+        shutil.copy2(loader_source, loader_target)
+        loader_target.chmod(loader_target.stat().st_mode | stat.S_IXUSR)
+        (root / "config" / "ctl").mkdir(parents=True)
 
         (root / "deploy" / "seeds").mkdir(parents=True)
         (root / "deploy" / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
-        (root / "deploy" / ".env").write_text(
+        (root / ".env.local").write_text(
             textwrap.dedent(
                 """\
                 UV_DEFAULT_INDEX=https://pypi.org/simple
@@ -179,7 +199,7 @@ class LocalDevUpScriptTests(unittest.TestCase):
 
         fake_bin = root / "fake-bin"
         fake_bin.mkdir()
-        for command in ["bash", "dirname"]:
+        for command in ["bash", "cp", "dirname", "mkdir"]:
             target = shutil.which(command)
             if target is None:
                 raise AssertionError(f"{command} is required to run dev-up.sh tests")
@@ -219,6 +239,38 @@ class LocalDevUpScriptTests(unittest.TestCase):
             #!/usr/bin/env bash
             rel="${PWD#"$FAKE_ROOT"/}"
             echo "$rel|$*" >> "$FAKE_GO_CALLS"
+            if [[ "$rel" == "config/ctl" && "$1" == "run" && "$2" == "." && "$3" == "render" ]]; then
+              format="dotenv"
+              out=""
+              while (($# > 0)); do
+                case "$1" in
+                  --format)
+                    format="$2"
+                    shift 2
+                    ;;
+                  --out)
+                    out="$2"
+                    shift 2
+                    ;;
+                  *)
+                    shift
+                    ;;
+                esac
+              done
+              [[ -n "$out" ]] || exit 64
+              mkdir -p "$(dirname "$out")"
+              if [[ "$format" == "shell" ]]; then
+                while IFS= read -r line || [[ -n "$line" ]]; do
+                  [[ -z "$line" || "$line" =~ ^[[:space:]]*# || "$line" != *=* ]] && continue
+                  key="${line%%=*}"
+                  value="${line#*=}"
+                  printf "export %s=%q\\n" "$key" "$value"
+                done < "$FAKE_ROOT/.env.local" > "$out"
+              else
+                cp "$FAKE_ROOT/.env.local" "$out"
+              fi
+              exit 0
+            fi
             if [[ "$1" == "run" && "$2" == *"render_ai_gateway_local_seed.go" ]]; then
               echo "-- rendered AI Gateway local overlay"
               echo "SELECT '${AI_GATEWAY_LOCAL_CHAT_MODEL:-missing-chat-model}';"

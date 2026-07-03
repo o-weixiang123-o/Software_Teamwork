@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-ENV_FILE="${KNOWLEDGE_ENV_FILE:-$ROOT_DIR/deploy/.env}"
+CONFIG_LOADER="$ROOT_DIR/scripts/config/load-profile.sh"
 RUN_DIR="$ROOT_DIR/.local/run"
 LOG_DIR="$ROOT_DIR/.local/logs"
 RUNTIME_DIR="$ROOT_DIR/services/knowledge-runtime"
@@ -209,16 +209,9 @@ on_exit() {
 }
 trap on_exit EXIT
 
-if [[ ! -f "$ENV_FILE" ]]; then
-  echo "missing deploy/.env; idle watcher exiting"
-  exit 1
-fi
-
 export SOFTWARE_TEAMWORK_ROOT="$ROOT_DIR"
-set -a
 # shellcheck disable=SC1090
-. "$ENV_FILE"
-set +a
+. "$CONFIG_LOADER"
 
 export RAGFLOW_CONF="${RAGFLOW_CONF:-$ROOT_DIR/.local/knowledge-runtime/service_conf.yaml}"
 

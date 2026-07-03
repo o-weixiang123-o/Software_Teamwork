@@ -2,28 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ENV_FILE="$ROOT_DIR/deploy/.env"
+CONFIG_LOADER="$ROOT_DIR/scripts/config/load-profile.sh"
 NO_PROXY_VALUE="${NO_PROXY:-localhost,127.0.0.1,::1}"
 export NO_PROXY="$NO_PROXY_VALUE"
-
-load_env_defaults() {
-  local line key value
-  if [[ ! -f "$ENV_FILE" ]]; then
-    return
-  fi
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
-    key="${line%%=*}"
-    value="${line#*=}"
-    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
-    if [[ "$key" == "AI_GATEWAY_BASE_URL" ]]; then
-      continue
-    fi
-    if [[ -z "${!key+x}" ]]; then
-      export "$key=$value"
-    fi
-  done <"$ENV_FILE"
-}
 
 url_from_addr() {
   local addr="$1"
@@ -49,15 +30,25 @@ url_from_addr() {
   printf 'http://%s' "$addr"
 }
 
-load_env_defaults
+PROFILE_LOADED=0
 
-: "${GATEWAY_BASE_URL:=$(url_from_addr "${GATEWAY_HTTP_ADDR:-}" 8080)}"
-: "${FILE_SERVICE_BASE_URL:=$(url_from_addr "${FILE_HTTP_ADDR:-}" 8082)}"
-: "${KNOWLEDGE_SERVICE_BASE_URL:=$(url_from_addr "${KNOWLEDGE_HTTP_ADDR:-}" 8083)}"
-: "${QA_SERVICE_BASE_URL:=$(url_from_addr "${QA_HTTP_ADDR:-}" 8084)}"
-: "${DOCUMENT_SERVICE_BASE_URL:=$(url_from_addr "${DOCUMENT_HTTP_ADDR:-}" 8085)}"
-export GATEWAY_BASE_URL FILE_SERVICE_BASE_URL KNOWLEDGE_SERVICE_BASE_URL
-export QA_SERVICE_BASE_URL DOCUMENT_SERVICE_BASE_URL
+load_profile_defaults() {
+  if (( PROFILE_LOADED )); then
+    return
+  fi
+  export SOFTWARE_TEAMWORK_ROOT="$ROOT_DIR"
+  # shellcheck disable=SC1090
+  . "$CONFIG_LOADER"
+
+  : "${GATEWAY_BASE_URL:=$(url_from_addr "${GATEWAY_HTTP_ADDR:-}" 8080)}"
+  : "${FILE_SERVICE_BASE_URL:=$(url_from_addr "${FILE_HTTP_ADDR:-}" 8082)}"
+  : "${KNOWLEDGE_SERVICE_BASE_URL:=$(url_from_addr "${KNOWLEDGE_HTTP_ADDR:-}" 8083)}"
+  : "${QA_SERVICE_BASE_URL:=$(url_from_addr "${QA_HTTP_ADDR:-}" 8084)}"
+  : "${DOCUMENT_SERVICE_BASE_URL:=$(url_from_addr "${DOCUMENT_HTTP_ADDR:-}" 8085)}"
+  export GATEWAY_BASE_URL FILE_SERVICE_BASE_URL KNOWLEDGE_SERVICE_BASE_URL
+  export QA_SERVICE_BASE_URL DOCUMENT_SERVICE_BASE_URL
+  PROFILE_LOADED=1
+}
 
 usage() {
   cat <<'USAGE'
@@ -74,14 +65,14 @@ Usage:
   bash scripts/run_issue_125_smoke.sh --all
 
 Local defaults:
-  Start the stack with deploy/.env, ./scripts/local/dev-up.sh, and
-  ./scripts/local/run-backend.sh. When deploy/.env exists, this script reads it
-  as defaults without overriding variables already exported in the shell.
+  Start the stack with .env.local, ./scripts/local/dev-up.sh, and
+  ./scripts/local/run-backend.sh. This script loads the selected config profile
+  without overriding variables already exported in the shell.
 
 Useful overrides:
   QA_MCP_RAG_REAL_PROVIDER=1 AI_GATEWAY_BASE_URL=http://127.0.0.1:8086  # only when AI Gateway has a real provider profile
 
-Document MCP smoke derives the local endpoint/token from deploy/.env when
+Document MCP smoke derives the local endpoint/token from the selected config profile when
 possible. Override MCP_SERVER_URL, MCP_SERVER_TOKEN, or MCP_SERVER_TOKEN_HEADER
 only when testing a non-default Document MCP endpoint.
 
@@ -94,6 +85,7 @@ USAGE
 run_deploy_smoke() {
   local gate="$1"
   local test_name="$2"
+  load_profile_defaults
   (
     cd "$ROOT_DIR/services/deploy/smoke"
     env "$gate=1" go test . -run "^${test_name}$" -count=1 -v
@@ -101,6 +93,7 @@ run_deploy_smoke() {
 }
 
 run_document_mcp() {
+  load_profile_defaults
   (
     cd "$ROOT_DIR/services/qa"
     export MCP_TRANSPORT="${MCP_TRANSPORT:-streamable_http}"

@@ -570,7 +570,8 @@ env:
   COMPOSE_FILE: ${{ matrix.compose-file }}
 run: |
   compose_file="$COMPOSE_FILE"
-  docker compose -f "$compose_file" --env-file deploy/.env.example config --quiet
+  CONFIG_SECRET_FILE=.env.example ./scripts/config/load-profile.sh --print-compose-env
+  docker compose -f "$compose_file" --env-file .local/config/dev.env config --quiet
 ```
 
 ## Scenario: Gateway Active API Contract Workflow
@@ -864,7 +865,7 @@ Rules:
   `sum.golang.org` as the committed defaults.
 - Mainland China users must still have a first-class explicit mirror mode.
   Prefer `registry rewrite > daemon mirror > proxy`: registry rewrite is
-  selected by `dev-up.sh --china` or local untracked `deploy/.env` overrides,
+  selected by `dev-up.sh --china` or local untracked `.env.local` overrides,
   daemon mirrors are local machine state, and proxies are last-resort
   environment state. Keep these paths documented and diagnosable.
 - Docker/Compose PR checks must run `python3 scripts/check_docker_policy.py`
@@ -895,7 +896,7 @@ default because it is the active Knowledge runtime doc engine.
 
 Required local sequence:
 
-1. Copy local defaults with `cp deploy/.env.example deploy/.env`.
+1. Copy local secret placeholders with `cp .env.example .env.local`.
 2. Run `./scripts/local/dev-up.sh` to pull/start infra, wait for long-running
    service health, run the one-shot `minio-init`, apply any configured
    host migrations, and
@@ -911,20 +912,22 @@ Required local sequence:
 Runtime rules:
 
 - Store real runtime secrets outside the repository.
-- Use `deploy/.env.example` as the single default local configuration source.
-  Startup scripts may load `deploy/.env`, but must not duplicate service env
-  defaults or generate env files for the user.
-- Treat missing active DaoCloud/TUNA/goproxy.cn entries in `deploy/.env.example`
-  as intentional under the current source policy, not as a mainland registry
+- Use `config/` as the single committed local configuration source for
+  non-sensitive defaults and profile overrides. Root `.env.example` is the
+  local secret template, and startup scripts render runtime env through
+  `scripts/config/load-profile.sh`.
+- Treat missing active DaoCloud/TUNA/goproxy.cn entries in committed profiles as
+  intentional under the current source policy, not as a mainland registry
   regression. `scripts/check_docker_policy.py` should reject active committed
   `*_IMAGE` mirror defaults while allowing commented examples and local
-  untracked overrides.
+  untracked `.env.local` overrides.
 - `run-backend.sh` must not prepare or start the retired standalone Parser.
   Knowledge parsing runs through the Knowledge runtime API/worker path.
-- Keep `UV_DEFAULT_INDEX` in `deploy/.env.example` as the default host-run uv
+- Keep `UV_DEFAULT_INDEX` in `config/base.yaml` as the default host-run uv
   package index, using official PyPI by default. Mainland China mirror usage
   must be explicit, preferably through `dev-up.sh --china` which prepares
-  Knowledge runtime dependencies/artifacts, or local untracked env overrides.
+  Knowledge runtime dependencies/artifacts, or local untracked `.env.local`
+  overrides.
   `ragflow_deps/download_deps.py --china` remains the manual fallback when that
   preparation was intentionally skipped. It affects Python dependency downloads
   only; Docker registry rewrite remains the Compose image path.
@@ -939,20 +942,20 @@ Runtime rules:
   or forced by runtime scripts in official-default mode. Mainland China runtime
   model download mirrors are explicit through
   `run-knowledge-parse-stack.sh --china` or local untracked env overrides.
-- Keep `GOPROXY` and `GOSUMDB` in `deploy/.env.example` as the default host-run
+- Keep `GOPROXY` and `GOSUMDB` in `config/base.yaml` as the default host-run
   Go module proxy/checksum settings, using official upstream values by default.
   Mainland China mirror usage must be explicit through `dev-up.sh --china`,
-  `run-backend.sh --china`, or local untracked env overrides. They affect
+  `run-backend.sh --china`, or local untracked `.env.local` overrides. They affect
   `dev-up.sh` goose migrations and `run-backend.sh` Go service startup, not
   Docker image pulls or Knowledge runtime uv downloads.
 - `dev-up.sh` must check effective Go module settings before host-run goose
   migrations, and `run-backend.sh` must preflight each host-run Go service with
   `go mod download` before forking service processes. If `--china` is passed,
   local scripts may use mainland China mirrors for the current process without
-  rewriting `deploy/.env`. If an old `deploy/.env` still contains mirror values
-  while `--china` was not passed, scripts should warn but respect that local
-  config. If module download fails, it should fail visibly in the terminal with
-  the current effective values and remediation guidance.
+  rewriting `config/` or `.env.local`. If local profile output contains mirror
+  values while `--china` was not passed, scripts should warn but respect that
+  user configuration. If module download fails, it should fail visibly in the
+  terminal with the current effective values and remediation guidance.
 - Host-run process management is part of the local startup contract:
   `run-backend.sh` should start service commands in managed process groups and
   `stop-backend.sh` should stop those process groups, not just wrapper PIDs.

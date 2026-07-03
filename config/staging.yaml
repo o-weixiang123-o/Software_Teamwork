@@ -1,0 +1,49 @@
+version: 1
+profile: staging
+extends: base
+description: Staging profile. Only non-sensitive values and secret references are committed.
+env:
+  COMPOSE_PROJECT_NAME:
+    value: software-teamwork-staging
+  GATEWAY_CORS_ALLOWED_ORIGINS:
+    fromEnv: GATEWAY_CORS_ALLOWED_ORIGINS
+    required: true
+  GATEWAY_AUTH_BASE_URL:
+    fromEnv: GATEWAY_AUTH_BASE_URL
+    required: true
+  GATEWAY_KNOWLEDGE_BASE_URL:
+    fromEnv: GATEWAY_KNOWLEDGE_BASE_URL
+    required: true
+  GATEWAY_QA_BASE_URL:
+    fromEnv: GATEWAY_QA_BASE_URL
+    required: true
+  GATEWAY_DOCUMENT_BASE_URL:
+    fromEnv: GATEWAY_DOCUMENT_BASE_URL
+    required: true
+  GATEWAY_AI_GATEWAY_BASE_URL:
+    fromEnv: GATEWAY_AI_GATEWAY_BASE_URL
+    required: true
+  FILE_STORAGE_BACKEND:
+    value: minio
+  FILE_MINIO_ENDPOINT:
+    fromEnv: FILE_MINIO_ENDPOINT
+    required: true
+  FILE_MINIO_BUCKET:
+    fromEnv: FILE_MINIO_BUCKET
+    required: true
+  VENDOR_RUNTIME_URL:
+    fromEnv: VENDOR_RUNTIME_URL
+    required: true
+  KNOWLEDGE_RUNTIME_READINESS_MODE:
+    value: query
+  KNOWLEDGE_RUNTIME_ES_URL:
+    fromEnv: KNOWLEDGE_RUNTIME_ES_URL
+    required: true
+  AI_GATEWAY_URL:
+    fromEnv: AI_GATEWAY_URL
+    required: true
+  AI_GATEWAY_BASE_URL:
+    fromEnv: AI_GATEWAY_BASE_URL
+    required: true
+  AI_GATEWAY_LOCAL_SEED_ENABLED:
+    value: "false"

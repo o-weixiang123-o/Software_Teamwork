@@ -135,7 +135,7 @@ Gateway 基础契约文档：
 默认使用官方源：Docker Hub pinned images、PyPI、`proxy.golang.org` 和
 `sum.golang.org`。如果在中国大陆网络中 GitHub、Docker Hub、PyPI、HuggingFace 或
 Go modules 下载慢，直接给本地脚本加 `--china`，脚本只在本次进程使用大陆镜像，不改写
-`deploy/.env`：
+`.env.local`：
 
 ```bash
 ./scripts/local/dev-up.sh --china
@@ -155,7 +155,7 @@ registry rewrite 或 `UV_DEFAULT_INDEX` 影响。
 git clone https://github.com/Sakayori-Iroha-168/Software_Teamwork.git
 cd Software_Teamwork
 
-cp deploy/.env.example deploy/.env
+cp .env.example .env.local
 ./scripts/local/dev-up.sh
 ./scripts/local/run-backend.sh
 
@@ -178,18 +178,19 @@ cd apps/web && bun run dev
 ./scripts/local/stop-backend.sh
 ```
 
-`deploy/.env.example` 是唯一默认配置来源。用户只复制成 `deploy/.env`；
-脚本不会创建、改写或维护另一套默认变量，只会读取 `deploy/.env` 让宿主机进程拿到配置。
-默认 demo 账号来自 `deploy/.env.example`：`admin` / `LocalDemoAdmin#12345`，
+`config/` 是唯一默认配置来源，根 `.env.example` 是本地 secret 模板。用户只复制成
+未跟踪的 `.env.local`；脚本通过 `config/ctl` 渲染 `.local/config/dev.env` 和
+`.local/config/dev.env.sh`，让 Docker Compose 和宿主机进程拿到同一份 profile 配置。
+默认 demo 账号来自 `.env.example`：`admin` / `LocalDemoAdmin#12345`，
 `superadmin` / `LocalDemoAdmin#12345`。
 Go 服务通过宿主机 `go run` 启动，首次运行会下载 Go modules。若 `.local/logs/auth.log`
 或 `.local/logs/gateway.log` 出现 `proxy.golang.org` 超时，在中国大陆网络中重新执行
 `./scripts/local/run-backend.sh --china`；其他网络优先检查企业代理或本机 Go 配置。
-`UV_DEFAULT_INDEX` 也在这份文件里，默认是官方 PyPI；它影响 uv，不影响 Docker。第一次
+`UV_DEFAULT_INDEX` 在 `config/base.yaml` 中默认指向官方 PyPI；它影响 uv，不影响 Docker。第一次
 启动 Knowledge runtime 相关 Python 依赖时仍可能下载较多包，之后会走 uv 缓存。已有旧
-`deploy/.env` 的本地环境如果仍保留 TUNA、DaoCloud、`goproxy.cn` 或
+`.env.local` 的本地环境如果仍保留 TUNA、DaoCloud、`goproxy.cn` 或
 `sum.golang.google.cn`，默认脚本会继续尊重这些本地配置并给出提示；想恢复官方默认值，
-重新从 `deploy/.env.example` 复制后再恢复本机私有配置，或手动改回官方地址。
+重新从 `.env.example` 复制后再恢复本机私有配置，或手动改回官方地址。
 
 `./scripts/local/dev-up.sh` 会先检查同一宿主机环境中的 Docker、Go、`psql`、`uv`
 （`uv` 仅 `--china` runtime 准备需要），再拉取 infra 镜像，启动并等待
@@ -213,7 +214,7 @@ migration 和 demo seed。
 
 `ai-gateway /readyz` 在 placeholder credential 下返回 `503 degraded` 是预期行为，
 不代表服务没起。默认本地模型 profile 指向宿主机 `http://localhost:11434/v1`。
-本机需要真实 provider 时，在 `deploy/.env` 设置 `AI_GATEWAY_LOCAL_SEED_ENABLED=true`
+本机需要真实 provider 时，在 `.env.local` 设置 `AI_GATEWAY_LOCAL_SEED_ENABLED=true`
 和 `AI_GATEWAY_LOCAL_*` 后重新运行 `./scripts/local/dev-up.sh`；脚本会加密写入默认
 AI Gateway profiles，并同步 QA active LLM model。
 完整排障见 [deploy/README.md](deploy/README.md) 和

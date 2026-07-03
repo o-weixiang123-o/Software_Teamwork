@@ -32,18 +32,18 @@ Managed by Trellis. Edits outside this block are preserved; edits inside may be 
 
 - 本地联调入口见 `README.md`、`deploy/README.md` 和 `docs/runbooks/local-integration.md`。
 - 本次更新后的标准启动命令是：
-  `cp deploy/.env.example deploy/.env`，
+  `cp .env.example .env.local`，
   `./scripts/local/dev-up.sh`，
   `./scripts/local/run-backend.sh`，
   `cd apps/web && bun install && bun run dev`。
 - 根级 Docker Compose 只允许拉取并启动基础设施：`postgres`、`redis`、`minio`、`minio-init`、`elasticsearch`。Auth、File、Knowledge、QA、Document、AI Gateway、Gateway、Parser 和前端都必须按文档在宿主机启动。
 - 仓库默认路径不再维护业务服务容器、服务级 Compose、migration 容器或 seed 容器。业务服务必须走宿主机启动。
-- `deploy/.env.example` 是唯一默认配置来源；用户复制成 `deploy/.env`。启动脚本只读取 `deploy/.env` 给宿主机进程使用，不得生成、改写或维护另一套默认变量。
+- `config/` 是唯一默认配置来源；根 `.env.example` 是本地 secret 模板，用户复制成未跟踪的 `.env.local`。启动脚本通过 `config/ctl` 渲染 `.local/config/<profile>.env` 和 `.env.sh`，不得重新维护 `deploy/.env` 默认变量。
 - 当前源策略是默认官方源、国内网络显式 `--china`。旧的大陆优先默认镜像契约已废弃；不要把缺少 active DaoCloud/TUNA/goproxy 默认值标记为回归。
-- `UV_DEFAULT_INDEX` 属于宿主机 uv/Python 包索引配置，默认放在 `deploy/.env.example` 且默认指向官方 PyPI；不要把 uv 慢误判成 Docker registry 问题。中国大陆网络用显式 `--china` 或本机私有覆盖，不要把默认配置改成第三方镜像。
+- `UV_DEFAULT_INDEX` 属于宿主机 uv/Python 包索引配置，默认放在 `config/base.yaml` 且默认指向官方 PyPI；不要把 uv 慢误判成 Docker registry 问题。中国大陆网络用显式 `--china` 或本机私有覆盖，不要把默认配置改成第三方镜像。
 - Docker 镜像源、registry rewrite、daemon mirror、proxy、pull 卡顿和 WSL 内存排障见 `docs/runbooks/docker-image-pull-environment.md`。默认路径使用官方 pinned images；面向中国大陆网络的推荐路径是 `./scripts/local/dev-up.sh --china`，只在本次进程启用显式 registry rewrite；优先级为 `registry rewrite > daemon mirror > proxy`。
 - GitHub release/raw 下载慢时，不要改写 committed `pyproject.toml`、`uv.lock` 或 OpenAPI 契约。Knowledge runtime 依赖和 artifact 下载优先由 `./scripts/local/dev-up.sh --china` 自动处理；只有使用 `--skip-knowledge-runtime-deps` 跳过后才按 `services/knowledge-runtime/README.md` 手工补跑 runtime 下载脚本。
-- 改 Compose、基础设施镜像 tag、镜像源、Docker 环境诊断、Docker 文档或相关 Trellis spec 时，必须运行 `python3 scripts/check_docker_policy.py`、相关单元测试和 `docker compose -f deploy/docker-compose.yml --env-file deploy/.env.example config --quiet`。
+- 改 Compose、基础设施镜像 tag、镜像源、Docker 环境诊断、Docker 文档或相关 Trellis spec 时，必须运行 `python3 scripts/check_docker_policy.py`、相关单元测试、`CONFIG_SECRET_FILE=.env.example ./scripts/config/load-profile.sh --print-compose-env` 和 `docker compose -f deploy/docker-compose.yml --env-file .local/config/dev.env config --quiet`。
 - 不要把正常路径改成 `latest` 镜像；遇到镜像源异常时先按 Docker runbook 排查并记录环境阻断。
 
 ## 本地私有说明
