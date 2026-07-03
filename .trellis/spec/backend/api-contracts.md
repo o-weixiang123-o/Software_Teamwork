@@ -631,7 +631,10 @@ owned message with no citations -> authorize message -> 200 []
 - Knowledge environment keys:
   - `VENDOR_RUNTIME_URL`
   - `KNOWLEDGE_AUTO_START_INGESTION`
+  - `KNOWLEDGE_RUNTIME_READINESS_MODE`
   - runtime/storage/search keys required by host-run Knowledge runtime startup
+  - deployment-level worker scaling configuration, such as the KEDA Redis
+    Streams example under `deploy/k8s/`
 
 ### 3. Contracts
 
@@ -642,6 +645,13 @@ work, retrieval support, runtime task execution, and vendor storage/search
 details. Runtime routes must be registered through an explicit allowlist; do not
 expose upstream RAGFlow login/JWT/API-token, UI, file-management, or MCP
 surfaces as product APIs.
+
+Runtime API startup must remain separate from worker startup. The API-only path
+uses the base Python dependency profile and must not require worker/browser/OCR
+packages such as `crawl4ai`, `onnxruntime-gpu`, `opencv-python`,
+`selenium-wire`, `spacy`, or `xgboost`. Full ingestion startup uses the worker
+dependency profile and is the only local helper that starts
+`rag/svr/task_executor.py`.
 
 The old standalone `services/parser` and `/internal/v1/parsed-documents` API are
 retired. Do not add `PARSER_SERVICE_BASE_URL` or Parser HTTP clients back to
@@ -1162,7 +1172,25 @@ METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT=10000
 - After upload, adapter mode queues vendor deepdoc ingestion via
   `POST /api/v1/datasets/{id}/documents/parse` when
   `KNOWLEDGE_AUTO_START_INGESTION` is true (default). Adapter mode does not call
-  `services/parser` or `PARSER_SERVICE_BASE_URL`.
+  `services/parser` or `PARSER_SERVICE_BASE_URL`. If
+  `KNOWLEDGE_RUNTIME_WORKER_START_COMMAND` is configured and the runtime reports
+  no task executor heartbeat, adapter mode invokes that controlled command before
+  queueing parse work and requires a heartbeat before the queue call proceeds.
+  Local helpers may stop the worker after the queue stays idle; adapter readiness
+  must treat stale task executor heartbeats as unavailable so the next upload can
+  trigger a fresh worker start. Production commands must point at systemd, K8s,
+  supervisor, or another deployment-owned entrypoint rather than baking local
+  shell scripts into production.
+- `KNOWLEDGE_RUNTIME_READINESS_MODE=ingestion` is the default readiness mode and
+  requires the runtime task executor heartbeat. `query` mode allows `/readyz` to
+  pass without that heartbeat when runtime API and query-time dependencies are
+  healthy, but `/internal/v1/runtime/status` must still report
+  `task_executor_ready` and `task_executor_count`.
+- Upload ingestion does not require the worker to be running at adapter startup.
+  Adapter mode calls `/documents/parse` when `KNOWLEDGE_AUTO_START_INGESTION`
+  is true. If no worker start command is configured, the deployment layer remains
+  responsible for running or scaling the runtime worker to consume queued Redis
+  Stream tasks.
 - Object storage for uploaded documents uses vendor MinIO configuration
   (`software-teamwork-knowledge` bucket); Knowledge adapter does not call File
   Service for upload in vendor mode.
@@ -1236,6 +1264,8 @@ METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT=10000
 | Parser-config admin without admin permissions | `403 forbidden` |
 | Parser-config without `DATABASE_URL` in adapter mode | `502 dependency_error` |
 | Vendor runtime unreachable | `502 dependency_error` |
+| Runtime task executor heartbeat missing | Default `ingestion` mode returns degraded `/readyz`; `query` mode keeps `/readyz` ready but reports task executor diagnostics. |
+| Upload ingestion enabled while no worker is alive | Adapter still calls `/documents/parse`; deployment-owned worker scaling must consume the queued Redis Stream task. |
 | Runtime route module is outside the allowlist | It must not be registered or documented as active. |
 | Document singleton route omits `knowledgeBaseId` | `400 validation_error` with a `knowledgeBaseId` field error. |
 | Adapter scans all datasets to find one document | Treat as an adapter bug; require explicit dataset context or a bounded direct mapping. |

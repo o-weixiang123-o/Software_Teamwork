@@ -64,6 +64,30 @@ def check_tcp_url(url: str, timeout: float = 3.0) -> None:
         return
 
 
+def check_nltk_data(env: Mapping[str, str]) -> list[str]:
+    if env.get("KNOWLEDGE_RUNTIME_REQUIRE_NLTK_DATA") != "1":
+        return []
+    roots = [Path(item) for item in env.get("NLTK_DATA", "").split(os.pathsep) if item.strip()]
+    if not roots:
+        return ["Worker startup requires NLTK_DATA to point at provisioned nltk_data."]
+
+    missing: list[str] = []
+    for name, relative in {
+        "punkt_tab": Path("tokenizers") / "punkt_tab",
+        "wordnet": Path("corpora") / "wordnet",
+    }.items():
+        if not any((root / relative).exists() or (root / relative.parent / f"{relative.name}.zip").exists() for root in roots):
+            missing.append(name)
+    if missing:
+        joined_roots = ", ".join(str(root) for root in roots)
+        return [
+            "Worker startup requires NLTK data "
+            f"{', '.join(missing)} under NLTK_DATA ({joined_roots}). Run "
+            "services/knowledge-runtime/ragflow_deps/download_deps.py --china or set NLTK_DATA to a provisioned directory."
+        ]
+    return []
+
+
 def validate(
     config_path: Path,
     environ: Mapping[str, str] | None = None,
@@ -75,6 +99,7 @@ def validate(
     tcp_checker = tcp_checker or check_tcp_url
     config = read_simple_yaml(config_path)
     issues: list[str] = []
+    issues.extend(check_nltk_data(env))
 
     doc_engine = env.get("DOC_ENGINE", "elasticsearch").strip().lower()
     if doc_engine == "elasticsearch":

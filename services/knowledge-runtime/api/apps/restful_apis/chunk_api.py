@@ -58,9 +58,14 @@ from common.metadata_utils import convert_conditions, meta_filter
 from common.misc_utils import thread_pool_exec
 from common.string_utils import is_content_empty, remove_redundant_spaces
 from common.tag_feature_utils import validate_tag_features
-from rag.app.tag import label_question
 from rag.nlp import search
 from rag.prompts.generator import cross_languages, keyword_extraction
+
+
+def _label_question(question, kbs):
+    from rag.app.tag import label_question
+
+    return label_question(question, kbs)
 
 
 DOC_STOP_PARSING_INVALID_STATE_MESSAGE = "Can't stop parsing document that has not started or already completed"
@@ -365,7 +370,7 @@ async def retrieval_test(tenant_id):
         ranks = await settings.retriever.retrieval(
             question, embd_mdl, tenant_ids, kb_ids, page, size, similarity_threshold,
             vector_similarity_weight, top, doc_ids, rerank_mdl=rerank_mdl,
-            highlight=highlight, rank_feature=label_question(question, kbs),
+            highlight=highlight, rank_feature=_label_question(question, kbs),
         )
         if toc_enhance:
             chat_model_config = get_tenant_default_model_by_type(kb.tenant_id, LLMType.CHAT)

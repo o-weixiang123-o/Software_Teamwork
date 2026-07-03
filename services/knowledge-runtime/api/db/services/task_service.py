@@ -20,7 +20,6 @@ import xxhash
 from datetime import datetime
 
 from api.db.db_utils import bulk_insert_into_db
-from deepdoc.parser import PdfParser
 from peewee import JOIN
 from api.db.db_models import DB, File2Document, File
 from api.db import FileType
@@ -30,7 +29,6 @@ from api.db.services.document_service import DocumentService
 from common.misc_utils import get_uuid
 from common.time_utils import current_timestamp, get_format_time
 from common.constants import StatusEnum, TaskStatus, MAXIMUM_PAGE_NUMBER, MAXIMUM_TASK_PAGE_NUMBER
-from deepdoc.parser.excel_parser import RAGFlowExcelParser
 from rag.utils.redis_conn import REDIS_CONN
 from common import settings
 from rag.nlp import search
@@ -40,6 +38,18 @@ DATASET_SCOPE_TASK_DOC_ID = "graph_raptor_x"
 # DATASET_SCOPE_TASK_DOC_ID to make the Task.doc_id sentinel explicit.
 GRAPH_RAPTOR_FAKE_DOC_ID = DATASET_SCOPE_TASK_DOC_ID
 TASK_MAX_LOG_LENGTH = int(os.environ.get("TASK_MAX_LOG_LENGTH", 3000)) # TEXT MAX is 64 KiB bytes!
+
+
+def _pdf_total_page_number(filename: str, file_bin: bytes) -> int | None:
+    from deepdoc.parser import PdfParser
+
+    return PdfParser.total_page_number(filename, file_bin)
+
+
+def _excel_row_number(filename: str, file_bin: bytes) -> int | None:
+    from deepdoc.parser.excel_parser import RAGFlowExcelParser
+
+    return RAGFlowExcelParser.row_number(filename, file_bin)
 
 
 def is_dataset_scope_task_doc_id(doc_id: str) -> bool:
@@ -413,7 +423,7 @@ def queue_tasks(doc: dict, bucket: str, name: str, priority: int):
 
     if doc["type"] == FileType.PDF.value:
         file_bin = settings.STORAGE_IMPL.get(bucket, name)
-        pages = PdfParser.total_page_number(doc["name"], file_bin)
+        pages = _pdf_total_page_number(doc["name"], file_bin)
         if pages is None:
             pages = 0
         page_size = doc["parser_config"].get("task_page_size") or 12
@@ -434,7 +444,7 @@ def queue_tasks(doc: dict, bucket: str, name: str, priority: int):
 
     elif doc["parser_id"] == "table":
         file_bin = settings.STORAGE_IMPL.get(bucket, name)
-        rn = RAGFlowExcelParser.row_number(doc["name"], file_bin)
+        rn = _excel_row_number(doc["name"], file_bin)
         if rn is None:
             rn = 0
         for i in range(0, rn, 3000):

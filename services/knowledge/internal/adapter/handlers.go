@@ -214,6 +214,8 @@ func (s *Server) handleUploadDocument(w http.ResponseWriter, r *http.Request) {
 		if err := s.vendor.StartDocumentParse(r.Context(), reqCtx.UserID, kbID, []string{docID}); err != nil {
 			if delErr := s.vendor.DeleteDocument(r.Context(), reqCtx.UserID, kbID, docID); delErr != nil {
 				s.logger.WarnContext(r.Context(), "upload parse failed and document cleanup failed",
+					"service", "knowledge-adapter",
+					"request_id", reqCtx.RequestID,
 					"document_id", docID,
 					"parse_error", err,
 					"delete_error", delErr,
@@ -223,6 +225,7 @@ func (s *Server) handleUploadDocument(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		uploaded["run"] = "RUNNING"
+		s.startRuntimeWorkerForIngestionAsync(reqCtx.RequestID, docID)
 	}
 	writeJSON(w, http.StatusCreated, documentFromVendor(uploaded), reqCtx.RequestID)
 }

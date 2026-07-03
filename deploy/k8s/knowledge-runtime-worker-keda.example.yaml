@@ -1,0 +1,139 @@
+# Example only. This manifest is not used by local Docker Compose.
+#
+# Purpose:
+# - keep the Knowledge adapter query-ready without a parser worker;
+# - let uploads call /documents/parse and enqueue Redis Stream tasks;
+# - let KEDA scale the RAGFlow runtime worker Deployment from 0 when queue lag
+#   appears.
+#
+# Before applying:
+# - replace the image, namespace, secrets, and runtime ConfigMap with production
+#   values;
+# - ensure KEDA is installed in the cluster;
+# - keep the runtime queue names in sync with services/knowledge-runtime:
+#   settings.get_svr_queue_name(priority, "common") -> te.1.common / te.0.common
+#   and SVR_CONSUMER_GROUP_NAME -> rag_flow_svr_task_broker.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: knowledge-runtime-redis
+  namespace: software-teamwork
+type: Opaque
+stringData:
+  REDIS_ADDRESS: redis:6379
+  REDIS_USERNAME: ""
+  REDIS_PASSWORD: ""
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: knowledge-runtime-queue-groups-init
+  namespace: software-teamwork
+spec:
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: redis-cli
+          image: redis:7-alpine
+          envFrom:
+            - secretRef:
+                name: knowledge-runtime-redis
+          command:
+            - sh
+            - -ec
+            - |
+              auth_args=""
+              if [ -n "${REDIS_USERNAME:-}" ]; then
+                auth_args="$auth_args --user $REDIS_USERNAME"
+              fi
+              if [ -n "${REDIS_PASSWORD:-}" ]; then
+                auth_args="$auth_args --pass $REDIS_PASSWORD"
+              fi
+              redis-cli -u "redis://${REDIS_ADDRESS}/1" $auth_args XGROUP CREATE te.1.common rag_flow_svr_task_broker 0 MKSTREAM || true
+              redis-cli -u "redis://${REDIS_ADDRESS}/1" $auth_args XGROUP CREATE te.0.common rag_flow_svr_task_broker 0 MKSTREAM || true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: knowledge-runtime-worker
+  namespace: software-teamwork
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: knowledge-runtime-worker
+  template:
+    metadata:
+      labels:
+        app: knowledge-runtime-worker
+    spec:
+      terminationGracePeriodSeconds: 120
+      containers:
+        - name: worker
+          image: ghcr.io/your-org/software-teamwork-knowledge-runtime:replace-me
+          imagePullPolicy: IfNotPresent
+          workingDir: /app/services/knowledge-runtime
+          command:
+            - uv
+            - run
+            - python
+            - rag/svr/task_executor.py
+            - -i
+            - "$(POD_NAME)"
+            - -t
+            - common
+          envFrom:
+            - secretRef:
+                name: knowledge-runtime-redis
+            - configMapRef:
+                name: knowledge-runtime-config
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: knowledge-runtime-worker-redis-streams
+  namespace: software-teamwork
+spec:
+  scaleTargetRef:
+    name: knowledge-runtime-worker
+  pollingInterval: 15
+  cooldownPeriod: 300
+  minReplicaCount: 0
+  maxReplicaCount: 4
+  triggers:
+    - type: redis-streams
+      name: common-high
+      metadata:
+        addressFromEnv: REDIS_ADDRESS
+        usernameFromEnv: REDIS_USERNAME
+        passwordFromEnv: REDIS_PASSWORD
+        databaseIndex: "1"
+        stream: te.1.common
+        consumerGroup: rag_flow_svr_task_broker
+        lagCount: "1"
+        activationLagCount: "0"
+    - type: redis-streams
+      name: common-low
+      metadata:
+        addressFromEnv: REDIS_ADDRESS
+        usernameFromEnv: REDIS_USERNAME
+        passwordFromEnv: REDIS_PASSWORD
+        databaseIndex: "1"
+        stream: te.0.common
+        consumerGroup: rag_flow_svr_task_broker
+        lagCount: "1"
+        activationLagCount: "0"

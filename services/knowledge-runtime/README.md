@@ -26,8 +26,19 @@ host-run processes.
 cp deploy/.env.example deploy/.env
 # Edit deploy/.env with the provider and ingestion variables below.
 ./scripts/local/dev-up.sh
+./scripts/local/run-knowledge-runtime-api.sh
 ./scripts/local/run-knowledge-parse-stack.sh
 ```
+
+`run-knowledge-runtime-api.sh` is the API-only/query-ready path. It installs the
+base runtime dependencies with `uv sync --python 3.13 --frozen
+--no-default-groups` and starts only `api/ragflow_server.py`. It does not start
+the parser worker, so it is suitable for query-only validation after a
+knowledge base has already been built.
+
+`run-knowledge-parse-stack.sh` is the full ingestion path. It installs the
+worker profile with `uv sync --python 3.13 --frozen --group worker`, starts the
+runtime API, starts `rag/svr/task_executor.py`, and starts the Knowledge adapter.
 
 For SiliconFlow local parsing, set these values in `deploy/.env` before running
 the helper:
@@ -67,11 +78,21 @@ Manual process startup is still supported when debugging the runtime directly:
 
 ```bash
 cd services/knowledge-runtime
-uv sync --python 3.13 --frozen
+uv sync --python 3.13 --frozen --no-default-groups
 export PYTHONPATH=.
 set -a && . ../../deploy/.env && set +a
 ./deploy/api/run-local.sh
+```
+
+Worker/full ingestion requires the worker dependency group:
+
+```bash
+cd services/knowledge-runtime
+uv sync --python 3.13 --frozen --group worker
+export PYTHONPATH=.
+set -a && . ../../deploy/.env && set +a
 ./deploy/worker/run-local.sh
+```
 
 Official package and artifact URLs are the committed default. For mainland
 China networks, prepare dependencies and runtime artifacts with explicit mirror
@@ -87,8 +108,11 @@ uv run --no-project \
 
 That command uses a temporary uv project overlay for mirrored PyPI and GitHub
 release downloads, including `en-core-web-sm`, and mirrors NLTK raw GitHub data,
-HuggingFace, Tika, Chrome, and uv release artifacts. It writes into the normal
-`.venv` and artifact directories but does not rewrite committed
+HuggingFace, Tika, Chrome, and uv release artifacts. Deepdoc model repositories
+are written into `rag/res/deepdoc`, which is the worker's runtime load path. If
+the HuggingFace client cannot use mirror HEAD metadata, the script falls back to
+direct file downloads from the selected endpoint. It
+writes into the normal `.venv` and artifact directories but does not rewrite committed
 `pyproject.toml` or `uv.lock`.
 
 Adapter (separate module):
@@ -115,9 +139,16 @@ go run ./cmd/adapter
   (File service) and `software-teamwork-knowledge` (Knowledge runtime).
 - HuggingFace model downloads: `HF_ENDPOINT` is not set by committed defaults.
   If the worker exits with `InfiniFlow/deepdoc`, `LocalEntryNotFoundError`, or
-  `ConnectTimeout`, rerun `./scripts/local/run-knowledge-parse-stack.sh --china`
-  on mainland China networks, or point `HF_ENDPOINT` at a reachable internal
-  mirror in local `deploy/.env`.
+  `ConnectTimeout`, rerun `./scripts/local/start-knowledge-runtime-worker.sh --china`
+  or `./scripts/local/run-knowledge-parse-stack.sh --china` on mainland China
+  networks, or point `HF_ENDPOINT` at a reachable internal mirror in local
+  `deploy/.env`. If you prefetch artifacts with `ragflow_deps/download_deps.py
+  --china`, verify `rag/res/deepdoc` contains the model files before starting the
+  worker.
+- NLTK tokenizer data: worker startup exports `NLTK_DATA` to
+  `ragflow_deps/nltk_data` and fails fast when `punkt_tab` or `wordnet` is
+  missing. Run `ragflow_deps/download_deps.py --china` or set `NLTK_DATA` to a
+  provisioned directory before ingestion.
 - Model credentials: set `KNOWLEDGE_RUNTIME_MODEL_API_KEY` in your local shell or
   untracked env file. Use `KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY`,
   `KNOWLEDGE_RUNTIME_EMBEDDING_MODEL`, `KNOWLEDGE_RUNTIME_EMBEDDING_BASE_URL`,

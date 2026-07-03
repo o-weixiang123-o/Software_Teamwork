@@ -1,8 +1,11 @@
 import importlib
+import sys
 import tempfile
 import textwrap
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 
 def load_verifier():
@@ -42,7 +45,15 @@ class LocalSeedContractTests(unittest.TestCase):
                 "# MINIO_IMAGE=docker.m.daocloud.io/minio/minio:RELEASE.2025-09-07T16-13-09Z\n"
                 "# MINIO_MC_IMAGE=docker.m.daocloud.io/minio/mc:RELEASE.2025-08-13T08-35-41Z\n"
                 "VENDOR_RUNTIME_URL=http://127.0.0.1:9380\n"
-                "KNOWLEDGE_AUTO_START_INGESTION=false\n"
+                "VENDOR_RUNTIME_SERVICE_TOKEN=local-dev-runtime-service-token-change-me\n"
+                "KNOWLEDGE_RUNTIME_SERVICE_TOKEN=local-dev-runtime-service-token-change-me\n"
+                "KNOWLEDGE_RUNTIME_READINESS_MODE=query\n"
+                "KNOWLEDGE_AUTO_START_INGESTION=true\n"
+                "SOFTWARE_TEAMWORK_ROOT=${SOFTWARE_TEAMWORK_ROOT:-.}\n"
+                "KNOWLEDGE_RUNTIME_WORKER_START_COMMAND=${SOFTWARE_TEAMWORK_ROOT}/scripts/local/start-knowledge-runtime-worker.sh\n"
+                "KNOWLEDGE_RUNTIME_WORKER_START_TIMEOUT=10m\n"
+                "KNOWLEDGE_RUNTIME_WORKER_IDLE_SHUTDOWN_SECONDS=300\n"
+                "KNOWLEDGE_RUNTIME_WORKER_IDLE_CHECK_SECONDS=15\n"
                 "# DOC_ENGINE=elasticsearch\n",
                 encoding="utf-8",
             )
@@ -161,6 +172,65 @@ class LocalSeedContractTests(unittest.TestCase):
                 "auth\nfile\nknowledge\n./cmd/adapter\ngo run \"$go_target\"\nai-gateway\nqa\ndocument\ngateway\n",
                 encoding="utf-8",
             )
+            (root / "scripts" / "local" / "run-knowledge-runtime-api.sh").write_text(
+                "knowledge runtime API startup: starting runtime API only\n"
+                "setsid or python3 is required\n"
+                "os.setsid()\n"
+                "--china\n"
+                "HF_ENDPOINT=https://hf-mirror.com\n"
+                "uv sync --python 3.13 --frozen --no-default-groups\n"
+                "uv run --no-sync --no-default-groups\n"
+                'start_service "knowledge-runtime-api"\n'
+                "This API-only helper does not start knowledge-runtime-worker.\n"
+                "./scripts/local/run-knowledge-parse-stack.sh\n",
+                encoding="utf-8",
+            )
+            (root / "scripts" / "local" / "run-knowledge-parse-stack.sh").write_text(
+                "knowledge parse stack startup: starting Knowledge parse stack\n"
+                "setsid or python3 is required\n"
+                "os.setsid()\n"
+                "--china\n"
+                "Compose knowledge-runtime profile\n"
+                "KNOWLEDGE_RUNTIME_ES_URL\n"
+                "KNOWLEDGE_RUNTIME_START_ELASTICSEARCH\n"
+                "HF_ENDPOINT=https://hf-mirror.com\n"
+                "uv sync --python 3.13 --frozen --group worker\n"
+                'start_service "knowledge-runtime-worker"\n'
+                "For local Elasticsearch, set KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=true\n"
+                ".local/knowledge-runtime/service_conf.yaml\n"
+                "KNOWLEDGE_RUNTIME_MODEL_API_KEY=<your SiliconFlow key>\n"
+                "KNOWLEDGE_VENDOR_EMBEDDING_ID=BAAI/bge-m3@default@SILICONFLOW\n"
+                "KNOWLEDGE_AUTO_START_INGESTION=true\n",
+                encoding="utf-8",
+            )
+            (root / "scripts" / "local" / "start-knowledge-runtime-worker.sh").write_text(
+                "knowledge runtime worker startup: starting worker only\n"
+                "setsid or python3 is required\n"
+                "os.setsid()\n"
+                "--china\n"
+                "HF_ENDPOINT=https://hf-mirror.com\n"
+                "uv sync --python 3.13 --frozen --group worker\n"
+                "knowledge-runtime-worker\n"
+                "waiting for knowledge-runtime-worker heartbeat\n"
+                "task_executor_heartbeats\n"
+                "KNOWLEDGE_RUNTIME_WORKER_IDLE_SHUTDOWN_SECONDS\n"
+                "knowledge-runtime-worker idle watcher started\n"
+                "watch-knowledge-runtime-worker-idle.sh\n"
+                "This worker-only helper does not start knowledge-runtime-api or knowledge adapter.\n",
+                encoding="utf-8",
+            )
+            (root / "scripts" / "local" / "watch-knowledge-runtime-worker-idle.sh").write_text(
+                "knowledge-runtime-worker idle watcher started\n"
+                "KNOWLEDGE_RUNTIME_WORKER_IDLE_SHUTDOWN_SECONDS\n"
+                "worker_queue_idle\n"
+                "pending\n"
+                "lag\n"
+                "current\n"
+                "stop_worker_group\n"
+                "cleanup_worker_heartbeat\n"
+                "valkey.Valkey\n",
+                encoding="utf-8",
+            )
             (root / "scripts" / "local" / "stop-backend.sh").write_text(
                 "[stop]\n"
                 "[ok]\n"
@@ -196,6 +266,9 @@ class LocalSeedContractTests(unittest.TestCase):
             env_example="VENDOR_RUNTIME_URL=http://127.0.0.1:9380\n",
             dev_up_script="",
             run_backend_script="",
+            run_knowledge_runtime_api_script="",
+            start_knowledge_runtime_worker_script="",
+            watch_knowledge_runtime_worker_idle_script="",
             run_knowledge_parse_stack_script="",
             stop_backend_script="",
         )

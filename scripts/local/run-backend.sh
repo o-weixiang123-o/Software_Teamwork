@@ -119,6 +119,7 @@ fi
 
 # deploy/.env is copied by the user from deploy/.env.example. The script does
 # not own defaults; it only exposes that file to host child processes.
+export SOFTWARE_TEAMWORK_ROOT="$ROOT_DIR"
 set -a
 # shellcheck disable=SC1090
 . "$ENV_FILE"

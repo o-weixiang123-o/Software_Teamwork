@@ -3,10 +3,12 @@ package adapter
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/adapterconfig"
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/service"
@@ -137,6 +139,55 @@ func TestReadyzRequiresRuntimeTaskExecutorHeartbeat(t *testing.T) {
 	}
 }
 
+func TestReadyzQueryModeAllowsMissingRuntimeTaskExecutorHeartbeat(t *testing.T) {
+	vendor := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/system/ping":
+			_, _ = w.Write([]byte("pong"))
+		case "/api/v1/system/status":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"code":0,"data":{"doc_engine":{"status":"green"},"storage":{"status":"green"},"database":{"status":"green"},"redis":{"status":"green"},"task_executor_heartbeats":{}}}`))
+		default:
+			t.Fatalf("unexpected vendor path %s", r.URL.Path)
+		}
+	}))
+	defer vendor.Close()
+
+	server := NewServer(adapterconfig.Config{
+		ServiceVersion:       "test",
+		VendorRuntimeURL:     vendor.URL,
+		ServiceToken:         testServiceToken,
+		VendorRuntimeToken:   "runtime-token",
+		RuntimeReadinessMode: adapterconfig.RuntimeReadinessModeQuery,
+	}, nil)
+
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, expected := range []string{`"runtime_readiness_mode":"query"`, `"task_executor_ready":false`, `"task_executor_count":0`} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("readyz body missing %s: %s", expected, body)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/internal/v1/runtime/status", nil)
+	req.Header.Set("X-Service-Token", testServiceToken)
+	rec = httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("runtime status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	body = rec.Body.String()
+	for _, expected := range []string{`"runtime_readiness_mode":"query"`, `"task_executor_ready":false`, `"task_executor_count":0`} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("runtime status body missing %s: %s", expected, body)
+		}
+	}
+}
+
 func TestReadyzAcceptsRuntimeTaskExecutorHeartbeat(t *testing.T) {
 	vendor := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -144,7 +195,7 @@ func TestReadyzAcceptsRuntimeTaskExecutorHeartbeat(t *testing.T) {
 			_, _ = w.Write([]byte("pong"))
 		case "/api/v1/system/status":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"code":0,"data":{"doc_engine":{"status":"green"},"storage":{"status":"green"},"database":{"status":"green"},"redis":{"status":"green"},"task_executor_heartbeats":{"task_executor_common_1":[{"ts":1700000000}]}}}`))
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"code":0,"data":{"doc_engine":{"status":"green"},"storage":{"status":"green"},"database":{"status":"green"},"redis":{"status":"green"},"task_executor_heartbeats":{"task_executor_common_1":[{"now":%q}]}}}`, time.Now().Format(time.RFC3339Nano))))
 		default:
 			t.Fatalf("unexpected vendor path %s", r.URL.Path)
 		}
@@ -165,6 +216,17 @@ func TestReadyzAcceptsRuntimeTaskExecutorHeartbeat(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"task_executor_ready":true`) {
 		t.Fatalf("readyz body does not include ready task executor: %s", rec.Body.String())
+	}
+}
+
+func TestRuntimeTaskExecutorReadyRejectsStaleHeartbeat(t *testing.T) {
+	_, ready := runtimeTaskExecutorReady(map[string]interface{}{
+		"task_executor_common_1": []interface{}{
+			map[string]interface{}{"now": time.Now().Add(-10 * time.Minute).Format(time.RFC3339Nano)},
+		},
+	})
+	if ready {
+		t.Fatal("stale task executor heartbeat was treated as ready")
 	}
 }
 

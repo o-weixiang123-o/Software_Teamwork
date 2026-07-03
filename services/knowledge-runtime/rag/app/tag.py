@@ -18,8 +18,6 @@ import re
 import csv
 from copy import deepcopy
 
-from deepdoc.parser.utils import get_text
-from rag.app.qa import Excel
 from rag.nlp import rag_tokenizer
 from common import settings
 
@@ -53,6 +51,8 @@ def chunk(filename, binary=None, lang="Chinese", callback=None, **kwargs):
         "title_tks": rag_tokenizer.tokenize(re.sub(r"\.[a-zA-Z]+$", "", filename))
     }
     if re.search(r"\.xlsx?$", filename, re.IGNORECASE):
+        from rag.app.qa import Excel
+
         callback(0.1, "Start to parse.")
         excel_parser = Excel()
         for ii, (q, a) in enumerate(excel_parser(filename, binary, callback)):
@@ -60,6 +60,8 @@ def chunk(filename, binary=None, lang="Chinese", callback=None, **kwargs):
         return res
 
     elif re.search(r"\.(txt)$", filename, re.IGNORECASE):
+        from deepdoc.parser.utils import get_text
+
         callback(0.1, "Start to parse.")
         txt = get_text(filename, binary)
         lines = txt.split("\n")
@@ -93,6 +95,8 @@ def chunk(filename, binary=None, lang="Chinese", callback=None, **kwargs):
         return res
 
     elif re.search(r"\.(csv)$", filename, re.IGNORECASE):
+        from deepdoc.parser.utils import get_text
+
         callback(0.1, "Start to parse.")
         txt = get_text(filename, binary)
         lines = txt.split("\n")

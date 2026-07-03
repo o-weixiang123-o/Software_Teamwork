@@ -5,7 +5,8 @@
 ```text
 Docker: postgres + redis + qdrant + minio + minio-init
 Docker opt-in: Elasticsearch via the root Compose `knowledge-runtime` profile
-Host:   knowledge-runtime API/worker + knowledge-adapter
+Host:   knowledge-runtime API, plus worker only for ingestion
+Host:   knowledge-adapter
 Host:   auth + file + ai-gateway + qa + document + gateway + frontend
 ```
 
@@ -90,6 +91,19 @@ KNOWLEDGE_AUTO_START_INGESTION=true
 ```bash
 ./scripts/local/run-knowledge-parse-stack.sh
 ```
+
+如果只验证已构建知识库的查询链路，启动 API-only runtime 即可：
+
+```bash
+./scripts/local/run-knowledge-runtime-api.sh
+```
+
+该命令使用 `services/knowledge-runtime` 的 base dependency profile，不启动
+`knowledge-runtime-worker`。真实上传解析链路可以继续使用
+`./scripts/local/run-knowledge-parse-stack.sh` 一次性启动 full parse stack；如果
+只运行 API-only runtime + Go 后端，本地 `KNOWLEDGE_RUNTIME_WORKER_START_COMMAND`
+会在首次上传需要解析时调用 `./scripts/local/start-knowledge-runtime-worker.sh`
+按需启动 worker。
 
 中国大陆网络下，对会下载 runtime model artifact 的 runtime 启动命令也显式加
 `--china`：
@@ -272,13 +286,23 @@ Knowledge 文档上传、解析、切块、embedding、索引和检索通过 RAG
 VENDOR_RUNTIME_URL=http://127.0.0.1:9380
 VENDOR_RUNTIME_SERVICE_TOKEN=local-dev-runtime-service-token-change-me
 KNOWLEDGE_RUNTIME_SERVICE_TOKEN=local-dev-runtime-service-token-change-me
-KNOWLEDGE_AUTO_START_INGESTION=false
+KNOWLEDGE_RUNTIME_READINESS_MODE=query
+KNOWLEDGE_AUTO_START_INGESTION=true
 ```
 
-runtime API 和 worker 在宿主机启动；本地默认 adapter 使用
-`http://127.0.0.1:9380`。tenant-scoped runtime API 需要 `X-Service-Token`，
-由 Knowledge adapter 使用 `VENDOR_RUNTIME_SERVICE_TOKEN` 自动转发。
-不要再启动 `services/parser`，也不要把 runtime 放回根级 Compose。
+runtime API 在宿主机启动；runtime worker 默认不随后端启动，Knowledge adapter
+只会在 `KNOWLEDGE_RUNTIME_WORKER_START_COMMAND` 已配置且缺少 worker heartbeat
+时通过该受控入口按需触发 worker，并等到 heartbeat 后再调用
+`/documents/parse` 入队；本地默认命令为
+`${SOFTWARE_TEAMWORK_ROOT}/scripts/local/start-knowledge-runtime-worker.sh`，
+该 helper 会在队列空闲 `KNOWLEDGE_RUNTIME_WORKER_IDLE_SHUTDOWN_SECONDS` 后停止
+worker。默认值是 300 秒；设置为 `0` 可禁用本地 idle shutdown。
+生产环境应替换为 systemd、K8s、supervisor 或同类受控入口管理 worker。
+Kubernetes/KEDA 示例见
+[`deploy/k8s/knowledge-runtime-worker-keda.example.yaml`](./k8s/knowledge-runtime-worker-keda.example.yaml)。
+本地默认 adapter 使用 `http://127.0.0.1:9380`。tenant-scoped runtime API 需要
+`X-Service-Token`，由 Knowledge adapter 使用 `VENDOR_RUNTIME_SERVICE_TOKEN`
+自动转发。不要再启动 `services/parser`，也不要把 runtime 放回根级 Compose。
 
 启用真实 ingestion 前，需要先准备：
 
@@ -330,7 +354,10 @@ runtime API 和 worker 在宿主机启动；本地默认 adapter 使用
   `AI_GATEWAY_LOCAL_CHAT_MODEL`，避免 QA/Document 请求模型名和 `default-chat`
   profile 不一致。
 
-- `./scripts/local/run-knowledge-parse-stack.sh` 只启动 host-run runtime API、worker 和
+- `./scripts/local/run-knowledge-runtime-api.sh` 只启动 host-run runtime API，使用
+  API-only dependency profile，不启动 worker 或 Knowledge adapter，适合
+  `KNOWLEDGE_RUNTIME_READINESS_MODE=query` 的查询链路验证。
+- `./scripts/local/run-knowledge-parse-stack.sh` 启动 host-run runtime API、worker 和
   Knowledge adapter，并生成 `.local/knowledge-runtime/service_conf.yaml` 供 runtime API
   和 worker 使用。它不再直接执行 `docker build` 或 `docker run`；本地
   Elasticsearch 由前一步 `./scripts/local/dev-up.sh` 通过根 Compose profile 管理。
@@ -339,8 +366,10 @@ runtime API 和 worker 在宿主机启动；本地默认 adapter 使用
   改成实际地址。
 - runtime worker 第一次启动会按需下载 `InfiniFlow/deepdoc` 等 deepdoc 模型。中国大陆
   网络用 `./scripts/local/run-knowledge-parse-stack.sh --china` 显式启用
-  `HF_ENDPOINT=https://hf-mirror.com` 的本次进程覆盖；下载期间 adapter `readyz` 会一直
-  等待 worker heartbeat。脚本默认最多等待 300 秒，可用
+  `HF_ENDPOINT=https://hf-mirror.com` 的本次进程覆盖；按需启动时
+  `start-knowledge-runtime-worker.sh` 会在 runtime API 可达时等待 worker heartbeat，
+  并在空闲超时后关闭 worker。
+  full parse-stack 脚本默认最多等待 300 秒，可用
   `KNOWLEDGE_ADAPTER_READY_TIMEOUT_SECONDS` 调整。
 
 只有可信本地 provider 才可显式设置 `KNOWLEDGE_RUNTIME_ALLOW_EMPTY_MODEL_API_KEY=1`。
@@ -472,7 +501,8 @@ curl --noproxy '*' -fsS http://localhost:8080/api/v1/knowledge-queries \
 Knowledge 路由依赖 `VENDOR_RUNTIME_URL` 指向 RAGFlow runtime。runtime 负责 PDF
 解析、切块、embedding、索引和检索；不要再启动 `services/parser`。
 
-宿主机启动 runtime API 和 worker：
+宿主机启动 runtime API；查询-only 用 API helper，需要真实 ingestion 时启动完整
+parse stack：
 
 ```bash
 cp deploy/.env.example deploy/.env
@@ -481,6 +511,7 @@ cp deploy/.env.example deploy/.env
 # KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=true,
 # KNOWLEDGE_AUTO_START_INGESTION=true, and DOC_ENGINE.
 ./scripts/local/dev-up.sh
+./scripts/local/run-knowledge-runtime-api.sh
 ./scripts/local/run-knowledge-parse-stack.sh
 ```
 

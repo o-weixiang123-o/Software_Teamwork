@@ -208,13 +208,26 @@ client 与 Document 工具，不代表完整 QA Agent + LLM 链路通过。Issue
   `minio-init` 正常 `Exited (0)` 不应阻断后续步骤；非零失败时看
   `docker compose logs minio-init`。
 - `run-backend.sh`：后端进程启动、日志和进程组 PID。Knowledge 使用 `cmd/adapter`
-  调用宿主机 RAGFlow runtime API/worker。启动前会用当前 `deploy/.env` 对每个 Go
-  服务执行 `go mod download` 预检；服务 fork 后默认观察 8 秒，若进程组很快退出，
-  会直接汇总对应 `.local/logs/<service>.log` 尾部。
+  调用宿主机 RAGFlow runtime API；runtime worker 默认不随 Go 后端启动，adapter
+  只会在 `KNOWLEDGE_RUNTIME_WORKER_START_COMMAND` 已配置且缺少 worker heartbeat
+  时通过该受控入口按需触发 worker。启动前会用当前 `deploy/.env` 对每个 Go 服务执行
+  `go mod download` 预检；服务 fork 后默认观察 8 秒，若进程组很快退出，会直接汇总
+  对应 `.local/logs/<service>.log` 尾部。
+- `run-knowledge-runtime-api.sh`：只启动 host-run `services/knowledge-runtime`
+  API，使用 `uv sync --python 3.13 --frozen --no-default-groups` 的 API-only
+  dependency profile，不启动 runtime worker 或 Knowledge adapter。它适合
+  `KNOWLEDGE_RUNTIME_READINESS_MODE=query` 的查询-only 验证。
+- `start-knowledge-runtime-worker.sh`：worker-only 本地入口。默认只启动
+  `knowledge-runtime-worker`，不启动 runtime API 或 Knowledge adapter；当 runtime
+  API 可达时会等待 `task_executor` heartbeat，并启动本地 idle watcher。队列
+  `pending=0`、`lag=0` 且没有 current task 持续
+  `KNOWLEDGE_RUNTIME_WORKER_IDLE_SHUTDOWN_SECONDS` 后，会停止 worker 进程组并清理
+  heartbeat；适合被 `KNOWLEDGE_RUNTIME_WORKER_START_COMMAND` 在上传触发时调用。
 - `run-knowledge-parse-stack.sh`：真实 Knowledge 文档解析链路入口。默认启动
   host-run `services/knowledge-runtime` API、runtime worker 和 Knowledge adapter，
-  并把 `KNOWLEDGE_AUTO_START_INGESTION` 打开，适合验证 PDF 上传、解析、切块、
-  embedding、索引和检索。脚本会把 runtime URL host 加入 `NO_PROXY`，避免 shell
+  并把 `KNOWLEDGE_AUTO_START_INGESTION` 打开，使用 `uv sync --python 3.13
+  --frozen --group worker` 的 worker dependency profile，适合验证 PDF 上传、解析、
+  切块、embedding、索引和检索。脚本会把 runtime URL host 加入 `NO_PROXY`，避免 shell
   代理把 `127.0.0.1` 或 Docker bridge IP 请求截成 `502`；旧 `.env` 缺本地 runtime
   token 时使用仓库 local default。若要复用已运行的 runtime API，可设置
   `KNOWLEDGE_PARSE_VENDOR_RUNTIME_URL=http://<runtime-host>:9380`，非本机地址会自动进入
@@ -258,7 +271,15 @@ RAGFlow runtime 启动慢：
   栈时使用 `./scripts/local/run-knowledge-parse-stack.sh --china`，脚本会在本次进程内为
   未设置 `HF_ENDPOINT` 的环境使用 `https://hf-mirror.com`。企业环境可只在本机
   `deploy/.env` 中设置内部 HuggingFace 镜像。
-- runtime API 和 worker 走宿主机启动，不通过根级 Docker Compose 构建或运行。
+- runtime API 走宿主机启动；worker 仅在真实 ingestion smoke 或生产调度时启动，
+  不通过根级 Docker Compose 构建或运行。
+- 只验证查询链路时优先使用：
+
+  ```bash
+  ./scripts/local/dev-up.sh
+  ./scripts/local/run-knowledge-runtime-api.sh
+  ```
+
 - 需要真实 PDF 解析链路时优先使用：
 
   ```bash
@@ -402,17 +423,24 @@ go test ./internal/integration -run '^TestGatewayKnowledgeOwnerRouteSmoke$' -cou
   OpenAI-compatible provider 时可用；真实 provider 可通过 `deploy/.env` 的
   `AI_GATEWAY_LOCAL_PROVIDER_BASE_URL`、`AI_GATEWAY_LOCAL_PROVIDER_API_KEY` 和
   `AI_GATEWAY_LOCAL_CHAT_MODEL` 由 `./scripts/local/dev-up.sh` 自动写入本地 seed。
-- 默认 Knowledge adapter 不自动触发 runtime ingestion。需要证明真实上传、解析、
-  embedding、索引和检索时，先让 `./scripts/local/dev-up.sh` 通过根级 Compose 可选
-  profile 启动本地 Elasticsearch，再用 `./scripts/local/run-knowledge-parse-stack.sh`
-  启动 host-run runtime API、worker 和 Knowledge adapter。第一次启用前先执行
+- 默认 Knowledge adapter 使用 query-first readiness，不要求 runtime worker 已在启动时
+  运行。需要证明真实上传、解析、embedding、索引和检索时，先让
+  `./scripts/local/dev-up.sh` 通过根级 Compose 可选 profile 启动本地 Elasticsearch，
+  再用 `./scripts/local/run-knowledge-parse-stack.sh` 显式启动 host-run runtime API、
+  worker 和 Knowledge adapter。第一次启用前先执行
   `cp deploy/.env.example deploy/.env`，并在本地 `deploy/.env` 中显式设置
   `KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=true`、
   `KNOWLEDGE_AUTO_START_INGESTION=true`、`DOC_ENGINE=elasticsearch`、
   `KNOWLEDGE_RUNTIME_ES_URL=http://127.0.0.1:9200` 及对应
   `KNOWLEDGE_RUNTIME_EMBEDDING_*` / `KNOWLEDGE_RUNTIME_RERANK_*` / vendor model id
-  变量。`run-knowledge-parse-stack.sh` 不直接执行 Docker build/run；如使用外部
-  Elasticsearch，保持 `KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=false` 并把
+  变量。上传 ingestion 会调用 `/documents/parse` 入队；本地默认
+  `KNOWLEDGE_RUNTIME_WORKER_START_COMMAND` 会在缺少 worker heartbeat 时调用
+  `./scripts/local/start-knowledge-runtime-worker.sh`，并等到 heartbeat 后才入队。
+  该本地 helper 还会在队列空闲默认 300 秒后关闭 worker；可通过
+  `KNOWLEDGE_RUNTIME_WORKER_IDLE_SHUTDOWN_SECONDS=0` 禁用。
+  生产环境应把该变量替换为 systemd、K8s、supervisor 或同类受控入口；未配置该变量时，
+  worker 仍由手动进程或生产调度器消费任务。`run-knowledge-parse-stack.sh` 不直接执行 Docker build/run；
+  如使用外部 Elasticsearch，保持 `KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=false` 并把
   `KNOWLEDGE_RUNTIME_ES_URL` 指向实际地址。
 
 启动本地栈：

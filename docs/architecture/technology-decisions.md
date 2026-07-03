@@ -79,7 +79,7 @@
 | 前端 SSE | `fetch` stream wrapper | Web 标准 | 标准库 / 协议 | QA 消息创建使用 POST + `text/event-stream`，支持 `AbortController`。 |
 | 前端测试 | Vitest + React Testing Library + Playwright | Vitest `4.1.9`；Testing Library 见前端明细；Playwright `1.61.1` | 已固定 | 已加入 `apps/web/package.json` 和 `.github/workflows/frontend.yml`。 |
 | 前端代码质量 | ESLint Flat Config + Prettier | ESLint `9.39.4`，Prettier `3.9.0` | 已固定 | 插件版本见前端明细。 |
-| Knowledge RAGFlow runtime | Python vendored runtime + worker | `services/knowledge-runtime` vendored snapshot | 已固定 | runtime API 和 worker 通过宿主机 Python/uv 启动；解析、切块、embedding、索引和检索支持均在该 runtime 内完成。 |
+| Knowledge RAGFlow runtime | Python vendored runtime + worker | `services/knowledge-runtime` vendored snapshot | 已固定 | runtime API 通过宿主机 Python/uv 常驻启动，并使用 API-only dependency profile；worker 通过宿主机 Python/uv 或生产调度器运行，并使用 worker/full dependency profile。Knowledge adapter 在上传时调用 `/documents/parse` 入队；当 `KNOWLEDGE_RUNTIME_WORKER_START_COMMAND` 已配置且缺少 worker heartbeat 时，会先触发该受控启动入口，并等到 heartbeat 后再入队。本地 helper 会在队列空闲超时后关闭 worker；生产可用 KEDA 按 Redis Stream lag 从 0 扩容，或使用 systemd/supervisor 等入口。解析、切块、embedding、索引和检索支持均在该 runtime 内完成。 |
 | 后端语言 | Go | `go 1.25` | 已固定 | 项目 Go 服务基线固定为 1.25；已落地服务 module 应保持一致。 |
 | 后端 HTTP 路由 | Go `net/http` / `http.ServeMux` | Go `1.25` 标准库 | 已固定 | 不默认引入 `gin`/`chi`。 |
 | 后端日志 | Go `log/slog` | Go `1.25` 标准库 | 已固定 | 生产默认 JSON 结构化日志。 |

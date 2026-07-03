@@ -6,20 +6,18 @@ ENV_FILE="${KNOWLEDGE_ENV_FILE:-$ROOT_DIR/deploy/.env}"
 RUN_DIR="$ROOT_DIR/.local/run"
 LOG_DIR="$ROOT_DIR/.local/logs"
 RUNTIME_DIR="$ROOT_DIR/services/knowledge-runtime"
-ADAPTER_DIR="$ROOT_DIR/services/knowledge"
 LOCAL_RUNTIME_DIR="$ROOT_DIR/.local/knowledge-runtime"
 CURRENT_STEP="initializing"
 STARTED_SERVICES=()
-RUNTIME_MODE="host"
 RAGFLOW_CONF_EXPLICIT=0
 CHINA_MIRRORS=0
 
 on_exit() {
   status=$?
   if (( status == 0 )); then
-    echo "knowledge parse stack startup: completed successfully"
+    echo "knowledge runtime API startup: completed successfully"
   else
-    echo "knowledge parse stack startup: failed during ${CURRENT_STEP} (exit ${status})" >&2
+    echo "knowledge runtime API startup: failed during ${CURRENT_STEP} (exit ${status})" >&2
     echo "Check logs under .local/logs/ and pid files under .local/run/." >&2
   fi
 }
@@ -27,11 +25,10 @@ trap on_exit EXIT
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/local/run-knowledge-parse-stack.sh [--china]
+Usage: ./scripts/local/run-knowledge-runtime-api.sh [--china]
 
-Starts the host-run Knowledge runtime API, runtime worker, and Knowledge adapter.
-Local Elasticsearch is managed by ./scripts/local/dev-up.sh through the root
-Compose knowledge-runtime profile when KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=true.
+Starts only the host-run Knowledge runtime API. This is the query-ready
+runtime path; it does not start the parser worker or Knowledge adapter.
 
 Options:
   --china   Use hf-mirror for HuggingFace model downloads in this run only when
@@ -63,7 +60,7 @@ parse_args() {
 
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
-    echo "$1 is required for the host-run Knowledge parse stack" >&2
+    echo "$1 is required for the host-run Knowledge runtime API" >&2
     return 1
   fi
 }
@@ -100,17 +97,6 @@ url_host() {
   printf '%s\n' "$host"
 }
 
-is_loopback_host() {
-  case "$1" in
-    ""|"localhost"|"127.0.0.1"|"::1")
-      return 0
-      ;;
-    *)
-      return 1
-      ;;
-  esac
-}
-
 append_no_proxy_for_url() {
   local url="$1"
   local host
@@ -132,13 +118,12 @@ to_lower() {
 
 print_required_env_hint() {
   cat >&2 <<EOF
-Required local Knowledge parse stack settings are missing.
+Required local Knowledge runtime API settings are missing.
 
 Start from the tracked defaults, then add private provider credentials:
   cp deploy/.env.example deploy/.env
 
 Required for this script:
-  INTERNAL_SERVICE_TOKEN or KNOWLEDGE_SERVICE_TOKEN
   VENDOR_RUNTIME_SERVICE_TOKEN or KNOWLEDGE_RUNTIME_SERVICE_TOKEN
   DOC_ENGINE=elasticsearch
   KNOWLEDGE_RUNTIME_ES_URL=http://127.0.0.1:9200
@@ -147,49 +132,27 @@ Required for this script:
   KNOWLEDGE_RUNTIME_EMBEDDING_BASE_URL
   KNOWLEDGE_RUNTIME_MODEL_API_KEY, unless using a trusted local keyless provider
 
-For SiliconFlow local parsing, deploy/.env commonly contains:
-  KNOWLEDGE_RUNTIME_MODEL_API_KEY=<your SiliconFlow key>
-  KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY=SILICONFLOW
-  KNOWLEDGE_RUNTIME_EMBEDDING_MODEL=BAAI/bge-m3
-  KNOWLEDGE_RUNTIME_EMBEDDING_BASE_URL=https://api.siliconflow.cn/v1
-  KNOWLEDGE_RUNTIME_RERANK_FACTORY=SILICONFLOW
-  KNOWLEDGE_RUNTIME_RERANK_MODEL=BAAI/bge-reranker-v2-m3
-  KNOWLEDGE_RUNTIME_RERANK_BASE_URL=https://api.siliconflow.cn/v1
-  KNOWLEDGE_VENDOR_EMBEDDING_ID=BAAI/bge-m3@default@SILICONFLOW
-  KNOWLEDGE_VENDOR_RERANK_ID=BAAI/bge-reranker-v2-m3@default@SILICONFLOW
-  KNOWLEDGE_AUTO_START_INGESTION=true
+This API-only path installs the base runtime dependency profile. Use
+./scripts/local/run-knowledge-parse-stack.sh for worker/full ingestion deps.
 EOF
 }
 
 require_env() {
-  local missing=()
-  local adapter_token="${KNOWLEDGE_SERVICE_TOKEN:-${INTERNAL_SERVICE_TOKEN:-}}"
   local runtime_token="${VENDOR_RUNTIME_SERVICE_TOKEN:-${KNOWLEDGE_RUNTIME_SERVICE_TOKEN:-}}"
   local configured_runtime_url
 
-  if [[ -z "${adapter_token// }" ]]; then
-    echo "INTERNAL_SERVICE_TOKEN/KNOWLEDGE_SERVICE_TOKEN missing; using local development default for scripts/local"
-    export INTERNAL_SERVICE_TOKEN="local-dev-internal-service-token-change-me"
-    adapter_token="$INTERNAL_SERVICE_TOKEN"
-  fi
   if [[ -z "${runtime_token// }" ]]; then
     echo "VENDOR_RUNTIME_SERVICE_TOKEN/KNOWLEDGE_RUNTIME_SERVICE_TOKEN missing; using local development default for scripts/local"
     export VENDOR_RUNTIME_SERVICE_TOKEN="local-dev-runtime-service-token-change-me"
     runtime_token="$VENDOR_RUNTIME_SERVICE_TOKEN"
   fi
 
-  [[ -n "${adapter_token// }" ]] || missing+=("INTERNAL_SERVICE_TOKEN or KNOWLEDGE_SERVICE_TOKEN")
-  [[ -n "${runtime_token// }" ]] || missing+=("VENDOR_RUNTIME_SERVICE_TOKEN or KNOWLEDGE_RUNTIME_SERVICE_TOKEN")
-
-  if (( ${#missing[@]} > 0 )); then
-    printf 'missing required env: %s\n' "${missing[*]}" >&2
+  if [[ -z "${runtime_token// }" ]]; then
+    echo "missing required env: VENDOR_RUNTIME_SERVICE_TOKEN or KNOWLEDGE_RUNTIME_SERVICE_TOKEN" >&2
     print_required_env_hint
     return 1
   fi
 
-  if [[ -z "${KNOWLEDGE_SERVICE_TOKEN:-}" && -n "${INTERNAL_SERVICE_TOKEN:-}" ]]; then
-    export KNOWLEDGE_SERVICE_TOKEN="$INTERNAL_SERVICE_TOKEN"
-  fi
   if [[ -z "${VENDOR_RUNTIME_SERVICE_TOKEN:-}" && -n "${KNOWLEDGE_RUNTIME_SERVICE_TOKEN:-}" ]]; then
     export VENDOR_RUNTIME_SERVICE_TOKEN="$KNOWLEDGE_RUNTIME_SERVICE_TOKEN"
   fi
@@ -205,28 +168,11 @@ require_env() {
   fi
   export VENDOR_RUNTIME_URL="$configured_runtime_url"
 
-  RUNTIME_MODE="${KNOWLEDGE_PARSE_RUNTIME_MODE:-host}"
-  if [[ -z "${KNOWLEDGE_PARSE_RUNTIME_MODE:-}" && -n "${KNOWLEDGE_PARSE_VENDOR_RUNTIME_URL:-}" ]]; then
-    if ! is_loopback_host "$(url_host "$VENDOR_RUNTIME_URL")"; then
-      RUNTIME_MODE="external"
-    fi
-  fi
-  case "$RUNTIME_MODE" in
-    host|external) ;;
-    *)
-      echo "KNOWLEDGE_PARSE_RUNTIME_MODE must be host or external" >&2
-      return 1
-      ;;
-  esac
-  export KNOWLEDGE_PARSE_RUNTIME_MODE="$RUNTIME_MODE"
-
   export DOC_ENGINE="${DOC_ENGINE:-elasticsearch}"
   if [[ "$(to_lower "$DOC_ENGINE")" == "elasticsearch" ]]; then
     export KNOWLEDGE_RUNTIME_ES_URL
     KNOWLEDGE_RUNTIME_ES_URL="$(normalize_http_url "${KNOWLEDGE_RUNTIME_ES_URL:-http://127.0.0.1:${KNOWLEDGE_RUNTIME_ELASTICSEARCH_PORT:-9200}}")"
   fi
-  export KNOWLEDGE_HTTP_ADDR="${KNOWLEDGE_PARSE_ADAPTER_ADDR:-${KNOWLEDGE_HTTP_ADDR:-:8083}}"
-  export KNOWLEDGE_AUTO_START_INGESTION="${KNOWLEDGE_PARSE_AUTO_START_INGESTION:-true}"
   if [[ -n "${RAGFLOW_CONF:-}" ]]; then
     RAGFLOW_CONF_EXPLICIT=1
   fi
@@ -248,7 +194,6 @@ require_env() {
 }
 
 prepare_runtime_config() {
-  [[ "$RUNTIME_MODE" == "host" ]] || return 0
   [[ "$(to_lower "${DOC_ENGINE:-elasticsearch}")" == "elasticsearch" ]] || return 0
   [[ -n "${KNOWLEDGE_RUNTIME_ES_URL:-}" ]] || return 0
   if [[ "$RAGFLOW_CONF_EXPLICIT" == "1" && "${KNOWLEDGE_RUNTIME_GENERATE_LOCAL_CONF:-0}" != "1" ]]; then
@@ -286,40 +231,34 @@ prepare_runtime_config() {
 }
 
 ensure_runtime_venv() {
-  CURRENT_STEP="checking knowledge-runtime Python environment"
+  CURRENT_STEP="checking knowledge-runtime API Python environment"
   if [[ -d "$RUNTIME_DIR/.venv" ]]; then
-    if (cd "$RUNTIME_DIR" && uv sync --python 3.13 --frozen --group worker --check >/dev/null 2>&1); then
+    if (cd "$RUNTIME_DIR" && uv sync --python 3.13 --frozen --no-default-groups --check >/dev/null 2>&1); then
       return
     fi
     if [[ "${KNOWLEDGE_RUNTIME_AUTO_UV_SYNC:-1}" != "1" ]]; then
-      echo "$RUNTIME_DIR/.venv is not synced with worker dependencies; run: cd services/knowledge-runtime && uv sync --python 3.13 --frozen --group worker" >&2
+      echo "$RUNTIME_DIR/.venv is not synced with API dependencies; run: cd services/knowledge-runtime && uv sync --python 3.13 --frozen --no-default-groups" >&2
       return 1
     fi
-    echo "knowledge-runtime .venv is not synced with worker dependencies; running uv sync --python 3.13 --frozen --group worker"
-    (cd "$RUNTIME_DIR" && uv sync --python 3.13 --frozen --group worker)
+    echo "knowledge-runtime .venv is not synced with API dependencies; running uv sync --python 3.13 --frozen --no-default-groups"
+    (cd "$RUNTIME_DIR" && uv sync --python 3.13 --frozen --no-default-groups)
     return
   fi
   if [[ "${KNOWLEDGE_RUNTIME_AUTO_UV_SYNC:-1}" != "1" ]]; then
-    echo "missing $RUNTIME_DIR/.venv; run: cd services/knowledge-runtime && uv sync --python 3.13 --frozen --group worker" >&2
+    echo "missing $RUNTIME_DIR/.venv; run: cd services/knowledge-runtime && uv sync --python 3.13 --frozen --no-default-groups" >&2
     return 1
   fi
-  echo "knowledge-runtime .venv missing; running uv sync --python 3.13 --frozen --group worker"
-  (cd "$RUNTIME_DIR" && uv sync --python 3.13 --frozen --group worker)
+  echo "knowledge-runtime .venv missing; running uv sync --python 3.13 --frozen --no-default-groups"
+  (cd "$RUNTIME_DIR" && uv sync --python 3.13 --frozen --no-default-groups)
 }
 
 run_runtime_preflight() {
-  CURRENT_STEP="checking knowledge-runtime dependencies"
-  echo "checking knowledge-runtime dependencies"
-  if ! (cd "$RUNTIME_DIR" && uv run python deploy/check_runtime_dependencies.py); then
+  CURRENT_STEP="checking knowledge-runtime API dependencies"
+  echo "checking knowledge-runtime API dependencies"
+  if ! (cd "$RUNTIME_DIR" && uv run --no-sync --no-default-groups python deploy/check_runtime_dependencies.py); then
     print_required_env_hint
     return 1
   fi
-}
-
-run_adapter_preflight() {
-  CURRENT_STEP="checking Knowledge adapter Go modules"
-  echo "checking Knowledge adapter Go modules"
-  (cd "$ADAPTER_DIR" && env -u GOROOT go mod download)
 }
 
 launch_process_group() {
@@ -363,7 +302,7 @@ start_service() {
 
 check_started_services() {
   CURRENT_STEP="checking started process groups"
-  local wait_seconds="${KNOWLEDGE_PARSE_STARTUP_CHECK_SECONDS:-8}"
+  local wait_seconds="${KNOWLEDGE_RUNTIME_API_STARTUP_CHECK_SECONDS:-8}"
   local failed=()
 
   if [[ "$wait_seconds" =~ ^[0-9]+$ ]] && (( wait_seconds > 0 )) && (( ${#STARTED_SERVICES[@]} > 0 )); then
@@ -385,7 +324,7 @@ check_started_services() {
   for name in "${failed[@]}"; do
     echo "----- $LOG_DIR/$name.log (tail) -----" >&2
     if [[ -f "$LOG_DIR/$name.log" ]]; then
-      tail -n 60 "$LOG_DIR/$name.log" >&2
+      tail -n 80 "$LOG_DIR/$name.log" >&2
     else
       echo "log file missing" >&2
     fi
@@ -412,20 +351,17 @@ wait_for_http_ok() {
     sleep 2
   done
 
-  local process_name
-  for process_name in "knowledge-runtime-worker" "knowledge-runtime-api"; do
-    if [[ -f "$RUN_DIR/$process_name.pid" ]] && ! service_group_alive "$RUN_DIR/$process_name.pid"; then
-      echo "$process_name exited before $name became ready" >&2
-      echo "----- $LOG_DIR/$process_name.log (tail) -----" >&2
-      if [[ -f "$LOG_DIR/$process_name.log" ]]; then
-        tail -n 80 "$LOG_DIR/$process_name.log" >&2
-      else
-        echo "log file missing" >&2
-      fi
-      rm -f "$response_file"
-      return 1
+  if [[ -f "$RUN_DIR/knowledge-runtime-api.pid" ]] && ! service_group_alive "$RUN_DIR/knowledge-runtime-api.pid"; then
+    echo "knowledge-runtime-api exited before $name became ready" >&2
+    echo "----- $LOG_DIR/knowledge-runtime-api.log (tail) -----" >&2
+    if [[ -f "$LOG_DIR/knowledge-runtime-api.log" ]]; then
+      tail -n 80 "$LOG_DIR/knowledge-runtime-api.log" >&2
+    else
+      echo "log file missing" >&2
     fi
-  done
+    rm -f "$response_file"
+    return 1
+  fi
 
   echo "$name did not become ready at $url" >&2
   if [[ "$name" == "Elasticsearch" ]]; then
@@ -440,18 +376,7 @@ wait_for_http_ok() {
   return 1
 }
 
-knowledge_base_url() {
-  local addr="${KNOWLEDGE_HTTP_ADDR:-:8083}"
-  if [[ "$addr" == http://* || "$addr" == https://* ]]; then
-    printf '%s\n' "${addr%/}"
-  elif [[ "$addr" == :* ]]; then
-    printf 'http://127.0.0.1%s\n' "$addr"
-  else
-    printf 'http://%s\n' "$addr"
-  fi
-}
-
-echo "knowledge parse stack startup: starting Knowledge parse stack"
+echo "knowledge runtime API startup: starting runtime API only"
 parse_args "$@"
 
 if [[ ! -f "$ENV_FILE" ]]; then
@@ -470,51 +395,35 @@ if ! command -v setsid >/dev/null 2>&1 && ! command -v python3 >/dev/null 2>&1; 
   echo "setsid or python3 is required to manage host-run process groups" >&2
   exit 1
 fi
-require_command go
 require_command curl
-if [[ "$RUNTIME_MODE" == "host" ]]; then
-  require_command uv
-fi
+require_command uv
 mkdir -p "$RUN_DIR" "$LOG_DIR"
 
-if [[ "$RUNTIME_MODE" == "host" ]]; then
-  prepare_runtime_config
-  if [[ "$(to_lower "${DOC_ENGINE:-elasticsearch}")" == "elasticsearch" && -n "${KNOWLEDGE_RUNTIME_ES_URL:-}" ]]; then
-    wait_for_http_ok "Elasticsearch" "$KNOWLEDGE_RUNTIME_ES_URL/_cluster/health" "${KNOWLEDGE_RUNTIME_ELASTICSEARCH_READY_TIMEOUT_SECONDS:-120}"
-  fi
-  ensure_runtime_venv
-  run_runtime_preflight
-else
-  echo "using external Knowledge runtime at $VENDOR_RUNTIME_URL"
+prepare_runtime_config
+if [[ "$(to_lower "${DOC_ENGINE:-elasticsearch}")" == "elasticsearch" && -n "${KNOWLEDGE_RUNTIME_ES_URL:-}" ]]; then
+  wait_for_http_ok "Elasticsearch" "$KNOWLEDGE_RUNTIME_ES_URL/_cluster/health" "${KNOWLEDGE_RUNTIME_ELASTICSEARCH_READY_TIMEOUT_SECONDS:-120}"
 fi
-run_adapter_preflight
+ensure_runtime_venv
+run_runtime_preflight
 
-if [[ "$RUNTIME_MODE" == "host" ]]; then
-  start_service "knowledge-runtime-api" "$RUNTIME_DIR" ./deploy/api/run-local.sh
-  start_service "knowledge-runtime-worker" "$RUNTIME_DIR" ./deploy/worker/run-local.sh
-fi
-start_service "knowledge-adapter" "$ADAPTER_DIR" env -u GOROOT go run ./cmd/adapter
+start_service "knowledge-runtime-api" "$RUNTIME_DIR" ./deploy/api/run-local.sh
 
 check_started_services
 wait_for_http_ok "knowledge-runtime API" "$VENDOR_RUNTIME_URL/api/v1/system/ping" "${KNOWLEDGE_RUNTIME_API_READY_TIMEOUT_SECONDS:-90}"
-wait_for_http_ok "Knowledge adapter" "$(knowledge_base_url)/readyz" "${KNOWLEDGE_ADAPTER_READY_TIMEOUT_SECONDS:-300}"
 
 cat <<EOF
-knowledge parse stack is running
-  mode:        $RUNTIME_MODE
+knowledge runtime API is running
   runtime API: $VENDOR_RUNTIME_URL
-  adapter:     $(knowledge_base_url)
   doc engine:  ${DOC_ENGINE:-elasticsearch}
   es URL:      ${KNOWLEDGE_RUNTIME_ES_URL:-}
   NO_PROXY:    ${NO_PROXY:-}
   logs:        .local/logs/knowledge-runtime-api.log
-               .local/logs/knowledge-runtime-worker.log
-               .local/logs/knowledge-adapter.log
   config:      ${RAGFLOW_CONF:-}
                .local/knowledge-runtime/service_conf.yaml when generated by this script
 
-Run the PDF E2E smoke:
-  python3 scripts/local/knowledge-pdf-e2e.py DL_T_673-1999.pdf
+This API-only helper does not start knowledge-runtime-worker.
+Start full ingestion explicitly with:
+  ./scripts/local/run-knowledge-parse-stack.sh
 
 Stop host-run processes:
   ./scripts/local/stop-backend.sh

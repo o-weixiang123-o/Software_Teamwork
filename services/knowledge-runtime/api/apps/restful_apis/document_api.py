@@ -52,7 +52,7 @@ from common.constants import ParserType, RetCode, TaskStatus
 from common.metadata_utils import convert_conditions, meta_filter, turn2jsonschema
 from common.misc_utils import get_uuid, thread_pool_exec
 from api.utils.file_utils import filename_type, thumbnail
-from api.utils.web_utils import CONTENT_TYPE_MAP, html2pdf, is_valid_url, apply_safe_file_response_headers
+from api.utils.web_utils import CONTENT_TYPE_MAP, is_valid_url, apply_safe_file_response_headers
 from common.ssrf_guard import assert_url_is_safe
 from rag.nlp import search
 
@@ -476,6 +476,8 @@ async def _upload_web_document(dataset_id, kb, tenant_id):
         )
     if not is_valid_url(url):
         return get_error_data_result(message="The URL format is invalid", code=RetCode.ARGUMENT_ERROR)
+
+    from api.utils.web_utils import html2pdf
 
     blob = html2pdf(url)
     if not blob:
