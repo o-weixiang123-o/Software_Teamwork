@@ -614,3 +614,36 @@ Read-only correctness/robustness review of the knowledge module along product-re
 ### Next Steps
 
 - Optional follow-up task: implement fix batches per review-report.md recommended order (P0 first).
+
+
+## Session 18: Fix Knowledge runtime review edge cases
+
+**Date**: 2026-07-03
+**Task**: Fix Knowledge runtime review edge cases
+**Branch**: `L1nggTeam/feat/ragflow-runtime-vendor`
+
+### Summary
+
+Fixed PR review regressions for Knowledge runtime metadata fallback limits, missing-index error classification, internal document OpenAPI 400 responses, and guardrail tests/spec updates.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `84394519` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
