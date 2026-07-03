@@ -744,7 +744,7 @@ func sanitizeStreamDelta(rawDelta json.RawMessage) (json.RawMessage, bool) {
 		return nil, false
 	}
 	sanitizedDelta := map[string]json.RawMessage{}
-	copyRawFields(sanitizedDelta, delta, "role", "content", "refusal")
+	copyRawFields(sanitizedDelta, delta, "role", "content", "reasoning", "refusal")
 	if functionCall, ok := delta["function_call"]; ok {
 		sanitizedFunctionCall, valid := sanitizeNamedArguments(functionCall)
 		if !valid {

@@ -2102,7 +2102,7 @@ paths:
             text/event-stream:
               schema:
                 type: string
-                description: Server-Sent Events with event types `message.created`, `agent.iteration.started`, `reasoning.step`, `tool.started`, `tool.completed`, `tool.failed`, `answer.delta`, `citation.delta`, `answer.completed`, `error`, and optional `heartbeat`. For `tool.completed` and `tool.failed`, Document report-generation tools may include `payload.result.reportArtifact` using the `QAReportArtifact` schema.
+                description: Server-Sent Events with event types `message.created`, `agent.iteration.started`, `reasoning.step`, `reasoning.delta`, `tool.started`, `tool.completed`, `tool.failed`, `answer.delta`, `citation.delta`, `answer.completed`, `error`, and optional `heartbeat`. For `tool.completed` and `tool.failed`, Document report-generation tools may include `payload.result.reportArtifact` using the `QAReportArtifact` schema. The `reasoning.delta` event carries provider-supplied reasoning text for display purposes, and may be absent when the provider does not support reasoning content.
         '400':
           $ref: '#/components/responses/Error'
         '403':
@@ -5883,6 +5883,7 @@ components:
       - message.created
       - agent.iteration.started
       - reasoning.step
+      - reasoning.delta
       - tool.started
       - tool.completed
       - tool.failed

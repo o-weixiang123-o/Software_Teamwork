@@ -424,9 +424,11 @@ and metrics.
 Send `Accept: text/event-stream` to the same
 `POST /api/v1/qa-sessions/{sessionId}/messages` public path to receive SSE.
 Events use the documented names such as `message.created`,
-`agent.iteration.started`, `tool.started`, `reasoning.step`, `answer.delta`,
-`answer.completed`, and `error`; resumable events are persisted for the replay
-resource. By default the AI Gateway provider call remains non-streaming, so the
+`agent.iteration.started`, `tool.started`, `reasoning.step`, `reasoning.delta`,
+`answer.delta`, `answer.completed`, and `error`; resumable events are persisted
+for the replay resource. The `reasoning.delta` event carries provider-supplied
+reasoning text and may be absent when the provider does not support reasoning
+content. By default the AI Gateway provider call remains non-streaming, so the
 completed model answer is emitted as one safe `answer.delta`; set
 `AI_GATEWAY_STREAM=true` only for profiles that support streaming completions.
 

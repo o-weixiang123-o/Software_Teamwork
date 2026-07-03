@@ -16,20 +16,22 @@ const (
 // agent loop. Tool calls are emitted by assistant messages; tool results are
 // appended as role=tool messages correlated by ToolCallID.
 type Message struct {
-	Role       string     `json:"role"`
-	Content    string     `json:"content"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
-	Name       string     `json:"name,omitempty"`
+	Role            string     `json:"role"`
+	Content         string     `json:"content"`
+	ReasoningContent string    `json:"reasoning,omitempty"`
+	ToolCalls       []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID      string     `json:"tool_call_id,omitempty"`
+	Name            string     `json:"name,omitempty"`
 }
 
 func (m *Message) UnmarshalJSON(data []byte) error {
 	var decoded struct {
-		Role       string     `json:"role"`
-		Content    *string    `json:"content"`
-		ToolCalls  []ToolCall `json:"tool_calls"`
-		ToolCallID string     `json:"tool_call_id"`
-		Name       string     `json:"name"`
+		Role            string     `json:"role"`
+		Content         *string    `json:"content"`
+		ReasoningContent *string   `json:"reasoning"`
+		ToolCalls       []ToolCall `json:"tool_calls"`
+		ToolCallID      string     `json:"tool_call_id"`
+		Name            string     `json:"name"`
 	}
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		return err
@@ -39,6 +41,11 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 		m.Content = *decoded.Content
 	} else {
 		m.Content = ""
+	}
+	if decoded.ReasoningContent != nil {
+		m.ReasoningContent = *decoded.ReasoningContent
+	} else {
+		m.ReasoningContent = ""
 	}
 	m.ToolCalls = decoded.ToolCalls
 	m.ToolCallID = decoded.ToolCallID
@@ -91,6 +98,7 @@ type ToolResult struct {
 
 type ModelClient interface {
 	Complete(ctx context.Context, messages []Message, tools []ToolDefinition) (Completion, error)
+	CompleteStream(ctx context.Context, messages []Message, tools []ToolDefinition, onChunk func(Completion)) (Completion, error)
 }
 
 // ToolClient is implemented by the MCP adapter. Keeping this interface at the

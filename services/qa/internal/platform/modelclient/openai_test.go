@@ -283,3 +283,136 @@ func TestCompleteRejectsInterruptedStreamWithPartialDelta(t *testing.T) {
 		t.Fatalf("interrupted stream leaked partial delta: %v", err)
 	}
 }
+
+func TestCompleteParsesReasoningContentInNonStreamingResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+          "choices":[{
+            "message":{"role":"assistant","content":"the answer","reasoning":"I analyzed the question and found relevant context"},
+            "finish_reason":"stop"
+          }],
+          "usage":{"prompt_tokens":10,"completion_tokens":8,"total_tokens":18,"completion_tokens_details":{"reasoning_tokens":4}}
+        }`))
+	}))
+	defer server.Close()
+
+	client, err := New(Config{Endpoint: "http://localhost:8086/internal/v1/chat/completions", TokenHeader: "X-Service-Token", Model: "test", MaxTokens: 100, Timeout: time.Second, transport: newTestTransport(t, server.URL)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	completion, err := client.Complete(context.Background(), []agent.Message{{Role: agent.RoleUser, Content: "hi"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completion.Message.Content != "the answer" {
+		t.Fatalf("content = %q", completion.Message.Content)
+	}
+	if completion.Message.ReasoningContent != "I analyzed the question and found relevant context" {
+		t.Fatalf("reasoning_content = %q", completion.Message.ReasoningContent)
+	}
+}
+
+func TestCompleteParsesReasoningContentInStreamingResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(`data: {"choices":[{"index":0,"delta":{"role":"assistant","content":"the","reasoning":"I analyzed"},"finish_reason":null}]}
+data: {"choices":[{"index":0,"delta":{"content":" answer","reasoning":" the question"},"finish_reason":null}]}
+data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":8,"total_tokens":18}}
+data: [DONE]
+`))
+	}))
+	defer server.Close()
+
+	client, err := New(Config{Endpoint: "http://localhost:8086/internal/v1/chat/completions", TokenHeader: "X-Service-Token", Model: "test", MaxTokens: 100, Timeout: time.Second, Stream: true, transport: newTestTransport(t, server.URL)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	completion, err := client.Complete(context.Background(), []agent.Message{{Role: agent.RoleUser, Content: "hi"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completion.Message.Content != "the answer" {
+		t.Fatalf("content = %q", completion.Message.Content)
+	}
+	if completion.Message.ReasoningContent != "I analyzed the question" {
+		t.Fatalf("reasoning_content = %q", completion.Message.ReasoningContent)
+	}
+}
+
+func TestCompleteParsesStreamedReasoningContentWithCallback(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(`data: {"choices":[{"index":0,"delta":{"role":"assistant","content":"the","reasoning":"I analyzed"},"finish_reason":null}]}
+data: {"choices":[{"index":0,"delta":{"content":" answer","reasoning":" the question"},"finish_reason":null}]}
+data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":8,"total_tokens":18}}
+data: [DONE]
+`))
+	}))
+	defer server.Close()
+
+	client, err := New(Config{Endpoint: "http://localhost:8086/internal/v1/chat/completions", TokenHeader: "X-Service-Token", Model: "test", MaxTokens: 100, Timeout: time.Second, transport: newTestTransport(t, server.URL)})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var receivedChunks []agent.Completion
+	onChunk := func(completion agent.Completion) {
+		receivedChunks = append(receivedChunks, completion)
+	}
+
+	completion, err := client.CompleteStream(context.Background(), []agent.Message{{Role: agent.RoleUser, Content: "hi"}}, nil, onChunk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completion.Message.Content != "the answer" {
+		t.Fatalf("final content = %q", completion.Message.Content)
+	}
+	if completion.Message.ReasoningContent != "I analyzed the question" {
+		t.Fatalf("final reasoning_content = %q", completion.Message.ReasoningContent)
+	}
+	if len(receivedChunks) != 2 {
+		t.Fatalf("got %d chunks, want 2", len(receivedChunks))
+	}
+	if receivedChunks[0].Message.Content != "the" {
+		t.Fatalf("first chunk content = %q", receivedChunks[0].Message.Content)
+	}
+	if receivedChunks[0].Message.ReasoningContent != "I analyzed" {
+		t.Fatalf("first chunk reasoning = %q", receivedChunks[0].Message.ReasoningContent)
+	}
+	if receivedChunks[1].Message.Content != "the answer" {
+		t.Fatalf("second chunk content = %q", receivedChunks[1].Message.Content)
+	}
+	if receivedChunks[1].Message.ReasoningContent != "I analyzed the question" {
+		t.Fatalf("second chunk reasoning = %q", receivedChunks[1].Message.ReasoningContent)
+	}
+}
+
+func TestCompleteIgnoresReasoningContentWhenNotProvided(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+          "choices":[{
+            "message":{"role":"assistant","content":"the answer"},
+            "finish_reason":"stop"
+          }],
+          "usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}
+        }`))
+	}))
+	defer server.Close()
+
+	client, err := New(Config{Endpoint: "http://localhost:8086/internal/v1/chat/completions", TokenHeader: "X-Service-Token", Model: "test", MaxTokens: 100, Timeout: time.Second, transport: newTestTransport(t, server.URL)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	completion, err := client.Complete(context.Background(), []agent.Message{{Role: agent.RoleUser, Content: "hi"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completion.Message.Content != "the answer" {
+		t.Fatalf("content = %q", completion.Message.Content)
+	}
+	if completion.Message.ReasoningContent != "" {
+		t.Fatalf("reasoning_content = %q, want empty", completion.Message.ReasoningContent)
+	}
+}

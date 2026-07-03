@@ -150,6 +150,9 @@ func (r blockingAgentRunner) RunWithObserver(ctx context.Context, _ []agent.Mess
 func (r blockingAgentRunner) RunWithToolResultCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver) (agent.Result, error) {
 	return r.RunWithObserver(ctx, input, observer)
 }
+func (r blockingAgentRunner) RunWithStreamCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver, _ func(agent.Completion)) (agent.Result, error) {
+	return r.RunWithObserver(ctx, input, observer)
+}
 
 type completedThenCancelledRunner struct{ completed chan struct{} }
 
@@ -161,6 +164,9 @@ func (r completedThenCancelledRunner) RunWithObserver(ctx context.Context, _ []a
 	return agent.Result{}, ctx.Err()
 }
 func (r completedThenCancelledRunner) RunWithToolResultCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver) (agent.Result, error) {
+	return r.RunWithObserver(ctx, input, observer)
+}
+func (r completedThenCancelledRunner) RunWithStreamCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver, _ func(agent.Completion)) (agent.Result, error) {
 	return r.RunWithObserver(ctx, input, observer)
 }
 
@@ -176,6 +182,9 @@ func (r cancelAfterCompletedRunner) RunWithObserver(_ context.Context, input []a
 func (r cancelAfterCompletedRunner) RunWithToolResultCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver) (agent.Result, error) {
 	return r.RunWithObserver(ctx, input, observer)
 }
+func (r cancelAfterCompletedRunner) RunWithStreamCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver, _ func(agent.Completion)) (agent.Result, error) {
+	return r.RunWithObserver(ctx, input, observer)
+}
 
 type cancelBeforeCompletedObserverRunner struct{ cancel context.CancelFunc }
 
@@ -187,6 +196,9 @@ func (r cancelBeforeCompletedObserverRunner) RunWithObserver(_ context.Context, 
 	return agent.Result{Final: final, Messages: append(input, final), Iterations: 1}, nil
 }
 func (r cancelBeforeCompletedObserverRunner) RunWithToolResultCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver) (agent.Result, error) {
+	return r.RunWithObserver(ctx, input, observer)
+}
+func (r cancelBeforeCompletedObserverRunner) RunWithStreamCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver, _ func(agent.Completion)) (agent.Result, error) {
 	return r.RunWithObserver(ctx, input, observer)
 }
 
@@ -201,6 +213,9 @@ func (toolProgressRunner) RunWithObserver(_ context.Context, input []agent.Messa
 	return agent.Result{Final: final, Messages: append(input, final), Iterations: 1}, nil
 }
 func (toolProgressRunner) RunWithToolResultCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver) (agent.Result, error) {
+	return toolProgressRunner{}.RunWithObserver(ctx, input, observer)
+}
+func (toolProgressRunner) RunWithStreamCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver, _ func(agent.Completion)) (agent.Result, error) {
 	return toolProgressRunner{}.RunWithObserver(ctx, input, observer)
 }
 
@@ -244,6 +259,9 @@ func (documentReportToolRunner) RunWithToolResultCallback(_ context.Context, inp
 	messages = append(messages, toolResult, final)
 	return agent.Result{Final: final, Messages: messages, Iterations: 1}, nil
 }
+func (documentReportToolRunner) RunWithStreamCallback(ctx context.Context, input []agent.Message, observer agent.Observer, toolObserver agent.ToolObserver, _ func(agent.Completion)) (agent.Result, error) {
+	return documentReportToolRunner{}.RunWithToolResultCallback(ctx, input, observer, toolObserver)
+}
 
 func (citationToolRunner) RunWithObserver(_ context.Context, input []agent.Message, observer agent.Observer) (agent.Result, error) {
 	observer(agent.Event{Type: agent.EventModelStarted, Iteration: 1})
@@ -279,6 +297,9 @@ func (citationToolRunner) RunWithToolResultCallback(_ context.Context, input []a
 	messages := append([]agent.Message{}, input...)
 	messages = append(messages, toolResult, final)
 	return agent.Result{Final: final, Messages: messages, Iterations: 1}, nil
+}
+func (citationToolRunner) RunWithStreamCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver, _ func(agent.Completion)) (agent.Result, error) {
+	return citationToolRunner{}.RunWithObserver(ctx, input, observer)
 }
 
 type duplicateCitationToolRunner struct{}
@@ -326,6 +347,9 @@ func (duplicateCitationToolRunner) RunWithToolResultCallback(_ context.Context, 
 	messages = append(messages, final)
 	return agent.Result{Final: final, Messages: messages, Iterations: 1}, nil
 }
+func (duplicateCitationToolRunner) RunWithStreamCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver, _ func(agent.Completion)) (agent.Result, error) {
+	return duplicateCitationToolRunner{}.RunWithObserver(ctx, input, observer)
+}
 
 type fallbackCitationToolRunner struct{}
 
@@ -348,6 +372,9 @@ func (fallbackCitationToolRunner) RunWithObserver(_ context.Context, input []age
 func (fallbackCitationToolRunner) RunWithToolResultCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver) (agent.Result, error) {
 	return fallbackCitationToolRunner{}.RunWithObserver(ctx, input, observer)
 }
+func (fallbackCitationToolRunner) RunWithStreamCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver, _ func(agent.Completion)) (agent.Result, error) {
+	return fallbackCitationToolRunner{}.RunWithObserver(ctx, input, observer)
+}
 
 func (r *fakeAgentRunner) RunWithObserver(ctx context.Context, input []agent.Message, observer agent.Observer) (agent.Result, error) {
 	r.userID = UserIDFromContext(ctx)
@@ -361,6 +388,9 @@ func (r *fakeAgentRunner) RunWithObserver(ctx context.Context, input []agent.Mes
 func (r *fakeAgentRunner) RunWithToolResultCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver) (agent.Result, error) {
 	return r.RunWithObserver(ctx, input, observer)
 }
+func (r *fakeAgentRunner) RunWithStreamCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver, _ func(agent.Completion)) (agent.Result, error) {
+	return r.RunWithObserver(ctx, input, observer)
+}
 
 type errorAgentRunner struct{ err error }
 
@@ -369,6 +399,9 @@ func (r errorAgentRunner) RunWithObserver(_ context.Context, _ []agent.Message, 
 	return agent.Result{}, r.err
 }
 func (r errorAgentRunner) RunWithToolResultCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver) (agent.Result, error) {
+	return r.RunWithObserver(ctx, input, observer)
+}
+func (r errorAgentRunner) RunWithStreamCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver, _ func(agent.Completion)) (agent.Result, error) {
 	return r.RunWithObserver(ctx, input, observer)
 }
 
@@ -380,6 +413,9 @@ func (maxIterationsAgentRunner) RunWithObserver(_ context.Context, _ []agent.Mes
 	return agent.Result{Iterations: 2}, agent.ErrMaxIterations
 }
 func (maxIterationsAgentRunner) RunWithToolResultCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver) (agent.Result, error) {
+	return maxIterationsAgentRunner{}.RunWithObserver(ctx, input, observer)
+}
+func (maxIterationsAgentRunner) RunWithStreamCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver, _ func(agent.Completion)) (agent.Result, error) {
 	return maxIterationsAgentRunner{}.RunWithObserver(ctx, input, observer)
 }
 

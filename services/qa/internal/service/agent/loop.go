@@ -28,13 +28,14 @@ const (
 // Event intentionally excludes tool arguments, tool results, prompts, and
 // credentials. It is safe to adapt into logs or public progress summaries.
 type Event struct {
-	Type         EventType
-	Iteration    int
-	ToolCallID   string
-	ToolName     string
-	FinishReason string
-	Usage        TokenUsage
-	Err          error
+	Type             EventType
+	Iteration        int
+	ToolCallID       string
+	ToolName         string
+	FinishReason     string
+	Usage            TokenUsage
+	ReasoningContent string
+	Err              error
 }
 
 type Observer func(Event)
@@ -58,6 +59,7 @@ type Config struct {
 	ToolTimeout        time.Duration
 	MaxToolResultBytes int
 	Observer           Observer
+	StreamCallback     func(Completion)
 }
 
 type Runner struct {
@@ -109,6 +111,21 @@ func (r *Runner) RunWithToolResultCallback(ctx context.Context, input []Message,
 	return r.run(ctx, input, observer, toolObserver)
 }
 
+func (r *Runner) RunWithStreamCallback(ctx context.Context, input []Message, observer Observer, toolObserver ToolObserver, streamCallback func(Completion)) (Result, error) {
+	runner := &Runner{
+		model: r.model,
+		tools: r.tools,
+		cfg: Config{
+			MaxIterations:      r.cfg.MaxIterations,
+			ToolTimeout:        r.cfg.ToolTimeout,
+			MaxToolResultBytes: r.cfg.MaxToolResultBytes,
+			Observer:           observer,
+			StreamCallback:     streamCallback,
+		},
+	}
+	return runner.run(ctx, input, observer, toolObserver)
+}
+
 func (r *Runner) run(ctx context.Context, input []Message, observer Observer, toolObserver ToolObserver) (Result, error) {
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
@@ -136,7 +153,12 @@ func (r *Runner) run(ctx context.Context, input []Message, observer Observer, to
 	messages := append([]Message(nil), input...)
 	for iteration := 1; iteration <= r.cfg.MaxIterations; iteration++ {
 		emit(observer, Event{Type: EventModelStarted, Iteration: iteration})
-		completion, err := r.model.Complete(ctx, messages, toolDefs)
+		var completion Completion
+		if r.cfg.StreamCallback != nil {
+			completion, err = r.model.CompleteStream(ctx, messages, toolDefs, r.cfg.StreamCallback)
+		} else {
+			completion, err = r.model.Complete(ctx, messages, toolDefs)
+		}
 		if err != nil {
 			return Result{}, fmt.Errorf("complete model iteration %d: %w", iteration, err)
 		}
@@ -148,7 +170,7 @@ func (r *Runner) run(ctx context.Context, input []Message, observer Observer, to
 			return Result{}, fmt.Errorf("%w: expected assistant role, got %q", ErrInvalidResponse, assistant.Role)
 		}
 		messages = append(messages, assistant)
-		emit(observer, Event{Type: EventModelCompleted, Iteration: iteration, FinishReason: completion.FinishReason, Usage: completion.Usage})
+		emit(observer, Event{Type: EventModelCompleted, Iteration: iteration, FinishReason: completion.FinishReason, Usage: completion.Usage, ReasoningContent: assistant.ReasoningContent})
 
 		if len(assistant.ToolCalls) == 0 {
 			if strings.TrimSpace(assistant.Content) == "" {

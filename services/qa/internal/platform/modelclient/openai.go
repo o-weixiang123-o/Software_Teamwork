@@ -174,6 +174,113 @@ func (c *Client) Complete(ctx context.Context, messages []agent.Message, tools [
 	return agent.Completion{Message: choice.Message, FinishReason: choice.FinishReason, Usage: tokenUsageFromPayload(decoded.Usage)}, nil
 }
 
+func (c *Client) CompleteStream(ctx context.Context, messages []agent.Message, tools []agent.ToolDefinition, onChunk func(agent.Completion)) (agent.Completion, error) {
+	payload := completionRequest{
+		Model:             c.model,
+		ProfileID:         c.profileID,
+		Messages:          messages,
+		Tools:             tools,
+		ParallelToolCalls: c.parallel,
+		MaxTokens:         c.maxTokens,
+		Stream:            true,
+	}
+	if len(tools) > 0 {
+		payload.ToolChoice = "auto"
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return agent.Completion{}, fmt.Errorf("marshal completion request: %w", err)
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint.String(), bytes.NewReader(body))
+	if err != nil {
+		return agent.Completion{}, fmt.Errorf("create completion request: %w", err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "text/event-stream")
+	request.Header.Set("X-Caller-Service", "qa")
+	if requestID := service.RequestIDFromContext(ctx); requestID != "" {
+		request.Header.Set("X-Request-Id", requestID)
+	}
+	if userID := service.UserIDFromContext(ctx); userID != "" {
+		request.Header.Set("X-User-Id", userID)
+	}
+
+	response, err := c.http.Do(request)
+	if err != nil {
+		return agent.Completion{}, service.NewError(service.CodeDependency, "AI gateway request failed", fmt.Errorf("call AI gateway: %w", err))
+	}
+	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return agent.Completion{}, normalizeGatewayError(response.StatusCode, response.Body)
+	}
+	return decodeStreamCompletionWithCallback(response.Body, onChunk)
+}
+
+func decodeStreamCompletionWithCallback(body io.Reader, onChunk func(agent.Completion)) (agent.Completion, error) {
+	message := agent.Message{Role: agent.RoleAssistant}
+	accumulator := newToolCallAccumulator()
+	var finishReason string
+	var usage agent.TokenUsage
+	scanner := bufio.NewScanner(body)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxResponseBytes)
+	var totalBytes int
+	sawDone := false
+	for scanner.Scan() {
+		line := bytes.TrimSpace(scanner.Bytes())
+		totalBytes += len(line) + 1
+		if totalBytes > maxResponseBytes {
+			return agent.Completion{}, errors.New("completion response exceeds size limit")
+		}
+		if len(line) == 0 || bytes.HasPrefix(line, []byte(":")) {
+			continue
+		}
+		if !bytes.HasPrefix(line, []byte("data:")) {
+			continue
+		}
+		payload := bytes.TrimSpace(bytes.TrimPrefix(line, []byte("data:")))
+		if bytes.Equal(payload, []byte("[DONE]")) {
+			sawDone = true
+			break
+		}
+		var chunk streamChunk
+		if err := json.Unmarshal(payload, &chunk); err != nil {
+			return agent.Completion{}, fmt.Errorf("decode completion stream chunk: %w", err)
+		}
+		var contentDelta, reasoningDelta string
+		for _, choice := range chunk.Choices {
+			if choice.Delta.Role != "" {
+				message.Role = choice.Delta.Role
+			}
+			contentDelta = choice.Delta.Content
+			reasoningDelta = choice.Delta.ReasoningContent
+			message.Content += contentDelta
+			message.ReasoningContent += reasoningDelta
+			accumulator.apply(choice.Delta.ToolCalls)
+			if choice.FinishReason != "" {
+				finishReason = choice.FinishReason
+			}
+		}
+		if chunk.Usage.TotalTokens > 0 || chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 {
+			usage = tokenUsageFromPayload(chunk.Usage)
+		}
+		if contentDelta != "" || reasoningDelta != "" {
+			onChunk(agent.Completion{
+				Message:      message,
+				FinishReason: finishReason,
+				Usage:        usage,
+			})
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return agent.Completion{}, fmt.Errorf("read completion stream: %w", err)
+	}
+	if !sawDone {
+		return agent.Completion{}, service.NewError(service.CodeDependency, "AI gateway request failed", errors.New("AI gateway stream ended before done"))
+	}
+	message.ToolCalls = accumulator.calls
+	return agent.Completion{Message: message, FinishReason: finishReason, Usage: usage}, nil
+}
+
 func normalizeGatewayError(statusCode int, body io.Reader) error {
 	_, _ = io.Copy(io.Discard, io.LimitReader(body, 4096))
 	if statusCode == http.StatusBadRequest {
@@ -263,6 +370,7 @@ func decodeStreamCompletion(body io.Reader) (agent.Completion, error) {
 				message.Role = choice.Delta.Role
 			}
 			message.Content += choice.Delta.Content
+			message.ReasoningContent += choice.Delta.ReasoningContent
 			accumulator.apply(choice.Delta.ToolCalls)
 			if choice.FinishReason != "" {
 				finishReason = choice.FinishReason

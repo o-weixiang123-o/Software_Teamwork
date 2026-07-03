@@ -216,7 +216,9 @@ func TestListStreamEventsRejectsCursorOverflow(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = resources.ListStreamEvents(context.Background(), "user-1", "session-1", "run-1", math.MaxInt32+1)
+	overflowValue := int(math.MaxInt32)
+	overflowValue++
+	_, err = resources.ListStreamEvents(context.Background(), "user-1", "session-1", "run-1", overflowValue)
 	appErr, ok := Classify(err)
 	if !ok || appErr.Code != CodeValidation || appErr.Fields["afterEventSeq"] == "" {
 		t.Fatalf("error=%v, want afterEventSeq validation", err)

@@ -25,6 +25,17 @@ func (f *fakeModel) Complete(_ context.Context, messages []Message, _ []ToolDefi
 	return response, nil
 }
 
+func (f *fakeModel) CompleteStream(_ context.Context, messages []Message, _ []ToolDefinition, onChunk func(Completion)) (Completion, error) {
+	f.requests = append(f.requests, append([]Message(nil), messages...))
+	if len(f.responses) == 0 {
+		return Completion{}, errors.New("unexpected model call")
+	}
+	response := f.responses[0]
+	f.responses = f.responses[1:]
+	onChunk(response)
+	return response, nil
+}
+
 type fakeTools struct {
 	definitions []ToolDefinition
 	result      ToolResult

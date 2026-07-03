@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -264,6 +265,7 @@ type Repository interface {
 type AgentRunner interface {
 	RunWithObserver(context.Context, []agent.Message, agent.Observer) (agent.Result, error)
 	RunWithToolResultCallback(context.Context, []agent.Message, agent.Observer, agent.ToolObserver) (agent.Result, error)
+	RunWithStreamCallback(context.Context, []agent.Message, agent.Observer, agent.ToolObserver, func(agent.Completion)) (agent.Result, error)
 }
 
 type RuntimeSnapshot struct {
@@ -543,7 +545,33 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 			contextutil.AddCitationNo(runCtx, len(newCitations))
 		}
 	}
-	result, runErr := runtime.Runner.RunWithToolResultCallback(runCtx, messages, func(event agent.Event) {
+	var lastContent string
+	var lastReasoningLength int
+	reasoningBuf := newReasoningBuffer(4096)
+	streamCallback := func(completion agent.Completion) {
+		if completion.Message.Content != lastContent {
+			contentDelta := completion.Message.Content[len(lastContent):]
+			if contentDelta != "" {
+				emit("answer.delta", map[string]any{"messageId": assistantMessage.ID, "text": contentDelta, "index": 0})
+			}
+			lastContent = completion.Message.Content
+		}
+		currentReasoning := completion.Message.ReasoningContent
+		if len(currentReasoning) > lastReasoningLength {
+			newContent := currentReasoning[lastReasoningLength:]
+			lastReasoningLength = len(currentReasoning)
+			reasoningBuf.append(newContent)
+			delta := reasoningBuf.delta()
+			if delta != "" {
+				sanitizedDelta := sanitizeReasoningContent(delta)
+				if sanitizedDelta != "" {
+					emit("reasoning.delta", map[string]any{"messageId": assistantMessage.ID, "text": sanitizedDelta})
+					reasoningBuf.markEmitted(len([]rune(sanitizedDelta)))
+				}
+			}
+		}
+	}
+	result, runErr := runtime.Runner.RunWithStreamCallback(runCtx, messages, func(event agent.Event) {
 		switch event.Type {
 		case agent.EventModelStarted:
 			iterationStartedAt[event.Iteration] = s.now().UTC()
@@ -599,7 +627,7 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 		if event.Type == agent.EventToolCompleted {
 			emitSearchCitations(toolObservations[event.ToolCallID])
 		}
-	}, onToolObservation)
+	}, onToolObservation, streamCallback)
 	if runErr == nil && invocationErr != nil {
 		runErr = fmt.Errorf("save model invocation: %w", invocationErr)
 	}
@@ -1040,4 +1068,98 @@ func normalizeIDList(values []string) []string {
 		out = append(out, value)
 	}
 	return out
+}
+
+func sanitizeReasoningContent(content string) string {
+	if content == "" {
+		return ""
+	}
+	return redactInternalURLs(content)
+}
+
+var internalURLPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`http://localhost`),
+	regexp.MustCompile(`http://127\.0\.0\.1`),
+	regexp.MustCompile(`http://0\.0\.0\.0`),
+	regexp.MustCompile(`https://localhost`),
+	regexp.MustCompile(`https://127\.0\.0\.1`),
+	regexp.MustCompile(`https://0\.0\.0\.0`),
+	regexp.MustCompile(`file://`),
+	regexp.MustCompile(`ftp://`),
+	regexp.MustCompile(`ssh://`),
+	regexp.MustCompile(`redis://`),
+	regexp.MustCompile(`postgres://`),
+	regexp.MustCompile(`mysql://`),
+	regexp.MustCompile(`mongodb://`),
+	regexp.MustCompile(`kafka://`),
+	regexp.MustCompile(`grpc://`),
+	regexp.MustCompile(`nats://`),
+	regexp.MustCompile(`rabbitmq://`),
+	regexp.MustCompile(`amqp://`),
+	regexp.MustCompile(`sqlite://`),
+	regexp.MustCompile(`sqlite3://`),
+	regexp.MustCompile(`memcached://`),
+	regexp.MustCompile(`consul://`),
+	regexp.MustCompile(`etcd://`),
+	regexp.MustCompile(`zookeeper://`),
+	regexp.MustCompile(`http://internal`),
+	regexp.MustCompile(`https://internal`),
+	regexp.MustCompile(`http://10\.`),
+	regexp.MustCompile(`http://172\.1[6-9]\.`),
+	regexp.MustCompile(`http://172\.2[0-9]\.`),
+	regexp.MustCompile(`http://172\.3[0-1]\.`),
+	regexp.MustCompile(`http://192\.168\.`),
+	regexp.MustCompile(`https://10\.`),
+	regexp.MustCompile(`https://172\.1[6-9]\.`),
+	regexp.MustCompile(`https://172\.2[0-9]\.`),
+	regexp.MustCompile(`https://172\.3[0-1]\.`),
+	regexp.MustCompile(`https://192\.168\.`),
+}
+
+func redactInternalURLs(content string) string {
+	result := content
+	for _, pattern := range internalURLPatterns {
+		result = pattern.ReplaceAllString(result, "[REDACTED]")
+	}
+	return result
+}
+
+type reasoningBuffer struct {
+	buffer        []rune
+	emittedLength int
+	maxBufferSize int
+}
+
+func newReasoningBuffer(maxSize int) *reasoningBuffer {
+	return &reasoningBuffer{
+		buffer:        make([]rune, 0, maxSize),
+		maxBufferSize: maxSize,
+	}
+}
+
+func (rb *reasoningBuffer) append(content string) {
+	newRunes := []rune(content)
+	rb.buffer = append(rb.buffer, newRunes...)
+	if len(rb.buffer) > rb.maxBufferSize {
+		keep := len(rb.buffer) - rb.maxBufferSize/2
+		if keep < 0 {
+			keep = len(rb.buffer) / 2
+		}
+		if keep <= 0 {
+			keep = 1
+		}
+		rb.buffer = rb.buffer[keep:]
+		rb.emittedLength = max(rb.emittedLength-int(len(rb.buffer))+keep, 0)
+	}
+}
+
+func (rb *reasoningBuffer) delta() string {
+	if rb.emittedLength >= len(rb.buffer) {
+		return ""
+	}
+	return string(rb.buffer[rb.emittedLength:])
+}
+
+func (rb *reasoningBuffer) markEmitted(length int) {
+	rb.emittedLength = min(rb.emittedLength+length, len(rb.buffer))
 }
