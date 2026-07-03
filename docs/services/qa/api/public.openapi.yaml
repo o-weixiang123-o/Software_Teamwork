@@ -874,7 +874,9 @@ components:
         profileId:
           type: string
           description: AI Gateway model profile id.
-        modelName: { type: string }
+        modelName:
+          type: string
+          description: Optional compatibility label. Leave empty to let AI Gateway derive the provider model from the selected/default profile.
         timeoutSeconds: { type: integer }
     ModelConfigWritable:
       allOf:

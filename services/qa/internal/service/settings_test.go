@@ -355,6 +355,19 @@ func TestValidateRuntimeLLMRejectsDirectProviderEscape(t *testing.T) {
 	}
 }
 
+func TestValidateRuntimeLLMAllowsProfileOnlyModel(t *testing.T) {
+	err := validateRuntimeLLM(RuntimeLLMConfig{
+		Endpoint:    "http://localhost:8086/internal/v1/chat/completions",
+		Token:       "token",
+		TokenHeader: "Authorization",
+		Timeout:     time.Second,
+		MaxTokens:   100,
+	})
+	if err != nil {
+		t.Fatalf("validateRuntimeLLM() error = %v", err)
+	}
+}
+
 func TestTestLLMConnectionRejectsStoredDirectProviderEscape(t *testing.T) {
 	tester := &settingsLLMTesterStub{}
 	svc, err := NewConfigService(&settingsRepositoryStub{

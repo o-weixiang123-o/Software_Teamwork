@@ -173,7 +173,11 @@ func modelForInvocation(requestModel string, profile ModelProfile) (string, erro
 	if profileModel == "" {
 		return "", DependencyError("model profile model is not configured", nil)
 	}
-	if strings.TrimSpace(requestModel) != profileModel {
+	requestModel = strings.TrimSpace(requestModel)
+	if requestModel == "" {
+		return profileModel, nil
+	}
+	if requestModel != profileModel {
 		return "", ValidationError(map[string]string{"model": "must match selected model profile"})
 	}
 	return profileModel, nil
@@ -277,9 +281,6 @@ func statusForInvocationError(err error) InvocationStatus {
 
 func validateEmbeddingInput(input EmbeddingInput) map[string]string {
 	fields := map[string]string{}
-	if strings.TrimSpace(input.Model) == "" {
-		fields["model"] = "is required"
-	}
 	if len(input.Input) == 0 {
 		fields["input"] = "must include at least one item"
 	}
@@ -300,9 +301,6 @@ func validateEmbeddingInput(input EmbeddingInput) map[string]string {
 
 func validateRerankingInput(input RerankingInput) map[string]string {
 	fields := map[string]string{}
-	if strings.TrimSpace(input.Model) == "" {
-		fields["model"] = "is required"
-	}
 	if strings.TrimSpace(input.Query) == "" {
 		fields["query"] = "is required"
 	}

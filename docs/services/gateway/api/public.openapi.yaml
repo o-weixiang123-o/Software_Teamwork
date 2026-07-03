@@ -6461,7 +6461,6 @@ components:
       required:
       - provider
       - profileId
-      - modelName
       properties:
         provider:
           type: string
@@ -6497,7 +6496,6 @@ components:
       required:
       - provider
       - profileId
-      - modelName
       properties:
         provider:
           type: string

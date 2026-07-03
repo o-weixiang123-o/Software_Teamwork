@@ -986,7 +986,7 @@ class AIGatewayEmbed(Base):
         self.caller_service = ai_gateway_caller_service()
         self.profile_id = ai_gateway_profile_id("KNOWLEDGE_RUNTIME_AI_GATEWAY_EMBEDDING_PROFILE_ID", "default-embedding")
         self.timeout = ai_gateway_timeout_seconds()
-        self.model_name = model_name
+        self.model_name = str(model_name or "").strip()
 
     @staticmethod
     def _clean_batch(batch):
@@ -995,10 +995,11 @@ class AIGatewayEmbed(Base):
     def _call(self, batch):
         payload = {
             "profile_id": self.profile_id,
-            "model": self.model_name,
             "input": self._clean_batch(batch),
             "encoding_format": "float",
         }
+        if self.model_name:
+            payload["model"] = self.model_name
         request_id = ai_gateway_request_id()
         response = requests.post(
             self.base_url,

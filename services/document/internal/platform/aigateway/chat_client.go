@@ -31,9 +31,6 @@ func NewChatClient(baseURL, serviceToken, defaultProfileID, defaultModel string,
 	if strings.TrimSpace(defaultProfileID) == "" {
 		return nil, errors.New("DOCUMENT_AI_GATEWAY_PROFILE_ID is required")
 	}
-	if strings.TrimSpace(defaultModel) == "" {
-		defaultModel = strings.TrimSpace(defaultProfileID)
-	}
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: defaultChatTimeout}
 	}
@@ -140,7 +137,7 @@ func (c *ChatClient) CreateChatCompletion(ctx context.Context, reqCtx service.Re
 }
 
 type chatCompletionRequest struct {
-	Model       string                `json:"model"`
+	Model       string                `json:"model,omitempty"`
 	ProfileID   string                `json:"profile_id"`
 	Messages    []service.ChatMessage `json:"messages"`
 	Temperature *float64              `json:"temperature,omitempty"`

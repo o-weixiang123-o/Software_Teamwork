@@ -3097,7 +3097,7 @@ export interface components {
             /** @enum {string} */
             provider: "ai-gateway";
             profileId: string;
-            modelName: string;
+            modelName?: string;
             timeoutSeconds?: number;
             temperature?: number;
             maxTokens?: number;
@@ -3112,7 +3112,7 @@ export interface components {
             /** @enum {string} */
             provider: "ai-gateway";
             profileId: string;
-            modelName: string;
+            modelName?: string;
             timeoutSeconds?: number;
         };
         QALLMConnectionTest: {

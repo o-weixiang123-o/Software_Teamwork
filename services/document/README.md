@@ -35,7 +35,7 @@ Optional variables:
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `DOCUMENT_HTTP_ADDR` | `:8085` | HTTP listen address. |
-| `DOCUMENT_AI_GATEWAY_MODEL` | profile id fallback | Default chat model sent with `DOCUMENT_AI_GATEWAY_PROFILE_ID`. Keep it equal to the selected AI Gateway profile model. |
+| `DOCUMENT_AI_GATEWAY_MODEL` | empty | Optional compatibility label. Leave empty to let AI Gateway derive the provider model from `DOCUMENT_AI_GATEWAY_PROFILE_ID`. If set, it must exactly match the selected profile model. |
 | `DOCUMENT_AI_GATEWAY_SERVICE_TOKEN` | empty | Service token sent to AI Gateway profile validation APIs. Falls back to `INTERNAL_SERVICE_TOKEN` when empty. |
 | `DOCUMENT_KNOWLEDGE_SERVICE_URL` | empty | Optional internal Knowledge service base URL. When empty, report generation skips Knowledge retrieval and uses only report/template/request context. |
 | `DOCUMENT_KNOWLEDGE_SERVICE_TOKEN` | empty | Optional service token sent to Knowledge. Falls back to `INTERNAL_SERVICE_TOKEN` when empty. Required when `DOCUMENT_KNOWLEDGE_SERVICE_URL` is set. |

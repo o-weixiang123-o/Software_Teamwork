@@ -366,7 +366,7 @@ class AIGatewayRerank(Base):
         self.caller_service = ai_gateway_caller_service()
         self.profile_id = ai_gateway_profile_id("KNOWLEDGE_RUNTIME_AI_GATEWAY_RERANK_PROFILE_ID", "default-rerank")
         self.timeout = ai_gateway_timeout_seconds()
-        self.model_name = model_name
+        self.model_name = str(model_name or "").strip()
 
     @staticmethod
     def _clean_texts(texts: List) -> list[str]:
@@ -376,11 +376,12 @@ class AIGatewayRerank(Base):
         clean_texts = self._clean_texts(texts)
         payload = {
             "profile_id": self.profile_id,
-            "model": self.model_name,
             "query": query,
             "documents": [{"id": str(i), "text": text} for i, text in enumerate(clean_texts)],
             "top_n": len(clean_texts),
         }
+        if self.model_name:
+            payload["model"] = self.model_name
         request_id = ai_gateway_request_id()
         response = requests.post(
             self.base_url,

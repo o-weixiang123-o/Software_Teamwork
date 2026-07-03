@@ -637,9 +637,6 @@ func validateRuntimeLLM(config RuntimeLLMConfig) error {
 	if _, err := modelendpoint.NormalizeAIGatewayChatEndpoint(config.Endpoint); err != nil {
 		fields["llm.apiEndpoint"] = "must target trusted AI Gateway chat completions endpoint"
 	}
-	if config.Model == "" {
-		fields["llm.model"] = "is required"
-	}
 	if config.Token == "" {
 		fields["llm.apiKey"] = "is required"
 	}

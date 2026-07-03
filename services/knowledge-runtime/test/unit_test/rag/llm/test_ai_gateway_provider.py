@@ -120,6 +120,25 @@ def test_ai_gateway_embedding_generates_request_id_when_missing(monkeypatch):
     assert request_id.startswith("stw-kgw-")
 
 
+def test_ai_gateway_embedding_omits_model_when_configured_profile_only(monkeypatch):
+    monkeypatch.setenv("AI_GATEWAY_SERVICE_TOKEN", "svc-token")
+    provider = AIGatewayEmbed("", "   ", base_url="http://gateway/internal/v1")
+    response = _response(
+        {
+            "object": "list",
+            "model": "BAAI/bge-m3",
+            "data": [{"object": "embedding", "index": 0, "embedding": [0.1]}],
+            "usage": {"total_tokens": 1},
+        }
+    )
+
+    with patch("rag.llm.embedding_model.requests.post", return_value=response) as post:
+        provider.encode(["alpha"])
+
+    assert "model" not in post.call_args.kwargs["json"]
+    assert post.call_args.kwargs["json"]["profile_id"] == "default-embedding"
+
+
 def test_ai_gateway_embedding_requires_service_token():
     with pytest.raises(ValueError, match="AI Gateway provider requires"):
         AIGatewayEmbed("", "BAAI/bge-m3", base_url="http://gateway/internal/v1")
@@ -190,6 +209,25 @@ def test_ai_gateway_rerank_generates_request_id_when_missing(monkeypatch):
         provider.similarity("query", ["doc"])
 
     assert post.call_args.kwargs["headers"]["X-Request-Id"].startswith("stw-kgw-")
+
+
+def test_ai_gateway_rerank_omits_model_when_configured_profile_only(monkeypatch):
+    monkeypatch.setenv("INTERNAL_SERVICE_TOKEN", "svc-token")
+    response = _response(
+        {
+            "object": "list",
+            "model": "BAAI/bge-reranker-v2-m3",
+            "data": [{"index": 0, "document_id": "0", "score": 0.9}],
+            "usage": {"total_tokens": 1},
+        }
+    )
+    provider = AIGatewayRerank("", "", base_url="http://gateway/internal/v1")
+
+    with patch("rag.llm.rerank_model.requests.post", return_value=response) as post:
+        provider.similarity("query", ["doc"])
+
+    assert "model" not in post.call_args.kwargs["json"]
+    assert post.call_args.kwargs["json"]["profile_id"] == "default-rerank"
 
 
 def test_ai_gateway_rerank_raises_model_exception_on_bad_index(monkeypatch):

@@ -632,6 +632,24 @@ func TestCreateLLMConfigVersionReloadsRuntimeWhenActivated(t *testing.T) {
 	}
 }
 
+func TestCreateLLMConfigVersionAllowsProfileOnlyModel(t *testing.T) {
+	repository := &resourceRepositoryStub{}
+	resources, err := NewResourceService(repository, &knowledgeRetrieverStub{}, llmTesterStub{}, RuntimeLLMConfig{}, runCancellerStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = resources.CreateLLMConfigVersion(context.Background(), "user-1", CreateLLMConfigVersionInput{
+		Provider: "ai-gateway", ProfileID: "profile-1", TimeoutSeconds: 60,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !repository.createLLMCalled || repository.createdLLMInput.ModelName != "" {
+		t.Fatalf("llm input not persisted as profile-only config: called=%v input=%+v", repository.createLLMCalled, repository.createdLLMInput)
+	}
+}
+
 func TestCreateLLMConfigVersionRollsBackActiveVersionWhenReloadFails(t *testing.T) {
 	repository := &resourceRepositoryStub{activeLLMConfig: LLMConfigVersion{ID: "llm-old", IsActive: true}}
 	reloader := &resourceReloaderStub{err: errors.New("reload failed")}

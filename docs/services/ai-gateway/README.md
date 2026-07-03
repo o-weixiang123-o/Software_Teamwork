@@ -228,7 +228,7 @@ chat | embedding | rerank
 
 `POST /internal/v1/chat/completions` 创建一次 OpenAI-compatible chat completion。该接口不保存会话历史；`qa` 和 `document` 必须自己管理业务上下文、消息持久化和重试恢复。
 
-请求必须包含 `model`，取值可以是 provider 原始模型名，也可以是 AI Gateway 配置的模型别名。请求可额外指定 `profile_id`；若缺省，AI Gateway 使用 `purpose=chat` 的默认启用 profile。
+请求可以指定 `profile_id`；若缺省，AI Gateway 使用 `purpose=chat` 的默认启用 profile。`model` 可省略，AI Gateway 会使用选中 profile 的模型名调用 provider。调用方若仍传入 `model`，必须与选中 profile 的 `model` 完全一致，用于尽早暴露配置错配。
 
 AI Gateway 支持 OpenAI-compatible function calling 字段，但只负责请求/响应归一化和 provider 适配，不执行工具。`qa` 作为 Agent Host 负责把 MCP `tools/list` 转换为 `tools`，校验 `tool_calls`，通过 MCP Client 执行 `tools/call`，并把 `role=tool` 的结果追加回下一轮模型调用。
 
@@ -236,7 +236,6 @@ AI Gateway 支持 OpenAI-compatible function calling 字段，但只负责请求
 
 ```json
 {
-  "model": "Qwen/Qwen2.5-72B-Instruct",
   "profile_id": "mp_chat_default",
   "messages": [
     {
@@ -280,7 +279,7 @@ AI Gateway 支持 OpenAI-compatible function calling 字段，但只负责请求
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `model` | `string` | 是 | OpenAI-compatible 模型名或 AI Gateway 模型别名。 |
+| `model` | `string` | 否 | 可选 OpenAI-compatible 模型名；提供时必须与选中 profile 的 `model` 完全一致。省略时使用 profile 模型。 |
 | `profile_id` | `string` | 否 | 指定 chat profile；缺省使用默认 chat profile。 |
 | `messages` | `ChatMessage[]` | 是 | 本次请求的完整消息上下文。AI Gateway 不读取历史会话。 |
 | `temperature` | `number` | 否 | 采样温度，范围由 profile/provider 实现约束。 |
@@ -392,13 +391,12 @@ data: [DONE]
 
 `POST /internal/v1/embeddings` 创建一个或多个输入文本的 OpenAI-compatible embedding。该接口不负责将向量写入索引后端；Knowledge runtime/doc engine 负责持久化、索引和 chunk 关联。
 
-请求 `model` 必须与解析出的 embedding profile `model` 完全一致；AI Gateway 实际转发给 provider 的模型名以 profile 配置为准，调用方不能借用该 profile 的凭据调用其他 provider 模型。
+请求 `model` 可省略；AI Gateway 实际转发给 provider 的模型名以解析出的 embedding profile 配置为准。调用方若传入 `model`，必须与 profile `model` 完全一致，不能借用该 profile 的凭据调用其他 provider 模型。
 
 ### EmbeddingRequest
 
 ```json
 {
-  "model": "BAAI/bge-m3",
   "profile_id": "mp_embedding_default",
   "input": [
     "变压器油温异常处理要求",
@@ -435,13 +433,12 @@ data: [DONE]
 
 `POST /internal/v1/rerankings` 对候选文本进行重排序。OpenAI 官方 API 没有原生 rerank endpoint，因此该接口是 OpenAI-style 扩展：使用 snake_case 字段、`object` 标记、`data` 列表和 OpenAI-compatible error body。该接口不负责检索候选集，也不决定 RAG 引用格式；`knowledge` 或 `qa` 负责业务过滤、召回和引用。
 
-请求 `model` 必须与解析出的 rerank profile `model` 完全一致；AI Gateway 实际转发给 provider 的模型名以 profile 配置为准，调用方不能借用该 profile 的凭据调用其他 provider 模型。
+请求 `model` 可省略；AI Gateway 实际转发给 provider 的模型名以解析出的 rerank profile 配置为准。调用方若传入 `model`，必须与 profile `model` 完全一致，不能借用该 profile 的凭据调用其他 provider 模型。
 
 ### RerankingRequest
 
 ```json
 {
-  "model": "BAAI/bge-reranker-v2-m3",
   "profile_id": "mp_rerank_default",
   "query": "迎峰度夏检查重点是什么？",
   "documents": [

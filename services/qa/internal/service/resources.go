@@ -901,9 +901,6 @@ func validateLLMProfile(provider, profileID, model string, timeout int, temperat
 	if strings.TrimSpace(profileID) == "" {
 		fields["profileId"] = "is required"
 	}
-	if strings.TrimSpace(model) == "" {
-		fields["modelName"] = "is required"
-	}
 	if timeout < 0 {
 		fields["timeoutSeconds"] = "must be positive"
 	}

@@ -102,7 +102,7 @@ func Load() (Config, error) {
 		AIGatewayToken:          aiGatewayToken,
 		AIGatewayTokenHeader:    envOr("AI_GATEWAY_TOKEN_HEADER", defaultAIGatewayTokenHeader),
 		AIGatewayProfileID:      strings.TrimSpace(os.Getenv("AI_GATEWAY_PROFILE_ID")),
-		ModelID:                 envOr("MODEL_ID", "deepseek-chat"),
+		ModelID:                 strings.TrimSpace(os.Getenv("MODEL_ID")),
 		MCPTransport:            strings.ToLower(envOr("MCP_TRANSPORT", TransportDisabled)),
 		MCPServerCommand:        strings.TrimSpace(os.Getenv("MCP_SERVER_COMMAND")),
 		MCPServerURL:            strings.TrimSpace(os.Getenv("MCP_SERVER_URL")),
@@ -212,9 +212,6 @@ func (c Config) Validate() error {
 	}
 	if err := validateHTTPURL("AI_GATEWAY_URL", c.AIGatewayURL); err != nil {
 		return err
-	}
-	if c.ModelID == "" {
-		return errors.New("MODEL_ID is required")
 	}
 	if !validHeaderName(c.AIGatewayTokenHeader) {
 		return errors.New("AI_GATEWAY_TOKEN_HEADER is invalid")

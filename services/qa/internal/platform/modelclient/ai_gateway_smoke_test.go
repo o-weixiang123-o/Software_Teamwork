@@ -37,7 +37,7 @@ func TestAIGatewaySmoke(t *testing.T) {
 		client := newSmokeClient(t, cfg, cfg.AIGatewayToken, cfg.AIGatewayProfileID)
 		completion, err := client.Complete(ctx, []agent.Message{{Role: agent.RoleUser, Content: prompt}}, nil)
 		if err != nil {
-			t.Fatalf("QA -> AI Gateway smoke failed for profile %q model %q (request_id=%s): %v; verify AI Gateway readiness, profile credentials, model exact-match, and provider availability", cfg.AIGatewayProfileID, cfg.ModelID, requestID, err)
+			t.Fatalf("QA -> AI Gateway smoke failed for profile %q model %q (request_id=%s): %v; verify AI Gateway readiness, profile credentials, optional model exact-match when MODEL_ID is set, and provider availability", cfg.AIGatewayProfileID, cfg.ModelID, requestID, err)
 		}
 		if completion.Message.Role != agent.RoleAssistant {
 			t.Fatalf("completion role = %q, want %q", completion.Message.Role, agent.RoleAssistant)

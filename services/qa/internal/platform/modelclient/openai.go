@@ -54,9 +54,6 @@ func New(cfg Config) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	if cfg.Model == "" {
-		return nil, errors.New("model is required")
-	}
 	if cfg.MaxTokens <= 0 {
 		return nil, errors.New("max tokens must be positive")
 	}
@@ -65,8 +62,8 @@ func New(cfg Config) (*Client, error) {
 	}
 	return &Client{
 		endpoint:  endpoint,
-		model:     cfg.Model,
-		profileID: cfg.ProfileID,
+		model:     strings.TrimSpace(cfg.Model),
+		profileID: strings.TrimSpace(cfg.ProfileID),
 		parallel:  cfg.ParallelToolCalls,
 		maxTokens: cfg.MaxTokens,
 		stream:    cfg.Stream,
@@ -82,7 +79,7 @@ func New(cfg Config) (*Client, error) {
 }
 
 type completionRequest struct {
-	Model             string                 `json:"model"`
+	Model             string                 `json:"model,omitempty"`
 	ProfileID         string                 `json:"profile_id,omitempty"`
 	Messages          []agent.Message        `json:"messages"`
 	Tools             []agent.ToolDefinition `json:"tools,omitempty"`

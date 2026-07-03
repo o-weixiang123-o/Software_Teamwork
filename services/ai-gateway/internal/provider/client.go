@@ -119,6 +119,11 @@ func embeddingRequestBody(req service.ProviderEmbeddingRequest) (map[string]any,
 	if req.Dimensions != nil {
 		body["dimensions"] = *req.Dimensions
 	}
+	if req.Provider == service.ProviderSiliconFlow {
+		// SiliconFlow bge embeddings reject a dimensions field; keep the
+		// configured dimension in gateway invocation records, but omit it upstream.
+		delete(body, "dimensions")
+	}
 	if strings.TrimSpace(req.EncodingFormat) != "" {
 		body["encoding_format"] = strings.TrimSpace(req.EncodingFormat)
 	}

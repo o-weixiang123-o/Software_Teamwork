@@ -60,6 +60,43 @@ func TestCreateEmbeddingsSendsBatchDimensionsAndBearerToken(t *testing.T) {
 	}
 }
 
+func TestCreateEmbeddingsOmitsDimensionsForSiliconFlow(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if _, ok := body["dimensions"]; ok {
+			t.Fatalf("siliconflow embedding request included dimensions: %#v", body)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"object":"list","data":[{"object":"embedding","index":0,"embedding":[0.1,0.2]}],"model":"BAAI/bge-m3","usage":{"prompt_tokens":2,"total_tokens":2}}`))
+	}))
+	defer server.Close()
+
+	dimensions := 1024
+	client := NewHTTPClient(server.Client())
+	response, metadata, err := client.CreateEmbeddings(t.Context(), service.ProviderEmbeddingRequest{
+		Provider:       service.ProviderSiliconFlow,
+		BaseURL:        server.URL,
+		APIKey:         "sk-secret-value",
+		TimeoutMS:      1000,
+		Model:          "BAAI/bge-m3",
+		Input:          []string{"a"},
+		Dimensions:     &dimensions,
+		EncodingFormat: "float",
+	})
+	if err != nil {
+		t.Fatalf("CreateEmbeddings() error = %v", err)
+	}
+	if metadata.StatusCode != http.StatusOK {
+		t.Fatalf("StatusCode = %d, want 200", metadata.StatusCode)
+	}
+	if response.Usage == nil || response.Usage.TotalTokens != 2 {
+		t.Fatalf("response usage = %#v, want total 2", response.Usage)
+	}
+}
+
 func TestCreateRerankingSendsTextOnlyAndDisablesDocumentReturn(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != rerankPath {

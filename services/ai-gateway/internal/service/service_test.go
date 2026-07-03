@@ -319,7 +319,6 @@ func TestCreateEmbeddingsUsesDefaultProfileAndRecordsSafeSummary(t *testing.T) {
 	}
 
 	response, err := svc.CreateEmbeddings(context.Background(), RequestContext{RequestID: "req-1", CallerService: "knowledge", UserID: "user-1"}, EmbeddingInput{
-		Model: "BAAI/bge-m3",
 		Input: []string{"sensitive transformer text"},
 	})
 	if err != nil {
@@ -676,7 +675,6 @@ func TestCreateRerankingUsesDefaultTopNAndRecordsSafeSummary(t *testing.T) {
 	}
 
 	_, err := svc.CreateReranking(context.Background(), RequestContext{RequestID: "req-2", CallerService: "knowledge"}, RerankingInput{
-		Model: "BAAI/bge-reranker-v2-m3",
 		Query: "sensitive user query",
 		Documents: []RerankingDocument{
 			{ID: "chunk-1", Text: "first sensitive document"},
