@@ -148,7 +148,7 @@ The adapter accepts a trusted `RequestContext`, validates JSON-object
 arguments, calls existing Document services, returns only safe summaries and
 business IDs, and records operation logs with `requestSource=mcp` and
 `toolName=<tool>`. It does not directly access repositories, File object keys,
-MinIO, Qdrant, or model providers.
+MinIO, runtime doc engines, or model providers.
 
 `export_report_docx` uses the current basic DOCX report-file path. It must not
 be treated as Pandoc/LibreOffice rich DOCX support. Exact schemas, runtime

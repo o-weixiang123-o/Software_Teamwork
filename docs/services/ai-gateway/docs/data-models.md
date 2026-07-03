@@ -21,7 +21,7 @@ AI Gateway 数据库只保存模型运行和配置所需的服务内状态：
 AI Gateway 数据库不得保存领域服务业务状态，包括但不限于：
 
 - QA 会话、消息、Agent Run、MCP 工具调用记录、引用快照和 QA 配置版本。
-- Knowledge 文档、chunk、embedding 向量、Qdrant point、检索结果和 rerank 业务过滤结果。
+- Knowledge 文档、chunk、embedding 向量、runtime doc-engine point、检索结果和 rerank 业务过滤结果。
 - Document 报告、模板、素材、大纲、章节、报告任务和生成文件。
 - 用户、角色、权限源数据和前端会话缓存。
 - 完整 prompt、完整生成答案、完整 embedding payload、用户上传文档全文、MCP 原始参数/结果或 provider 原始响应体。

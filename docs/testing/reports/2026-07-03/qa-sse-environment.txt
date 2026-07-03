@@ -28,7 +28,7 @@ Local service readiness:
 Docker infrastructure:
 - postgres: up, healthy
 - redis: up, healthy
-- qdrant: up, healthy
+- elasticsearch: up, healthy
 - minio: up, healthy
 
 SSE run identifiers:

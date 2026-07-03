@@ -24,7 +24,7 @@
 
 本文是项目技术选型的权威位置。`docs/services/<service>/README.md` 不应复制完整技术栈表；服务文档只记录：
 
-- 本服务是否适用某项通用选型，例如是否拥有 PostgreSQL、Redis/asynq、MinIO、Qdrant 或模型调用。
+- 本服务是否适用某项通用选型，例如是否拥有 PostgreSQL、Redis/asynq、MinIO、runtime doc engine 或模型调用。
 - 本服务的服务内目录、迁移、任务、日志字段或测试重点。
 - 与本文不同的明确偏离原因；偏离必须同时更新本文和对应服务文档。
 
@@ -89,8 +89,7 @@
 | 关系数据库 | PostgreSQL | `postgres:16-alpine` | 已固定 | 当前本地 Compose 固定在 16 Alpine。 |
 | Redis 队列 | `asynq` over Redis | `asynq v0.26.0`；Redis `7-alpine` | 已固定 | Document 已接入 asynq client/worker；Knowledge Go adapter 不接入 asynq，RAGFlow runtime 内部使用 Redis/worker。后续异步 Go 服务按需复用该队列基线。 |
 | Redis 缓存/会话 | `go-redis` | `go-redis/v9 v9.21.0` | 已固定 | Gateway 直接使用 `github.com/redis/go-redis/v9@v9.21.0`；Document 当前通过 asynq 间接带入的 `v9.14.1` 是实现出入，不作为目标版本。Knowledge Go adapter 当前不依赖 go-redis。 |
-| 向量数据库 | Runtime doc engine / Qdrant infra | `qdrant/qdrant:v1.18.2`；`docker.elastic.co/elasticsearch/elasticsearch:8.15.3` | 部分固定 | 根目录本地 Compose 默认固定 Qdrant 和 Elasticsearch 镜像作为本地 infra；当前 Knowledge RAGFlow runtime 默认 doc engine 为 Elasticsearch/索引后端，Go adapter 不维护 Qdrant client。真实 runtime/query/provider smoke 仍需单独记录。 |
-| Qdrant 客户端 | 不在 Go adapter 内维护 | N/A | 当前不适用 | 早期 Qdrant fixture 字段仍存在于 migration/OpenAPI trace 兼容字段中；当前检索由 RAGFlow runtime adapter 映射。 |
+| 检索 / 索引后端 | Runtime doc engine / Elasticsearch | `docker.elastic.co/elasticsearch/elasticsearch:8.15.3` | 已固定 | 当前 Knowledge RAGFlow runtime 默认 doc engine 为 Elasticsearch/索引后端；根目录本地 Compose 默认启动 Elasticsearch 作为 active RAG infra。真实 runtime/query/provider smoke 仍需单独记录。 |
 | 对象存储 | MinIO 边界；当前 memory/local/MinIO object store | `minio/minio:RELEASE.2025-09-07T16-13-09Z`；`minio/mc:RELEASE.2025-08-13T08-35-41Z` | 已固定 | File service runtime 已有 MinIO adapter；根目录本地 Compose 使用一个 MinIO server 和一个 `mc` bucket 初始化容器；`minio-init` 不是第二个 MinIO server。 |
 | MinIO Go SDK | 官方 MinIO Go SDK | `github.com/minio/minio-go/v7@v7.2.1` | 已固定 | `services/file` 通过 `internal/platform/storage` 封装 SDK，不向 handler 或 owner service client 泄露 MinIO 细节。 |
 | 认证 token | Opaque Bearer token | 协议契约 | 标准库 / 协议 | 不使用 JWT access token；服务端保存 token hash。 |
@@ -103,12 +102,12 @@
 | API 版本前缀 | `/api/v1` / `/internal/v1` | `v1` | 已固定 | 公开入口以 gateway OpenAPI 为准；内部服务使用服务级契约。 |
 | 后端测试 | Go `testing` + `httptest` | Go `1.25` 标准库 | 已固定 | 默认不引入 BDD 测试框架。 |
 | CI | GitHub Actions | `actions/github-script@v7`；runner `ubuntu-latest`；Bun `1.3.12`；Go `1.25.x` | 部分已固定 | 已有协作类 workflow、前端 check/build/unit/E2E smoke、Go service path-filtered build/test、goose migration apply、Docker/Compose config、Gateway contract 和 API type drift workflow。 |
-| Docker 镜像与构建源策略 | 默认官方 pinned images；中国大陆显式 `--china` registry rewrite | `deploy/.env.example` 不默认启用第三方 registry；`./scripts/local/dev-up.sh --china` 在本次进程使用 DaoCloud rewrite，优先级为 `registry rewrite > daemon mirror > proxy`；Compose 基础镜像可用 `POSTGRES_IMAGE`、`REDIS_IMAGE`、`QDRANT_IMAGE`、`MINIO_IMAGE`、`MINIO_MC_IMAGE`、`KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE` 本地覆盖；`scripts/check_docker_policy.py` 做 CI 策略守门，`scripts/check_docker_environment.py` 做本机网络诊断 | 已固定 | 仓库 Docker 只跑基础设施；Knowledge RAGFlow runtime 走宿主机 Python/uv 启动；不得为提速默认关闭 Go checksum verification，不得把 Compose 镜像改成 `latest`，不得把业务服务放回 Docker 路径。 |
+| Docker 镜像与构建源策略 | 默认官方 pinned images；中国大陆显式 `--china` registry rewrite | `deploy/.env.example` 不默认启用第三方 registry；`./scripts/local/dev-up.sh --china` 在本次进程使用 DaoCloud rewrite，优先级为 `registry rewrite > daemon mirror > proxy`；Compose 基础镜像可用 `POSTGRES_IMAGE`、`REDIS_IMAGE`、`MINIO_IMAGE`、`MINIO_MC_IMAGE`、`KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE` 本地覆盖；`scripts/check_docker_policy.py` 做 CI 策略守门，`scripts/check_docker_environment.py` 做本机网络诊断 | 已固定 | 仓库 Docker 只跑基础设施；Knowledge RAGFlow runtime 走宿主机 Python/uv 启动；不得为提速默认关闭 Go checksum verification，不得把 Compose 镜像改成 `latest`，不得把业务服务放回 Docker 路径。 |
 | 宿主机 Go 模块下载 | `GOPROXY` + `GOSUMDB` env | 默认 `GOPROXY=https://proxy.golang.org,direct`；`GOSUMDB=sum.golang.org`；`--china` 时临时使用 `https://goproxy.cn,direct` / `sum.golang.google.cn` | 已固定 | `deploy/.env.example` 默认写入官方 Go module proxy/checksum DB，用于 `dev-up.sh` 的 goose migration 以及 `run-backend.sh` 的 Go 服务 `go run`；中国大陆网络显式使用脚本 `--china`，这不是 Docker registry，也不是 Knowledge runtime uv 的 `UV_DEFAULT_INDEX`。 |
 | 观测 | `slog` + Prometheus metrics；关键链路 OpenTelemetry tracing | `github.com/prometheus/client_golang@v1.23.2`；`go.opentelemetry.io/otel@v1.44.0`；`go.opentelemetry.io/otel/sdk@v1.44.0`；`go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.44.0`；`go.opentelemetry.io/otel/exporters/prometheus@v0.66.0` | 已选型，待固定 | 第一阶段先保证结构化日志和低基数字段指标；首次落地 metrics/tracing 时必须写入对应服务 `go.mod` 并同步本文状态。 |
 | DOCX 生成 | Document worker 当前使用内置 Go `SimpleDOCXGenerator`；Pandoc 作为富 DOCX 候选工具链；LibreOffice 暂不引入，保留后续候选 | 内置 Go 生成器：标准库；Pandoc CLI 版本后续在富 DOCX 任务中固定；LibreOffice：暂不引入 | 已固定（当前路径） | 当前路径为内置 Go `SimpleDOCXGenerator`；富 DOCX worker 的运行方式不属于当前本地 Docker 基线。 |
 | MCP 集成 | 官方 MCP Go SDK；暂不拆独立 sidecar | `github.com/modelcontextprotocol/go-sdk@v1.6.1` | 已固定 | QA 负责工具白名单、权限、参数校验、超时和脱敏记录；Document 和 Knowledge 已有 Streamable HTTP MCP server/工具适配；SDK 升级或 sidecar 化另开兼容性任务。 |
-| 本地基础设施 | Docker Compose | Compose 文件格式无 top-level version | 已固定 | 根 `deploy/docker-compose.yml` 只拉取 PostgreSQL、Redis、Qdrant、MinIO 和 `minio-init`；业务服务全部 host-run。 |
+| 本地基础设施 | Docker Compose | Compose 文件格式无 top-level version | 已固定 | 根 `deploy/docker-compose.yml` 只拉取 PostgreSQL、Redis、MinIO、`minio-init` 和 Elasticsearch；业务服务全部 host-run。 |
 
 ## 前端版本明细
 
@@ -160,7 +159,7 @@
 | `github.com/redis/go-redis/v9` | `v9.21.0` | `services/gateway/go.mod` | 直接 Redis client 固定基线；Document 当前由 asynq 间接带入的 `v9.14.1` 是实现出入，待后续 asynq/queue 依赖升级时消除。Knowledge Go adapter 当前不依赖 go-redis。 |
 | PostgreSQL | `postgres:16-alpine` | `deploy/docker-compose.yml` | 本地开发数据库。 |
 | Redis | `redis:7-alpine` | `deploy/docker-compose.yml` | 本地队列、缓存、短期协调依赖。 |
-| Qdrant | `qdrant/qdrant:v1.18.2` | `deploy/docker-compose.yml` | 根目录本地 Compose 向量数据库镜像。 |
+| Elasticsearch | `docker.elastic.co/elasticsearch/elasticsearch:8.15.3` | `deploy/docker-compose.yml` | Knowledge runtime active doc engine / 检索索引镜像。 |
 | MinIO server | `minio/minio:RELEASE.2025-09-07T16-13-09Z` | `deploy/docker-compose.yml` | 根目录本地 Compose 对象存储服务端镜像。 |
 | MinIO client (`mc`) | `minio/mc:RELEASE.2025-08-13T08-35-41Z` | `deploy/docker-compose.yml` | 根目录本地 Compose bucket 初始化镜像；`minio/mc:RELEASE.2025-09-07T16-13-09Z` 当前无 Docker Hub manifest，不能按 server tag 强行统一。 |
 | Prometheus Go client | `github.com/prometheus/client_golang@v1.23.2` | 目标技术基线，尚未写入 `go.mod` | 新增 Go 服务暴露 Prometheus metrics 时默认沿用该版本，指标 label 不得包含用户输入、prompt、token、object key 或 API key 指纹。 |
@@ -277,9 +276,9 @@ services/<service>/
 - 关键链路 tracing 默认使用 `go.opentelemetry.io/otel@v1.44.0`、`go.opentelemetry.io/otel/sdk@v1.44.0` 和 `go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.44.0`。采样策略为 parent-based ratio sampler：dev/local 可配置为 100%，生产默认 1%；未配置 exporter endpoint 时不导出 trace，避免无意外联。
 - 如需将 OTel metrics 暴露给 Prometheus scrape，使用 `go.opentelemetry.io/otel/exporters/prometheus@v0.66.0`；只需要普通业务指标的服务可先使用 Prometheus client。
 
-### Qdrant、MinIO 和对象边界
+### Elasticsearch、MinIO 和对象边界
 
-- 当前 Knowledge Go adapter 不维护 Qdrant client；解析、embedding、索引和检索通过 RAGFlow runtime 完成，默认 doc engine 为 Elasticsearch/索引后端。早期 Qdrant 字段仅作为 fixture/兼容背景。
+- 当前 Knowledge Go adapter 不维护独立索引客户端；解析、embedding、索引和检索通过 RAGFlow runtime 完成，默认 doc engine 为 Elasticsearch/索引后端。
 - Runtime index 只保存检索需要的最小 payload；展示正文、权限判断和状态判断必须经 Knowledge adapter/runtime 契约映射，不直接暴露索引 payload。
 - File service 是 MinIO 对象存储边界；业务服务不得直接暴露 bucket、object key、内部 URL、access key 或 presigned URL。
 - MinIO adapter 已在 File Service 落地，Go SDK 固定为 `github.com/minio/minio-go/v7@v7.2.1`；根目录本地 Compose 固定 MinIO server 和 `mc` client 镜像版本。`minio-init` 只用 `mc` 创建 bucket，不是第二个 MinIO server。后续生产部署应沿用明确 tag 并同步本文。
@@ -324,5 +323,5 @@ services/<service>/
 - 为需要 Go 服务内异步任务的服务接入 `asynq` client/worker；Document 当前 asynq 传递依赖仍带入旧 `go-redis`，后续服务接入或升级前应优先对齐直接 Redis client 基线。Knowledge adapter 的解析/索引任务继续走 RAGFlow runtime。
 - 前端接入 `openapi-typescript`，生成 gateway 类型，并固定生成器版本。
 - 前端测试接入 Vitest、React Testing Library 和 Playwright，并固定版本。
-- 本地 infra Compose 已固定 PostgreSQL、Redis、Qdrant、MinIO、MinIO mc 等依赖镜像 tag；后续升级必须继续使用明确 tag，不能以 `latest` 作为基线。
+- 本地 infra Compose 已固定 PostgreSQL、Redis、MinIO、MinIO mc、Elasticsearch 等依赖镜像 tag；后续升级必须继续使用明确 tag，不能以 `latest` 作为基线。
 - 为 Prometheus metrics、OpenTelemetry tracing 和 MCP SDK/sidecar 固定版本；Document 富 DOCX worker 若后续引入，必须同步本文和对应服务文档。

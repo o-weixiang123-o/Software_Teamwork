@@ -361,7 +361,6 @@ type gatewayKnowledgeQueryTrace struct {
 	EmbeddingProvider  string `json:"embeddingProvider"`
 	EmbeddingModel     string `json:"embeddingModel"`
 	EmbeddingDimension int    `json:"embeddingDimension"`
-	QdrantCollection   string `json:"qdrantCollection"`
 }
 
 func createGatewayKnowledgeQuery(t *testing.T, ctx context.Context, cfg gatewayRAGSmokeConfig, session gatewaySmokeSession, requestID string, knowledgeBaseID string) gatewayKnowledgeQuery {

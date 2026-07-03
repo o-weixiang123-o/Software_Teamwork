@@ -47,7 +47,7 @@ The MCP transport and QA integration workflow are documented in
 Upload storage and vector retrieval are configured in the vendor runtime
 (`services/knowledge-runtime/conf/service_conf.yaml`): MinIO bucket
 `software-teamwork-knowledge`, doc engine `elasticsearch`.
-Knowledge does not call File Service, Qdrant, Redis, or `services/parser`.
+Knowledge does not call File Service, Redis, or `services/parser`.
 
 ## Implemented Routes
 
@@ -153,8 +153,8 @@ as documented in
 `../knowledge-runtime/README.md`.
 
 For the real host-run Knowledge parsing stack, use the root helper scripts. The
-default root Compose infrastructure starts Elasticsearch; the runtime helper
-starts `services/knowledge-runtime` API, runtime worker, and
+default root Compose infrastructure starts Elasticsearch as the active runtime
+doc engine; the runtime helper starts `services/knowledge-runtime` API, runtime worker, and
 the Knowledge adapter, and forces adapter auto-ingestion on for upload-to-parse
 diagnostics. First copy `deploy/.env.example` to `deploy/.env`, then fill the
 runtime model provider variables documented in `../knowledge-runtime/README.md`.
@@ -185,8 +185,8 @@ The helper normalizes local wiring that is easy to get wrong by hand:
   intercept adapter calls to localhost or Docker bridge IPs.
 - Old local `.env` files that lack the runtime service token use the tracked
   local development token defaults for `scripts/local` only.
-- For `DOC_ENGINE=elasticsearch`, `./scripts/local/dev-up.sh` starts the root Compose
-  `elasticsearch` service with the default local infrastructure.
+- For `DOC_ENGINE=elasticsearch`, `./scripts/local/dev-up.sh` starts the root
+  Compose `elasticsearch` service with the default local infrastructure.
 - The script generates `.local/knowledge-runtime/service_conf.yaml` so runtime
   API and worker use `KNOWLEDGE_RUNTIME_ES_URL`.
 - To reuse an already running runtime API, set
@@ -233,7 +233,7 @@ go build ./cmd/adapter
 The Knowledge service runs the contract adapter (`cmd/adapter`) which proxies
 Gateway `/internal/v1/*` routes to the RAGFlow runtime at
 `VENDOR_RUNTIME_URL` (`services/knowledge-runtime/`). Document upload, deepdoc parsing, embedding, and retrieval
-use runtime MinIO + Elasticsearch — not legacy parser, Qdrant, or
+use runtime MinIO + Elasticsearch — not legacy parser or
 the removed Go ingestion worker.
 
 Contract tests under `internal/adapter` and `internal/mcp` use fake vendor HTTP

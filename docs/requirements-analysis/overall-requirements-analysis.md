@@ -85,7 +85,7 @@
 | `gateway` | 统一 API 入口，路由、鉴权上下文传递、聚合接口、跨服务协调 |
 | `auth` | 用户、角色、权限、登录认证、会话或令牌管理 |
 | `file` | 上传文件、对象存储、文件元数据、下载授权、预签名 URL |
-| `knowledge` | 知识库、文档处理、切片、向量化、Qdrant 索引、检索协调 |
+| `knowledge` | 知识库、文档处理、切片、向量化、runtime doc engine 索引、检索协调 |
 | `qa` | 会话、消息、Agent/ReAct 循环、MCP 工具调用编排、答案生成、引用展示 |
 | `document` | 报告模板、报告任务、大纲、章节内容、DOCX 导出、报告记录 |
 | `ai-gateway` | 统一封装 LLM、Embedding、Rerank 等模型调用，向业务服务提供 OpenAI-compatible API |
@@ -102,7 +102,7 @@
 ### 5.2 解耦原则
 
 - `knowledge` 是知识检索能力的唯一业务所有者；当前索引写入、重建和检索支持由 RAGFlow runtime/doc engine 承载。
-- `qa` 不直接读写 Knowledge runtime/doc engine 或 Qdrant，只通过 MCP Client 或受控内部客户端调用知识检索能力获取候选片段和引用元数据。
+- `qa` 不直接读写 Knowledge runtime/doc engine，只通过 MCP Client 或受控内部客户端调用知识检索能力获取候选片段和引用元数据。
 - `document` 不直接绕过 `knowledge` 做向量检索；报告生成需要业务材料时，通过知识检索或报告支撑材料接口获取。
 - `file` 是 MinIO 对象存储边界，业务服务只保存文件引用和业务元数据，不直接把对象 key 当作权限依据。
 - `file` service 是后端与文件上传、下载授权和 MinIO 对象存储沟通的中间件，业务模块不得绕过它直接暴露 object key。
@@ -234,7 +234,7 @@
 
 ### 9.2 智能问答模块
 
-智能问答负责作为 Agent Host，把用户自然语言问题转化为受控的模型调用、MCP 工具调用、知识检索、上下文组织、引用展示和回答生成。它不直接拥有 Qdrant，而是通过知识管理模块或 MCP 工具复用知识能力。
+智能问答负责作为 Agent Host，把用户自然语言问题转化为受控的模型调用、MCP 工具调用、知识检索、上下文组织、引用展示和回答生成。它不直接拥有 runtime doc engine / Elasticsearch 索引，而是通过知识管理模块或 MCP 工具复用知识能力。
 
 | 小功能 | 用于实现什么 | 需要什么数据/API | 对外提供什么数据/API | 优先级 |
 | --- | --- | --- | --- | --- |
@@ -254,7 +254,7 @@
 
 ### 9.3 报告生成模块
 
-报告生成负责围绕固定报告类型生成大纲、章节内容和 DOCX 文件。它通过知识管理模块复用支撑材料和检索能力，不直接访问 Qdrant。
+报告生成负责围绕固定报告类型生成大纲、章节内容和 DOCX 文件。它通过知识管理模块复用支撑材料和检索能力，不直接访问 runtime doc engine / Elasticsearch 索引。
 
 | 小功能 | 用于实现什么 | 需要什么数据/API | 对外提供什么数据/API | 优先级 |
 | --- | --- | --- | --- | --- |
@@ -344,7 +344,7 @@
 
 - 用户认证与 RBAC 基础能力。
 - 知识库、文档上传、解析、切片、向量化、检索。
-- Qdrant、PostgreSQL、MinIO 基础集成。
+- Elasticsearch runtime doc engine、PostgreSQL、MinIO 基础集成。
 - 智能问答 Agent/ReAct 主流程、MCP 知识检索工具和 SSE 流式输出。
 - 两类固定报告的大纲、章节生成、编辑、DOCX 导出。
 - 基础统计指标。
@@ -400,4 +400,4 @@
 | 报告大纲、章节生成、DOCX 导出 | `报告生成需求说明书(1).md`、`技术监督辅助平台需求说明书(1).md`、`docs/report_generation_system.md` |
 | 报告模板和支撑材料 | `报告生成需求说明书(1).md`、`技术监督辅助平台需求说明书(1).md` |
 | 用户、角色、权限 | 四份原始需求和 `docs/system.md` |
-| PostgreSQL、Redis、Qdrant、MinIO、微服务边界 | `README.md`、`.trellis/spec/backend/index.md`、`.trellis/spec/backend/database-guidelines.md` |
+| PostgreSQL、Redis、Elasticsearch runtime doc engine、MinIO、微服务边界 | `README.md`、`.trellis/spec/backend/index.md`、`.trellis/spec/backend/database-guidelines.md` |

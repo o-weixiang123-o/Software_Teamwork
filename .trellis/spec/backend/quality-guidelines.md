@@ -329,14 +329,16 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
   running host migrations or seed SQL. One-shot infrastructure jobs such as
   `minio-init` must run separately and use their own exit code so a normal
   `Exited (0)` does not skip migrations or seed.
+- `dev-up.sh` must not initialize retired vector-store collections. Current
+  Knowledge ingestion uses RAGFlow runtime and its configured doc engine.
 - Compose must include practical health checks for infrastructure containers.
 - PostgreSQL health checks must probe TCP readiness, e.g.
   `pg_isready -h localhost -U postgres -d postgres`.
 - Compose infrastructure images must keep explicit pinned defaults. If a local
   or enterprise registry is required, expose it through image variables such as
-  `POSTGRES_IMAGE`, `REDIS_IMAGE`, `MINIO_IMAGE`, `MINIO_MC_IMAGE`, and
-  `KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE`; do not replace pinned defaults with
-  `latest`.
+  `POSTGRES_IMAGE`, `REDIS_IMAGE`, `MINIO_IMAGE`,
+  `MINIO_MC_IMAGE`, and `KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE`; do not replace
+  pinned defaults with `latest`.
 - For mainland China Docker usage, prefer explicit `dev-up.sh --china`
   registry rewrite or local untracked `*_IMAGE` overrides over daemon mirrors
   and proxies. Do not make third-party registries active defaults in
@@ -414,7 +416,7 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
 ### 6. Tests Required
 
 - Run Compose config parsing for the infra baseline.
-- Run `docker compose ... config --services` and confirm only the six default
+- Run `docker compose ... config --services` and confirm only the five default
   infra services are present, including `elasticsearch`.
 - Run `bash -n scripts/local/dev-up.sh scripts/local/run-backend.sh scripts/local/stop-backend.sh`
   when local startup scripts change.
@@ -811,7 +813,7 @@ fingerprint := hmacSHA256(fingerprintKey, []byte(apiKey))
 
 - Root-level Go module used to build all microservices together.
 - Cross-service imports from `services/<other-service>/internal/...`.
-- HTTP handlers that contain business rules, SQL, Qdrant queries, or MinIO object logic.
+- HTTP handlers that contain business rules, SQL, runtime doc-engine queries, or MinIO object logic.
 - Unbounded goroutines without cancellation.
 - HTTP clients without timeouts.
 - SQL built by concatenating user input.
@@ -878,7 +880,7 @@ Reviewers should check:
 - [ ] Are errors classified and returned through the standard error shape?
 - [ ] Is sensitive data excluded from logs and responses?
 - [ ] Are database changes represented by service-owned migrations?
-- [ ] Are Redis/Qdrant/MinIO responsibilities owned by the correct service?
+- [ ] Are Redis/runtime doc-engine/MinIO responsibilities owned by the correct service?
 - [ ] Are timeouts and context cancellation handled for external calls?
 - [ ] Do tests cover the changed behavior?
 - [ ] Can the service still run `go test ./...` and `go build ./cmd/server` independently?

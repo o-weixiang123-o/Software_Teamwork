@@ -41,7 +41,7 @@
 
 | 编号 | 原问题 | 同步结果 |
 | --- | --- | --- |
-| K1 | 知识库删除是软删除还是硬删除？ | 首期软删除；删除动作标记资源为 `deleted`，当前 RAGFlow runtime adapter 负责内部文档、chunk 和索引生命周期，旧 `file_ref`/Qdrant cleanup 只作为历史路径。 |
+| K1 | 知识库删除是软删除还是硬删除？ | 首期软删除；删除动作标记资源为 `deleted`，当前 RAGFlow runtime adapter 负责内部文档、chunk 和索引生命周期，旧 `file_ref` cleanup 只作为历史路径。 |
 | K2 | embedding 维度变化后如何处理索引版本？ | 由 Knowledge runtime/doc engine 维护可追溯的索引版本；embedding 维度或模型族变化时通过 runtime 重建或切换索引，旧索引保留到切换完成后清理。 |
 | K3 | 文档处理失败后保留几次错误历史？ | PostgreSQL job 保存最近 10 次尝试摘要，包含阶段、错误码、错误信息、开始/结束时间和耗时。 |
 | K4 | 文档标签是自由键值对还是预定义字典？ | 首期自由键值对；键和值都按字符串保存，管理端可后续增加字典约束。 |

@@ -29,7 +29,7 @@ Gateway 不保存以下数据：
 
 - 用户、密码、角色、权限源数据和会话撤销源数据。
 - 文件对象、MinIO bucket、object key、内部下载 URL 或文件二进制内容。
-- 知识库、文档切片、embedding、Qdrant point、检索策略和解析结果。
+- 知识库、文档切片、embedding、runtime doc-engine point、检索策略和解析结果。
 - QA 会话、消息、Agent run、MCP 工具调用、引用快照和问答配置版本。
 - 报告、模板、素材、章节、任务、报告文件和报告统计。
 - AI provider API key、provider secret、完整 prompt、provider 原始错误和模型调用原文。

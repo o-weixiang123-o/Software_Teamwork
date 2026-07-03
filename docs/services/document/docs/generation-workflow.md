@@ -130,7 +130,7 @@ GET /api/v1/report-files/{reportFileId}/content
 | --- | --- | --- |
 | File Service | 保存模板、材料和生成文件 bytes；读取文件内容。 | 暴露 bucket、object key、内部 URL、MinIO 凭据。 |
 | AI Gateway | 通过 profile 调用 chat completion；记录 request id。 | 保存 provider base URL/API key，直连 OpenAI/SiliconFlow provider。 |
-| Knowledge | 在需要材料上下文时使用受控检索结果。 | 直接访问 Knowledge runtime/doc engine、Qdrant，或绕过权限读取知识库 chunk。 |
+| Knowledge | 在需要材料上下文时使用受控检索结果。 | 直接访问 Knowledge runtime/doc engine，或绕过权限读取知识库 chunk。 |
 | Gateway | 接收公开 `/api/v1/report-*` 请求并注入认证上下文。 | 在 Gateway 实现报告生成业务逻辑。 |
 
 ## 事件和进度

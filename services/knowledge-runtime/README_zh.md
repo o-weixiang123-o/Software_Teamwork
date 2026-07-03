@@ -49,7 +49,7 @@
 
 `deploy/api/run-local.sh` 和 `deploy/worker/run-local.sh` 会在启动前检查 doc
 engine 与 embedding provider。推荐用仓库根目录的 `./scripts/local/dev-up.sh`
-先通过默认根级 Compose 基础设施启动本地 Elasticsearch，再用
+先通过默认根级 Compose 基础设施启动本地 Elasticsearch（active RAG doc engine），再用
 `./scripts/local/run-knowledge-parse-stack.sh` 启动 host-run runtime API、worker 和
 Knowledge adapter；该脚本会生成 `.local/knowledge-runtime/service_conf.yaml` 指向
 `KNOWLEDGE_RUNTIME_ES_URL`，但不直接执行 Docker build/run。如果使用已有

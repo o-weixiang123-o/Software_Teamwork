@@ -30,8 +30,9 @@ usage() {
 Usage: ./scripts/local/run-knowledge-parse-stack.sh [--china]
 
 Starts the host-run Knowledge runtime API, runtime worker, and Knowledge adapter.
-Local Elasticsearch starts with the default root Compose infrastructure through
-./scripts/local/dev-up.sh.
+Local Elasticsearch is part of the default root Compose infrastructure. Run
+./scripts/local/dev-up.sh first, or point KNOWLEDGE_RUNTIME_ES_URL at an external
+Elasticsearch endpoint.
 
 Options:
   --china   Use hf-mirror for HuggingFace model downloads in this run only when

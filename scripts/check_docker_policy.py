@@ -14,13 +14,13 @@ SCAN_ROOTS = ("deploy", "services", "apps")
 EXPECTED_IMAGE_DEFAULTS = {
     "POSTGRES_IMAGE": "postgres:16-alpine",
     "REDIS_IMAGE": "redis:7-alpine",
-    "QDRANT_IMAGE": "qdrant/qdrant:v1.18.2",
     "MINIO_IMAGE": "minio/minio:RELEASE.2025-09-07T16-13-09Z",
     "MINIO_MC_IMAGE": "minio/mc:RELEASE.2025-08-13T08-35-41Z",
     "KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE": "docker.elastic.co/elasticsearch/elasticsearch:8.15.3",
 }
 LOCAL_COMPOSE_FILE = Path("deploy/docker-compose.yml")
-ALLOWED_DEFAULT_COMPOSE_SERVICES = ("postgres", "redis", "qdrant", "minio", "minio-init", "elasticsearch")
+ALLOWED_DEFAULT_COMPOSE_SERVICES = ("postgres", "redis", "minio", "minio-init", "elasticsearch")
+ALLOWED_PROFILE_COMPOSE_SERVICES: dict[str, tuple[str, ...]] = {}
 DISALLOWED_DEFAULT_COMPOSE_SERVICES = (
     "migrate-auth",
     "migrate-file",

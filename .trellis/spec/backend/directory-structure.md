@@ -72,7 +72,7 @@ Directory responsibilities:
 | `internal/http/` | HTTP handlers, middleware, request/response DTOs |
 | `internal/service/` | Business use cases and orchestration |
 | `internal/repository/` | PostgreSQL persistence and transaction boundaries |
-| `internal/platform/` | Clients for Redis, Qdrant, MinIO, or other infrastructure |
+| `internal/platform/` | Clients for Redis, MinIO, runtime doc engines, or other infrastructure |
 | `api/` | Public or internal HTTP contract documentation |
 | `migrations/` | Service-owned PostgreSQL migrations |
 
@@ -145,4 +145,4 @@ rewrite of ingestion, retrieval, storage, and gateway proxy behavior.
 - Importing another service's internal packages instead of calling its HTTP API.
 - Creating a root-level Go module that makes all services build together.
 - Storing deployment-only configuration inside service source directories.
-- Allowing handlers to contain SQL, Qdrant queries, or MinIO object logic directly.
+- Allowing handlers to contain SQL, runtime doc-engine queries, or MinIO object logic directly.

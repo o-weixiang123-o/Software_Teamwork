@@ -886,7 +886,6 @@ components:
           type: integer
           minimum: -1
           description: Runtime-managed dimension; -1 means unavailable from the vendor runtime.
-        qdrantCollection: { type: string }
         searchTopK: { type: integer }
         scoreThreshold: { type: number }
         hitCount: { type: integer }

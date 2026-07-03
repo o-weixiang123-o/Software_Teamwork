@@ -9,7 +9,7 @@
 - 链路按主要工作流归类，不按每个 endpoint 穷举。
 - 每条链路都标出 owner service。拥有业务状态的服务负责校验业务规则和修改数据。
 - `gateway` 可以暴露公开路径、注入上下文和归一化响应，但不得承载领域业务流程。
-- `file`、Knowledge RAGFlow runtime、`ai-gateway`、Redis/asynq、runtime doc engine、Qdrant 和 File Service storage backend 等依赖只提供基础能力，不拥有调用方的领域状态。当前 Knowledge 主路径的对象、chunks 和索引归 RAGFlow runtime 边界，不等同于 File Service 或 Go Qdrant client。
+- `file`、Knowledge RAGFlow runtime、`ai-gateway`、Redis/asynq、runtime doc engine 和 File Service storage backend 等依赖只提供基础能力，不拥有调用方的领域状态。当前 Knowledge 主路径的对象、chunks 和索引归 RAGFlow runtime 边界。
 - 标记“目标”或“缺口”的链路不能当作当前已实现能力宣传或验收。
 
 ## 全局不变量
@@ -34,7 +34,7 @@
 | Permission | 角色、权限字符串、owner 访问和权限不足分支；具体规则以各服务权限矩阵为准。 |
 | Request | 合法请求、缺字段、字段非法、multipart/JSON 类型不匹配、分页或过滤参数越界。 |
 | Resource | 资源存在、不存在、已删除、未 ready、状态冲突、重复名称或重复激活配置。 |
-| Dependency | 下游可用、下游超时、下游 4xx/5xx、数据库/Redis/runtime doc engine/Qdrant/File storage/provider 不可用。 |
+| Dependency | 下游可用、下游超时、下游 4xx/5xx、数据库/Redis/runtime doc engine/File storage/provider 不可用。 |
 | Async | pending、queued、running、succeeded、failed、cancelled、retry、partial/占位状态。 |
 | Streaming | 非流式、SSE 流式、客户端断开、事件回放、流式错误。 |
 | Config | profile/config 存在、缺失、disabled、model mismatch、credential 未配置、service token 不匹配。 |
@@ -104,7 +104,7 @@
 | Streaming | QA SSE 流式转发 vs 普通 JSON；content 二进制代理 vs JSON 错误。 |
 | Config | 非 `/admin` 前缀但声明 `x-required-permissions` 的管理资源（如 QA config）必须匹配具体权限；`admin` role 不能绕过这些显式权限。 |
 | Current State | active operation 代表公开契约稳定，但真实 downstream smoke 仍可能缺失。 |
-| Leakage | 不透传 SQL、MinIO、runtime index/Qdrant、provider、MCP 原始错误细节给前端。 |
+| Leakage | 不透传 SQL、MinIO、runtime index、provider、MCP 原始错误细节给前端。 |
 
 **输出/状态**
 
@@ -561,7 +561,7 @@ Knowledge 长期知识库。长期知识库检索通过内置 `search_knowledge`
 
 **Owner**：各服务负责自己的 ready；跨服务 smoke 仍是当前缺口。
 **触发入口**：`deploy/docker-compose.yml`、host-run migrations/seed、`/readyz`、env-gated tests。
-**参与方**：所有 host-run 服务、PostgreSQL、Redis、MinIO、Qdrant（本地 infra）、Knowledge RAGFlow runtime、runtime Elasticsearch/索引后端、AI Gateway/provider。
+**参与方**：所有 host-run 服务、PostgreSQL、Redis、MinIO、Knowledge RAGFlow runtime、runtime Elasticsearch/索引后端、AI Gateway/provider。
 
 **正常路径**
 
@@ -576,7 +576,7 @@ Knowledge 长期知识库。长期知识库检索通过内置 `search_knowledge`
 
 | 分类 | 分支 |
 | --- | --- |
-| Dependency | 根级 Compose 只启动 PostgreSQL、Redis、Qdrant、MinIO 和 `minio-init`，业务服务必须 host-run；该依赖基线不证明完整 E2E。 |
+| Dependency | 根级 Compose 只启动 PostgreSQL、Redis、MinIO、`minio-init` 和 Elasticsearch，业务服务必须 host-run；该依赖基线不证明完整 E2E。 |
 | Config | `deploy/.env.example` / `deploy/.env`、service token hash、AI profile seed、NO_PROXY/proxy、host-run 端口设置。 |
 | Resource | seed data 只覆盖本地登录、基础报告类型、示例知识库、QA 会话样例和 AI profile placeholder。 |
 | Current State | File PostgreSQL + MinIO smoke、Knowledge RAGFlow runtime PDF E2E、Gateway -> Knowledge -> QA RAG smoke、QA -> Document MCP report tools smoke 和 Issue #125 smoke slices 可显式启用；AI Gateway real provider smoke env-gated。 |
@@ -638,6 +638,6 @@ Knowledge 长期知识库。长期知识库检索通过内置 `search_knowledge`
 - 服务边界、数据归属或跨服务依赖变化。
 - 当前能力矩阵中某条能力从“部分实现/缺失”变为“已实现”，或新增关键缺口。
 - 新增跨服务 smoke、E2E 验收路径或部署基线。
-- QA、Knowledge、Document、AI Gateway 的模型调用、MCP 工具、Knowledge runtime、runtime doc engine、File、Qdrant、MinIO 链路发生语义变化。
+- QA、Knowledge、Document、AI Gateway 的模型调用、MCP 工具、Knowledge runtime、runtime doc engine、File、MinIO 链路发生语义变化。
 
 更新本文时不要复制完整 OpenAPI schema。路径、字段和错误码仍维护在对应 OpenAPI 与服务文档中。

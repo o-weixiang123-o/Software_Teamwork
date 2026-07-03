@@ -34,7 +34,7 @@ File 数据库只保存基础文件对象元数据：
 
 File 数据库不得保存知识库、报告或权限领域的业务数据，包括但不限于：
 
-- `knowledge_base_id`、`document_id`、文档处理状态、parser 配置、chunk、embedding 或 Qdrant point。
+- `knowledge_base_id`、`document_id`、文档处理状态、parser 配置、chunk、embedding 或 runtime doc-engine point。
 - `report_id`、`template_id`、`material_id`、`report_file_id`、报告状态、模板结构或素材引用关系。
 - 业务标签、业务 ACL、用户可见性规则、租户配额归属、审计日志主数据。
 

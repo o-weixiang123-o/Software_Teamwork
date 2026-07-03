@@ -365,7 +365,7 @@ wait_for_http_ok() {
 
   echo "$name did not become ready at $url" >&2
   if [[ "$name" == "Elasticsearch" ]]; then
-    echo "For local Elasticsearch, set KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=true in deploy/.env and rerun ./scripts/local/dev-up.sh." >&2
+    echo "For local Elasticsearch, rerun ./scripts/local/dev-up.sh and inspect docker compose ps/logs for elasticsearch." >&2
     echo "For external Elasticsearch, set KNOWLEDGE_RUNTIME_ES_URL to the reachable endpoint." >&2
   fi
   if [[ -s "$response_file" ]]; then

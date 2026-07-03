@@ -19,7 +19,7 @@
 上的历史执行证据，不是当前 Docker 策略来源。当前本地 Docker 策略以
 `AGENTS.md`、`deploy/README.md`、`docs/runbooks/docker-image-pull-environment.md`
 和 `docs/testing/strategy.md` 为准；根级 Compose 默认基础设施清单已扩展为
-`postgres`、`redis`、`qdrant`、`minio`、`minio-init`、`elasticsearch`。
+`postgres`、`redis`、`legacy-vector-index`、`minio`、`minio-init`、`elasticsearch`。
 
 ## 1. 测试目标
 
@@ -46,7 +46,7 @@
 ### 测试范围
 
 - Compose orphan cleanup 和当时分支的 infra-only 观察值。
-- `dev-up.sh` 真实本地路径：infra health、MinIO init、Qdrant collection、migration、seed。
+- `dev-up.sh` 真实本地路径：infra health、MinIO init、legacy vector index collection、migration、seed。
 - `run-backend.sh` 真实本地成功路径和隔离失败路径。
 - `stop-backend.sh` 真实停止清理路径。
 - checker、unit test、shell syntax、Docker policy 和 Compose config。
@@ -61,7 +61,7 @@
 
 - Docker 清理前存在旧业务服务 orphan containers；已执行：
   `docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --remove-orphans`。
-- 在该 commit 上清理后只剩 `postgres`、`redis`、`qdrant`、`minio` 四个长运行容器，
+- 在该 commit 上清理后只剩 `postgres`、`redis`、`legacy-vector-index`、`minio` 四个长运行容器，
   均为 `healthy`；这记录的是当时分支的实际观察值，不代表当前默认 Compose 策略。
 - 当前宿主机 `go` 安装在 `/usr/local/go/bin/go`，但不在默认 PATH；真实运行命令用临时 PATH 加入 `/usr/local/go/bin`。
 - 当前宿主机没有 native `psql` 且无免密 sudo；真实 `dev-up.sh` 使用临时 `/tmp/issue550-tools/psql` wrapper 调用 `docker.m.daocloud.io/library/postgres:16-alpine` 内的 `psql`，并将仓库只读挂载给容器读取 seed 文件。
@@ -71,8 +71,8 @@
 
 | ID | 分类 | 用例 / 场景 | 预期结果 | 实际结果 | 结论 |
 | --- | --- | --- | --- | --- | --- |
-| TEST-001 | Docker | 清理 Compose orphan containers | 仅保留当时分支的 infra 容器 | 旧 `gateway/auth/.../parser` 容器被移除；`postgres/redis/qdrant/minio` healthy | pass |
-| TEST-002 | 静态检查 | Compose config 和服务清单 | config 可解析，服务仅为当时分支的 `minio/minio-init/postgres/qdrant/redis` | 通过 | pass |
+| TEST-001 | Docker | 清理 Compose orphan containers | 仅保留当时分支的 infra 容器 | 旧 `gateway/auth/.../parser` 容器被移除；`postgres/redis/legacy-vector-index/minio` healthy | pass |
+| TEST-002 | 静态检查 | Compose config 和服务清单 | config 可解析，服务仅为当时分支的 `minio/minio-init/postgres/legacy-vector-index/redis` | 通过 | pass |
 | TEST-003 | 静态检查 | Shell syntax、seed contract、unit test、Docker policy | 全部通过 | 全部通过 | pass |
 | TEST-004 | 真实启动 | `dev-up.sh` | infra、migration、seed 完成并输出成功摘要 | 完成，输出 `local dev-up: completed successfully` | pass |
 | TEST-005 | 真实启动 | `run-backend.sh` 成功路径 | Go module 预检通过、7 个 host-run 服务启动、输出成功摘要 | 完成，7 个 `/healthz` 均 ok | pass |
@@ -88,14 +88,14 @@
 | --- | --- | --- | --- | --- |
 | `2026-07-03 13:08 +0800` | TEST-001 | `docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --remove-orphans` | pass | 移除旧业务服务 orphan containers；后续 `ps` 只剩 infra。 |
 | `2026-07-03 13:09 +0800` | TEST-002 | `docker compose -f deploy/docker-compose.yml --env-file deploy/.env.example config --quiet` | pass | 无输出，退出码 0。 |
-| `2026-07-03 13:09 +0800` | TEST-002 | `docker compose -f deploy/docker-compose.yml --env-file deploy/.env.example config --services` | pass | 输出 `minio`、`minio-init`、`postgres`、`qdrant`、`redis`。 |
+| `2026-07-03 13:09 +0800` | TEST-002 | `docker compose -f deploy/docker-compose.yml --env-file deploy/.env.example config --services` | pass | 输出 `minio`、`minio-init`、`postgres`、`legacy-vector-index`、`redis`。 |
 | `2026-07-03 13:09 +0800` | TEST-003 | `bash -n scripts/local/dev-up.sh scripts/local/run-backend.sh scripts/local/stop-backend.sh` | pass | 无输出，退出码 0。 |
 | `2026-07-03 13:09 +0800` | TEST-003 | `python3 scripts/verify_local_seed_contract.py` | pass | `Local seed contract verification passed.` |
 | `2026-07-03 13:09 +0800` | TEST-003 | `python3 -m unittest scripts.tests.test_local_seed_contract` | pass | `Ran 7 tests ... OK`。 |
 | `2026-07-03 13:09 +0800` | TEST-003 | `python3 scripts/check_docker_policy.py` | pass | `Docker policy checks passed.` |
 | `2026-07-03 13:20 +0800` | TEST-003 | `python3 -m unittest scripts.tests.test_local_dev_up_script` | pass | `Ran 3 tests ... OK`。 |
 | `2026-07-03 13:10 +0800` | TEST-004 | `./scripts/local/dev-up.sh` | fail/pass | 初次直接运行失败：默认 PATH 缺 `go` / `psql`。补临时 PATH 和 Dockerized `psql` wrapper 后通过。 |
-| `2026-07-03 13:18 +0800` | TEST-004 | `PATH="/tmp/issue550-tools:/usr/local/go/bin:$PATH" ./scripts/local/dev-up.sh` | pass | 当前 `796f7f218ae8` 上完成 tool check、Compose config、image pull、infra health、MinIO init、Qdrant collection、migrations、seed；QA migration 升至 version 16；最终 `local dev-up: completed successfully`。 |
+| `2026-07-03 13:18 +0800` | TEST-004 | `PATH="/tmp/issue550-tools:/usr/local/go/bin:$PATH" ./scripts/local/dev-up.sh` | pass | 当前 `796f7f218ae8` 上完成 tool check、Compose config、image pull、infra health、MinIO init、legacy vector index collection、migrations、seed；QA migration 升至 version 16；最终 `local dev-up: completed successfully`。 |
 | `2026-07-03 13:12 +0800` | TEST-009 | `PATH="/usr/local/go/bin:$PATH" LOCAL_BACKEND_STARTUP_CHECK_SECONDS=2 ./scripts/local/run-backend.sh` | pass | 用旧 `deploy/.env` 运行时 Auth 早退；脚本输出 `backend startup failed for: auth` 和 auth log tail：`AUTH_GATEWAY_ADMIN_SERVICE_TOKEN is required when AUTH_DATABASE_URL is set`。 |
 | `2026-07-03 13:19 +0800` | TEST-005 | `set -a; . deploy/.env.example; . deploy/.env; set +a; PATH="/usr/local/go/bin:$PATH" LOCAL_BACKEND_STARTUP_CHECK_SECONDS=18 ./scripts/local/run-backend.sh` | pass | 当前 `796f7f218ae8` 上 Go module checks 全部通过，7 个服务启动，最终 `local backend startup: completed successfully`。 |
 | `2026-07-03 13:19 +0800` | TEST-005 | `curl -fsS http://127.0.0.1:<port>/healthz` for ports `8001 8082 8083 8084 8085 8086 8080` | pass | Auth/File/Knowledge/QA/Document/AI Gateway/Gateway 均返回 JSON `status":"ok"`。 |
@@ -124,7 +124,7 @@
 
 | 证据类型 | 位置 / 链接 | 说明 |
 | --- | --- | --- |
-| Docker 状态 | `docker compose -f deploy/docker-compose.yml --env-file deploy/.env ps` | 该 commit 上仅 `postgres`、`redis`、`qdrant`、`minio` running/healthy；当前默认 Compose 策略以本文开头说明为准。 |
+| Docker 状态 | `docker compose -f deploy/docker-compose.yml --env-file deploy/.env ps` | 该 commit 上仅 `postgres`、`redis`、`legacy-vector-index`、`minio` running/healthy；当前默认 Compose 策略以本文开头说明为准。 |
 | Go module failure output | `/tmp/issue550-go-failure.out` | 隔离 worktree 输出，包含默认 Go proxy、失败服务、有效设置和 remediation。 |
 | Early-exit output | `/tmp/issue550-early-exit.out` | 隔离 worktree 输出，包含失败服务汇总和 7 个日志 tail。 |
 | Host logs | `.local/logs/*.log` | 真实成功路径服务启动日志；历史 `parser.log` 为旧日志文件，不代表当前脚本启动 Parser。 |

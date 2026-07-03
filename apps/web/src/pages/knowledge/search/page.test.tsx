@@ -47,7 +47,6 @@ const queryResult: KnowledgeQuerySummary = {
     embeddingModel: 'bge-m3',
     embeddingProvider: 'ai-gateway',
     hitCount: 1,
-    qdrantCollection: 'knowledge',
     rerank: false,
     searchTopK: 10,
     scoreThreshold: 0,

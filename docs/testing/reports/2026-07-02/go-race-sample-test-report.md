@@ -24,7 +24,7 @@
 - 区分普通 focused `go test` 基线、race detector 抽样、未运行项和环境阻塞项。
 - 不把 `-race` 升级为默认 CI required check。
 
-本轮不验证完整跨服务 E2E、真实数据库/Redis/Qdrant/MinIO/provider、全量 `go test ./...` 或服务构建命令。
+本轮不验证完整跨服务 E2E、真实数据库/Redis/legacy vector index/MinIO/provider、全量 `go test ./...` 或服务构建命令。
 
 ## 2. 测试依据
 
@@ -51,7 +51,7 @@
 ### 不测范围
 
 - 不运行全量 `go test ./...` 与 `go build ./cmd/server`；本任务只做 focused race sampling。
-- 不启动 PostgreSQL、Redis、Qdrant、MinIO、Parser、AI Gateway 或真实 provider。
+- 不启动 PostgreSQL、Redis、legacy vector index、MinIO、Parser、AI Gateway 或真实 provider。
 - 不执行 env-gated integration smoke。
 - 不修改 `.github/workflows/go-services.yml`，不新增默认 required check。
 
@@ -143,7 +143,7 @@ git diff --name-only f05776cef4b5b6caa54bec5d177f66937f25962d..HEAD
 | --- | --- | --- | --- | --- |
 | 全量 `go test ./...` | #455 范围是 focused race sampling，本轮未改 Go 业务代码 | 无 | focused 包通过不代表所有 Go 包通过 | 常规 Go Services CI / 后续服务 PR |
 | `go build ./cmd/server`、QA `go build ./cmd/agent` | 本轮不改服务代码或构建配置 | 无 | 不覆盖二进制构建回归 | 常规 Go Services CI / 后续服务 PR |
-| env-gated integration smoke | 本轮不启动真实数据库、Redis、Qdrant、MinIO、Parser 或 provider | 真实本地联调依赖未启动 | 不证明真实跨服务链路无竞态或集成问题 | #125 / #304 / 相关 owner issue |
+| env-gated integration smoke | 本轮不启动真实数据库、Redis、legacy vector index、MinIO、Parser 或 provider | 真实本地联调依赖未启动 | 不证明真实跨服务链路无竞态或集成问题 | #125 / #304 / 相关 owner issue |
 | 默认 CI `-race` required check | #455 明确不要求升级默认 CI | 无 | race detector 仍是本地/PR 前建议层级 | 如需升级需另行资源评估 issue |
 
 ## 6. 缺陷与处理记录

@@ -59,7 +59,6 @@ export function KnowledgeSearchPage() {
       embeddingProvider: string
       embeddingModel: string
       embeddingDimension: number
-      qdrantCollection: string
       searchTopK: number
       scoreThreshold: number
       hitCount: number

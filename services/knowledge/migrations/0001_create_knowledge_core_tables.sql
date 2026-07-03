@@ -59,7 +59,6 @@ CREATE TABLE document_chunks (
   content text NOT NULL DEFAULT '',
   token_count integer CHECK (token_count IS NULL OR token_count >= 0),
   chunk_type text,
-  qdrant_point_id text,
   embedding_provider text,
   embedding_model text,
   embedding_dimension integer CHECK (embedding_dimension IS NULL OR embedding_dimension > 0),
@@ -85,7 +84,6 @@ CREATE INDEX idx_processing_jobs_status_created_at ON processing_jobs(status, cr
 
 CREATE INDEX idx_document_chunks_document_id_chunk_index ON document_chunks(document_id, chunk_index);
 CREATE INDEX idx_document_chunks_knowledge_base_id ON document_chunks(knowledge_base_id);
-CREATE INDEX idx_document_chunks_qdrant_point_id ON document_chunks(qdrant_point_id) WHERE qdrant_point_id IS NOT NULL;
 
 -- +goose Down
 DROP TABLE IF EXISTS document_chunks;

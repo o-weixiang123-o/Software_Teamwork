@@ -1961,7 +1961,6 @@ export interface components {
             embeddingModel: string;
             /** @description Runtime-managed dimension; -1 means unavailable from the vendor runtime. */
             embeddingDimension: number;
-            qdrantCollection: string;
             searchTopK: number;
             scoreThreshold: number;
             hitCount: number;

@@ -30,7 +30,10 @@ class DockerEnvironmentTests(unittest.TestCase):
         self.assertNotIn("go builder", images)
         self.assertNotIn("parser python", images)
         self.assertEqual("docker.m.daocloud.io/library/postgres:16-alpine", images["postgres"])
-        self.assertEqual("docker.m.daocloud.io/qdrant/qdrant:v1.18.2", images["qdrant"])
+        self.assertEqual(
+            "docker.m.daocloud.io/docker.elastic.co/elasticsearch/elasticsearch:8.15.3",
+            images["elasticsearch"],
+        )
         self.assertEqual(
             "docker.m.daocloud.io/infiniflow/ragflow_deps:51ce6aab",
             images["ragflow deps"],

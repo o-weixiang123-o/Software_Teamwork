@@ -36,7 +36,7 @@ Managed by Trellis. Edits outside this block are preserved; edits inside may be 
   `./scripts/local/dev-up.sh`，
   `./scripts/local/run-backend.sh`，
   `cd apps/web && bun install && bun run dev`。
-- 根级 Docker Compose 只允许拉取并启动基础设施：`postgres`、`redis`、`qdrant`、`minio`、`minio-init`、`elasticsearch`。Auth、File、Knowledge、QA、Document、AI Gateway、Gateway、Parser 和前端都必须按文档在宿主机启动。
+- 根级 Docker Compose 只允许拉取并启动基础设施：`postgres`、`redis`、`minio`、`minio-init`、`elasticsearch`。Auth、File、Knowledge、QA、Document、AI Gateway、Gateway、Parser 和前端都必须按文档在宿主机启动。
 - 仓库默认路径不再维护业务服务容器、服务级 Compose、migration 容器或 seed 容器。业务服务必须走宿主机启动。
 - `deploy/.env.example` 是唯一默认配置来源；用户复制成 `deploy/.env`。启动脚本只读取 `deploy/.env` 给宿主机进程使用，不得生成、改写或维护另一套默认变量。
 - 当前源策略是默认官方源、国内网络显式 `--china`。旧的大陆优先默认镜像契约已废弃；不要把缺少 active DaoCloud/TUNA/goproxy 默认值标记为回归。

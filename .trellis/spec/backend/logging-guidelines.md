@@ -88,7 +88,7 @@ Log dependency failures with enough detail to identify the failing dependency:
 
 - downstream service name,
 - HTTP status code when applicable,
-- infrastructure component name such as `postgres`, `redis`, `qdrant`, or `minio`,
+- infrastructure component name such as `postgres`, `redis`, `elasticsearch`, or `minio`,
 - retry count when retrying,
 - request ID or job ID.
 

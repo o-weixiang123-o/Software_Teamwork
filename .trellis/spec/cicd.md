@@ -842,7 +842,6 @@ may pull and start only:
 ```text
 postgres
 redis
-qdrant
 minio
 minio-init
 elasticsearch
@@ -890,19 +889,18 @@ Rules:
 
 Local integration uses `deploy/docker-compose.yml` only for shared
 infrastructure. Business services run on the host. Local Elasticsearch is
-Compose-managed infrastructure, not a business service container, and starts in
-the default infra path.
+Compose-managed infrastructure, not a business service container, and starts by
+default because it is the active Knowledge runtime doc engine.
 
 Required local sequence:
 
 1. Copy local defaults with `cp deploy/.env.example deploy/.env`.
 2. Run `./scripts/local/dev-up.sh` to pull/start infra, wait for long-running
    service health, run the one-shot `minio-init`, apply any configured
-   legacy/test-only Qdrant collection initialization, host migrations, and
+   host migrations, and
    local seed. Current Knowledge indexing is prepared by the host-run Knowledge
-   runtime/doc engine, not by restoring Go-side Qdrant bootstrap as a required
-   default. This step starts the default `elasticsearch` infrastructure service
-   along with the rest of the Compose baseline.
+   runtime/doc engine, not by restoring Go-side index bootstrap as a required
+   default. This step starts `elasticsearch` as default active RAG infra.
 3. Start or keep available the host-run Knowledge runtime API/worker when
    running Knowledge ingestion/retrieval scenarios.
 4. Run `./scripts/local/run-backend.sh` to start Auth, File, Knowledge,
@@ -934,8 +932,8 @@ Runtime rules:
 - `run-knowledge-parse-stack.sh` must not run direct `docker build` or
   `docker run` for Elasticsearch. It verifies the configured
   `KNOWLEDGE_RUNTIME_ES_URL` and starts host-run runtime processes; local
-  Elasticsearch lifecycle belongs to the default root Compose infrastructure
-  started by `dev-up.sh`.
+  Elasticsearch lifecycle belongs to the default root Compose infra started by
+  `dev-up.sh`.
 - `HF_ENDPOINT=https://hf-mirror.com` must not be active in committed defaults
   or forced by runtime scripts in official-default mode. Mainland China runtime
   model download mirrors are explicit through
@@ -970,7 +968,7 @@ Runtime rules:
 - Seeded local AI Gateway profiles should use `http://localhost:11434/v1` for
   the host-run default path; container-only hostnames such as
   `host.docker.internal` must fail the local seed/startup contract.
-- Use named volumes for PostgreSQL, Qdrant, and MinIO persistence.
+- Use named volumes for PostgreSQL, MinIO, and Elasticsearch persistence.
 - Keep frontend and browser traffic routed through Gateway.
 - Health checks for infra stay in Compose; service health checks are host-run
   `/healthz` and `/readyz` calls.

@@ -4,9 +4,9 @@
 
 - `postgres`
 - `redis`
-- `qdrant`
 - `minio`
 - `minio-init`
+- `elasticsearch`
 
 业务服务、migration、seed、Knowledge runtime 和前端都不通过 Docker 启动。
 Knowledge runtime 的 `uv sync` 下载 Python 包，不走 Docker registry。uv 默认包索引由
@@ -42,8 +42,8 @@ cp deploy/.env.example deploy/.env
 ./scripts/local/dev-up.sh --china
 ```
 
-该模式只在本次进程设置 `POSTGRES_IMAGE`、`REDIS_IMAGE`、`QDRANT_IMAGE`、
-`MINIO_IMAGE`、`MINIO_MC_IMAGE` 和 `KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE`
+该模式只在本次进程设置 `POSTGRES_IMAGE`、`REDIS_IMAGE`、`MINIO_IMAGE`、
+`MINIO_MC_IMAGE` 和 `KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE`
 的 DaoCloud registry rewrite，不改写
 `deploy/.env`。
 
@@ -54,15 +54,15 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env config --quie
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env config --services
 ```
 
-服务清单只能包含 `postgres`、`redis`、`qdrant`、`minio`、`minio-init`、
+服务清单只能包含 `postgres`、`redis`、`minio`、`minio-init`、
 `elasticsearch`。
 
 ## Docker 镜像源选择
 
 Compose 文件本身保留 Docker Hub pinned defaults。需要企业 registry 或长期本地
 override 时，可只在本机 `deploy/.env` 设置 `POSTGRES_IMAGE`、`REDIS_IMAGE`、
-`QDRANT_IMAGE`、`MINIO_IMAGE`、`MINIO_MC_IMAGE` 和
-`KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE`，不要提交成默认值。已有旧
+`MINIO_IMAGE`、`MINIO_MC_IMAGE` 和 `KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE`，
+不要提交成默认值。已有旧
 `deploy/.env` 如果仍保留 DaoCloud 值，脚本会尊重本地配置；不传 `--china` 时会提示
 这是本地覆盖。
 
@@ -111,9 +111,9 @@ python3 scripts/check_docker_environment.py --skip-network --clean-env
 ```bash
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env pull postgres
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env pull redis
-docker compose -f deploy/docker-compose.yml --env-file deploy/.env pull qdrant
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env pull minio
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env pull minio-init
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env pull elasticsearch
 ```
 
 如果 DaoCloud 路径异常，先用环境诊断脚本确认 manifest 是否可用，再决定是否临时去掉
@@ -140,8 +140,8 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env.example confi
 
 策略要求：
 
-- 根 Compose 只包含六个基础设施服务：`postgres`、`redis`、`qdrant`、
-  `minio`、`minio-init`、`elasticsearch`。
+- 根 Compose 只包含五个基础设施服务：`postgres`、`redis`、`minio`、
+  `minio-init`、`elasticsearch`。
 - 根 Compose 不包含 `build:`。
 - 默认镜像不能是 `latest`。
 - `deploy/.env.example` 不能默认启用第三方基础设施镜像 rewrite；大陆网络使用

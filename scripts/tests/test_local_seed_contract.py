@@ -41,7 +41,6 @@ class LocalSeedContractTests(unittest.TestCase):
                 "GOSUMDB=sum.golang.org\n"
                 "# POSTGRES_IMAGE=docker.m.daocloud.io/library/postgres:16-alpine\n"
                 "# REDIS_IMAGE=docker.m.daocloud.io/library/redis:7-alpine\n"
-                "# QDRANT_IMAGE=docker.m.daocloud.io/qdrant/qdrant:v1.18.2\n"
                 "# MINIO_IMAGE=docker.m.daocloud.io/minio/minio:RELEASE.2025-09-07T16-13-09Z\n"
                 "# MINIO_MC_IMAGE=docker.m.daocloud.io/minio/mc:RELEASE.2025-08-13T08-35-41Z\n"
                 "VENDOR_RUNTIME_URL=http://127.0.0.1:9380\n"
@@ -54,7 +53,7 @@ class LocalSeedContractTests(unittest.TestCase):
                 "KNOWLEDGE_RUNTIME_WORKER_START_TIMEOUT=10m\n"
                 "KNOWLEDGE_RUNTIME_WORKER_IDLE_SHUTDOWN_SECONDS=300\n"
                 "KNOWLEDGE_RUNTIME_WORKER_IDLE_CHECK_SECONDS=15\n"
-                "# DOC_ENGINE=elasticsearch\n",
+                "DOC_ENGINE=elasticsearch\n",
                 encoding="utf-8",
             )
             (root / ".gitignore").write_text("/.local/\n*.pid\n", encoding="utf-8")
@@ -119,7 +118,7 @@ class LocalSeedContractTests(unittest.TestCase):
                 "Check Docker status:\n"
                 "checking local tool dependencies\n"
                 "missing required local command(s):\n"
-                "Install Docker, Go, psql, uv, and curl\n"
+                "Install Docker, Go, psql, and uv\n"
                 "Install the missing host tool(s)\n"
                 "Mainland China network: rerun ./scripts/local/dev-up.sh --china.\n"
                 "preparing Knowledge runtime dependencies with China mirrors\n"
@@ -134,7 +133,8 @@ class LocalSeedContractTests(unittest.TestCase):
                 "docker.m.daocloud.io/library/postgres:16-alpine\n"
                 "goose@v3.27.1\n"
                 "psql\n"
-                "INFRA_SERVICES=(postgres redis qdrant minio elasticsearch)\n"
+                "INFRA_SERVICES=(postgres redis minio elasticsearch)\n"
+                "PULL_SERVICES=(postgres redis minio minio-init elasticsearch)\n"
                 "initializing MinIO buckets\n"
                 "--exit-code-from minio-init\n"
                 "docker compose -f deploy/docker-compose.yml --env-file deploy/.env logs minio-init\n"
@@ -143,12 +143,7 @@ class LocalSeedContractTests(unittest.TestCase):
                 "003-qa-document-mcp.sql\n"
                 "004-qa-default-knowledge-base.sql\n"
                 "--wait\n"
-                "--wait-timeout\n"
-                "initialize_qdrant_collection\n"
-                "QDRANT_URL\n"
-                "QDRANT_COLLECTION\n"
-                "EMBEDDING_DIMENSION\n"
-                "Cosine\n",
+                "--wait-timeout\n",
                 encoding="utf-8",
             )
             (root / "scripts" / "local" / "render_ai_gateway_local_seed.go").write_text(
@@ -194,13 +189,12 @@ class LocalSeedContractTests(unittest.TestCase):
                 "setsid or python3 is required\n"
                 "os.setsid()\n"
                 "--china\n"
-                "Compose knowledge-runtime profile\n"
+                "default root Compose infrastructure\n"
                 "KNOWLEDGE_RUNTIME_ES_URL\n"
-                "KNOWLEDGE_RUNTIME_START_ELASTICSEARCH\n"
                 "HF_ENDPOINT=https://hf-mirror.com\n"
                 "uv sync --python 3.13 --frozen --group worker\n"
                 'start_service "knowledge-runtime-worker"\n'
-                "For local Elasticsearch, set KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=true\n"
+                "For local Elasticsearch, rerun ./scripts/local/dev-up.sh\n"
                 ".local/knowledge-runtime/service_conf.yaml\n"
                 "KNOWLEDGE_RUNTIME_MODEL_API_KEY=<your SiliconFlow key>\n"
                 "KNOWLEDGE_VENDOR_EMBEDDING_ID=BAAI/bge-m3@default@SILICONFLOW\n"
@@ -274,6 +268,7 @@ class LocalSeedContractTests(unittest.TestCase):
             runbook="",
             env_example="VENDOR_RUNTIME_URL=http://127.0.0.1:9380\n",
             dev_up_script="",
+            ai_gateway_local_seed_renderer="",
             run_backend_script="",
             run_knowledge_runtime_api_script="",
             start_knowledge_runtime_worker_script="",
@@ -283,7 +278,7 @@ class LocalSeedContractTests(unittest.TestCase):
             ai_gateway_local_seed_main="",
         )
 
-        self.assertIssueContains(issues, "# DOC_ENGINE=elasticsearch")
+        self.assertIssueContains(issues, "DOC_ENGINE=elasticsearch")
         self.assertIssueContains(issues, "./cmd/adapter")
 
     def test_verifier_reports_missing_local_runtime_gitignore(self) -> None:

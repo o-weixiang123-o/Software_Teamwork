@@ -173,7 +173,7 @@ Auth 是最终权限裁判：`admin` 只能管理 `standard`，`super_admin`
 
 Gateway 对前端暴露 knowledge 拥有的知识库、知识库文档、文档内容、文档切片和检索查询资源，精确接口清单以 [`api/public.openapi.yaml`](api/public.openapi.yaml) 与 [active API owner map](docs/active-api-owner-map.md) 为准。Gateway 只负责鉴权上下文传递、路由和响应归一化，不执行解析、切片、embedding、runtime/doc-engine 检索或重排序。
 
-检索被建模为 `knowledge-queries` 资源创建，不使用 `/search` 或 `/retrieval/search`。知识库文档公开资源统一由 `knowledge` 拥有：创建文档资源时由 Knowledge adapter 交给 RAGFlow runtime 保存原始 bytes 并维护处理状态，列表和详情返回处理状态，chunk 和 content 子资源返回切片或原文件流。Gateway 不直接解析文件、操作 MinIO、操作 RAGFlow runtime、操作索引后端或操作 Qdrant。
+检索被建模为 `knowledge-queries` 资源创建，不使用 `/search` 或 `/retrieval/search`。知识库文档公开资源统一由 `knowledge` 拥有：创建文档资源时由 Knowledge adapter 交给 RAGFlow runtime 保存原始 bytes 并维护处理状态，列表和详情返回处理状态，chunk 和 content 子资源返回切片或原文件流。Gateway 不直接解析文件、操作 MinIO、操作 RAGFlow runtime 或操作索引后端。
 
 报告素材、模板和导出文件不得复用知识库文档上传路径建模。它们的公开资源由 `document` 拥有，`document` 在内部通过 file 服务保存、读取或删除底层文件对象；Gateway 只做入口、认证上下文传递和响应归一化。
 

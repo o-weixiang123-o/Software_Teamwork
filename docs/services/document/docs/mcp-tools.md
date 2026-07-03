@@ -71,7 +71,7 @@ request correlation；客户端不能用服务 token 冒充任意用户权限。
 | `requirements` | string | 否 | 本轮生成要求；日志只记录长度摘要，不记录全文 |
 | `materialIds` | string[] | 否 | Document 报告素材业务 ID |
 | `options` | object | 否 | 生成选项，允许扩展字段；由 Document job/worker 解释 |
-| `retrieval` | object | 否 | 检索上下文或检索提示，允许扩展字段；Document 仍通过 Knowledge 服务检索，不直连 Knowledge runtime/doc engine 或 Qdrant |
+| `retrieval` | object | 否 | 检索上下文或检索提示，允许扩展字段；Document 仍通过 Knowledge 服务检索，不直连 Knowledge runtime/doc engine |
 
 典型调用：
 

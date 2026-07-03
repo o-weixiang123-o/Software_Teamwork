@@ -166,7 +166,7 @@ prompts, vector payloads, or internal URLs to the frontend.
   `docs/architecture/service-boundaries.md` if ownership is new.
 - Base: proxy a domain-service route through gateway without changing the
   domain response shape, but still normalize errors to the gateway envelope.
-- Bad: add a frontend call directly to `services/knowledge` or embed Qdrant,
+- Bad: add a frontend call directly to `services/knowledge` or embed runtime index,
   MinIO, SQL, prompt, or report-generation logic in gateway.
 
 ### 6. Tests Required
@@ -195,7 +195,7 @@ For documentation-only contract changes:
 
 ```text
 frontend -> services/knowledge/search
-gateway handler -> Qdrant query -> raw vector payload response
+gateway handler -> runtime index query -> raw vector payload response
 ```
 
 #### Correct
@@ -389,7 +389,7 @@ document, and ai-gateway
   workflows.
 - Base: Compose uses Gateway `/readyz` for startup ordering while production
   readiness docs separately list service-level `/readyz` and provider smoke.
-- Bad: Gateway `/readyz` uploads a document, queries Qdrant, calls QA chat, or
+- Bad: Gateway `/readyz` uploads a document, queries runtime indexes, calls QA chat, or
   fails startup only because a real model provider credential has not been
   bootstrapped yet.
 
@@ -456,7 +456,7 @@ targeted smoke -> Gateway public API -> owner services -> File/Knowledge runtime
 ### 3. Contracts
 
 - Gateway must proxy these routes to Knowledge and must not implement chunking,
-  runtime content reads, Qdrant/doc-engine queries, embedding, rerank, or
+  runtime content reads, doc-engine queries, embedding, rerank, or
   visibility rules.
 - Gateway must inject `X-Request-Id`, `X-User-Id`, `X-User-Roles`,
   `X-User-Permissions`, `X-Forwarded-For`, `X-Forwarded-Proto`, and
@@ -492,7 +492,7 @@ targeted smoke -> Gateway public API -> owner services -> File/Knowledge runtime
   runbooks document how to enable real runtime/doc engine or AI Gateway.
 - Bad: gateway returns `501` for an active Knowledge operation after the
   Knowledge service route exists, or gateway directly reads RAGFlow runtime,
-  File Service, Qdrant/doc engine, prompt/model providers, SQL rows, or
+  File Service, doc engine, prompt/model providers, SQL rows, or
   generated sqlc types.
 
 ### 6. Tests Required
@@ -514,7 +514,7 @@ targeted smoke -> Gateway public API -> owner services -> File/Knowledge runtime
 
 ```text
 gateway /api/v1/documents/{documentId}/content -> File Service object URL
-gateway /api/v1/knowledge/search -> Qdrant search response payload
+gateway /api/v1/knowledge/search -> runtime index response payload
 ```
 
 #### Correct
@@ -1016,7 +1016,7 @@ Database state involved:
   trim/dedupe/max-count/max-length rules as document upload.
 - `DELETE /documents/{documentId}` applies the Knowledge document delete/hidden
   semantics and delegates runtime document/chunk/index lifecycle to RAGFlow
-  runtime. It must not restore the old File/Qdrant cleanup worker path.
+  runtime. It must not restore the old File cleanup worker path.
 - `GET /documents/{documentId}/chunks` must authorize the parent document. An
   existing document with no chunks, including pending processing states, returns
   an empty paginated list rather than `501` or a dependency error.
@@ -1048,7 +1048,7 @@ Database state involved:
   delegates runtime internal object/chunk/index lifecycle to RAGFlow runtime.
 - Bad: Gateway returns `501` for active document lifecycle routes, Knowledge
   exposes `fileRef` or object-storage details, or deletion restores slow File
-  Service/Qdrant calls inside a PostgreSQL transaction.
+  Service or runtime-index calls inside a PostgreSQL transaction.
 
 ### 6. Tests Required
 
@@ -1086,7 +1086,7 @@ success streams bytes; errors stay sanitized and document-owned
 #### Wrong
 
 ```text
-DELETE /documents/doc_1 -> delete file object and Qdrant points while holding
+DELETE /documents/doc_1 -> delete file object and runtime index points while holding
 the document transaction; if cleanup fails the document stays visible
 ```
 
@@ -1194,7 +1194,7 @@ METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT=10000
 - Object storage for uploaded documents uses vendor MinIO configuration
   (`software-teamwork-knowledge` bucket); Knowledge adapter does not call File
   Service for upload in vendor mode.
-- Vector retrieval uses vendor Elasticsearch or Infinity only; Qdrant is not used.
+- Vector retrieval uses the configured vendor doc engine only.
 - Gateway/Auth service owns identity; adapter forwards `X-User-Id` as vendor tenant
   context. Vendor login/JWT/API-token surfaces remain disabled.
 - The vendored runtime HTTP surface must be registered through an explicit
@@ -1323,7 +1323,7 @@ METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT=10000
 ```text
 Compose env: KNOWLEDGE_VENDOR_RERANK_ID=BAAI/bge-reranker-v2-m3
 Adapter: DELETE /internal/v1/documents/{doc} -> scan every dataset to find kb
-Trace: embeddingModel=vendor-default, embeddingDimension=0, qdrantCollection=elasticsearch
+Trace: embeddingModel=vendor-default, embeddingDimension=0
 Runtime auth: @login_required(auth_types=[AUTH_JWT, AUTH_API]) accepts service token
 Embedding: whitespace chunk -> encode("None") -> index vector
 Adapter: GET /api/v1/datasets/{kb}/documents/{doc} -> decode JSON metadata

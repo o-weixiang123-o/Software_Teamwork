@@ -150,4 +150,4 @@ go build ./cmd/server
   business state.
 - Public JSON responses use `{ "data": ..., "requestId": ... }` for success and
   `{ "error": { "code": ..., "message": ..., "requestId": ... } }` for errors.
-- Gateway must not call SQL, MinIO, Qdrant, or model providers directly.
+- Gateway must not call SQL, MinIO, runtime doc engines, or model providers directly.

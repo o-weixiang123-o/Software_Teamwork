@@ -15,8 +15,8 @@ cp deploy/.env.example deploy/.env
 ```
 
 Docker only starts the infrastructure services listed in
-`deploy/docker-compose.yml`: `postgres`, `redis`, `qdrant`, `minio`,
-`minio-init`, and `elasticsearch`. Auth, File, Knowledge, AI Gateway, QA, Document, and
+`deploy/docker-compose.yml`: `postgres`, `redis`, `minio`, `minio-init`, and
+`elasticsearch`. Auth, File, Knowledge, AI Gateway, QA, Document, and
 Gateway run on the host through `run-backend.sh`; do not use Compose profiles,
 business-service containers, or `--build` for this smoke.
 

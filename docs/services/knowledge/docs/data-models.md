@@ -2,11 +2,11 @@
 
 版本：v0.3
 日期：2026-07-03
-范围：`services/knowledge/` adapter、RAGFlow runtime 映射、parser config repository、早期迁移兼容字段和检索查询逻辑模型
+范围：`services/knowledge/` adapter、RAGFlow runtime 映射、parser config repository 和检索查询逻辑模型
 
 ## 1. 文档定位
 
-本文定义 Knowledge Service 的当前数据模型边界，用于指导 Go adapter、RAGFlow runtime 映射、PostgreSQL goose migration 兼容字段、gateway 代理契约对齐和后续测试用例编写。
+本文定义 Knowledge Service 的当前数据模型边界，用于指导 Go adapter、RAGFlow runtime 映射、PostgreSQL goose migration、gateway 代理契约对齐和后续测试用例编写。
 
 本文只描述 Knowledge Service 拥有的业务数据，不替代 gateway 公开 OpenAPI，也不定义 File Service、QA Service 或 Document Service 的内部模型。前端可见字段仍以 `docs/services/gateway/api/public.openapi.yaml` 为准；服务本地内部接口以 `docs/services/knowledge/api/internal.openapi.yaml` 和 Go DTO 为准。
 
@@ -21,7 +21,7 @@
 | Migration | 使用 `goose`，迁移文件放在 `services/knowledge/migrations/` 并采用有序前缀。 |
 | 事务 | parser config repository 使用显式事务或单语句写入；文档、chunks、embedding、索引和 runtime task 事实由 RAGFlow runtime 管理。 |
 | Runtime queue | Knowledge Go adapter 不接入 asynq；RAGFlow runtime 内部使用 Redis/worker 协调解析、切块、embedding 和索引。 |
-| Runtime index | 当前 runtime 默认使用 Elasticsearch/索引后端；早期 migration 中的 `qdrant_point_id` 仅作为兼容字段和历史 fixture 背景。 |
+| Runtime index | 当前 runtime 默认使用 Elasticsearch/索引后端；adapter 不保存旧向量库 point 字段。 |
 
 ## 3. 边界原则
 
@@ -176,7 +176,7 @@ parser_configs
 
 ### 6.4 DocumentChunk
 
-文档切片是检索命中的最小可引用单元。当前实现从 RAGFlow runtime 获取 chunks 并映射到公开 DTO；早期 PostgreSQL `document_chunks` 表和 `qdrant_point_id` 字段可用于兼容 fixture，但不是当前运行主路径。
+文档切片是检索命中的最小可引用单元。当前实现从 RAGFlow runtime 获取 chunks 并映射到公开 DTO；PostgreSQL `document_chunks` 表只保留契约测试所需的公开展示字段。
 
 | 逻辑字段 | HTTP 字段 | PostgreSQL 字段 | 类型 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -188,7 +188,6 @@ parser_configs
 | `Content` | `content` | `content` | text | 切片正文。 |
 | `TokenCount` | `tokenCount` | `token_count` | integer | 估算 token 数或切片器计数。 |
 | `ChunkType` | `chunkType` | `chunk_type` | text nullable | 例如 `text`、`table`。 |
-| `QdrantPointID` | `qdrantPointId` | `qdrant_point_id` | text nullable | 早期 Qdrant fixture 兼容字段；当前 runtime 可填入索引后端标识或留空，不作为公开权限依据。 |
 | `EmbeddingProvider` | `embeddingProvider` | `embedding_provider` | text nullable | embedding provider 标识。 |
 | `EmbeddingModel` | internal only | `embedding_model` | text nullable | embedding 模型标识。 |
 | `EmbeddingDimension` | `embeddingDimension` | `embedding_dimension` | integer nullable | 向量维度。 |
@@ -200,7 +199,6 @@ parser_configs
 - `UNIQUE (document_id, chunk_index)` 保证同一文档内切片顺序唯一。
 - `idx_document_chunks_document_id_chunk_index` 支持按文档顺序列出 chunks。
 - `idx_document_chunks_knowledge_base_id` 支持知识库级聚合。
-- `idx_document_chunks_qdrant_point_id` 仅支持历史 fixture/迁移排查；当前 runtime 检索不依赖该索引。
 
 ### 6.5 KnowledgeQuery
 
@@ -238,7 +236,6 @@ parser_configs
 | `EmbeddingProvider` | `embeddingProvider` | string | embedding provider。 |
 | `EmbeddingModel` | `embeddingModel` | string | embedding 模型。 |
 | `EmbeddingDimension` | `embeddingDimension` | integer | 向量维度。 |
-| `QdrantCollection` | `qdrantCollection` | string | 兼容字段名；当前 adapter 填入 runtime doc engine 标识，例如 `elasticsearch`。 |
 | `ParserBackend` | `parserBackend` | string | 默认解析器。 |
 | `RerankProvider` | `rerankProvider` | string | rerank provider。 |
 | `RerankModel` | `rerankModel` | string | rerank 模型。 |
@@ -257,8 +254,8 @@ parser_configs
 | --- | --- | --- |
 | `knowledge_bases` | `id`、`created_by`、`deleted_at IS NULL` | 作为权限和范围过滤根。 |
 | `knowledge_documents` | `id`、`knowledge_base_id`、`name`、`status='ready'`、`tags`、`created_by`、`deleted_at IS NULL` | 只有 `ready` 且未删除文档可进入检索结果。 |
-| `document_chunks` | `id`、`knowledge_base_id`、`document_id`、`chunk_index`、`content`、`token_count`、`metadata`、`qdrant_point_id` | 作为检索结果 hydrate 的正文和展示事实来源。 |
-| runtime/vector hit | `pointId`、`score`、payload.`knowledge_base_id`、payload.`document_id`、payload.`chunk_id` | 可由 fake runtime 或历史 fake Qdrant adapter 直接返回；payload 只用于定位和过滤。 |
+| `document_chunks` | `id`、`knowledge_base_id`、`document_id`、`chunk_index`、`content`、`token_count`、`metadata` | 作为检索结果 hydrate 的正文和展示事实来源。 |
+| runtime/vector hit | `pointId`、`score`、payload.`knowledge_base_id`、payload.`document_id`、payload.`chunk_id` | 可由 fake runtime 直接返回；payload 只用于定位和过滤。 |
 
 fixture 规则：
 
@@ -325,15 +322,7 @@ reprocessing
 
 ## 8. Runtime 索引模型
 
-当前 adapter 的 `qdrantCollection` 公开 trace 字段是兼容字段名；当前实现填入 runtime
-doc engine 标识：
-
-```text
-elasticsearch
-```
-
-早期 Qdrant fixture 使用由 `chunk_id` 稳定派生的 point ID。当前 RAGFlow runtime 的
-索引 ID、payload 和向量维度由 runtime 管理，adapter 只能映射公开所需字段。
+当前 RAGFlow runtime 的索引 ID、payload 和向量维度由 runtime 管理，adapter 只能映射公开所需字段。
 
 Payload 示例：
 
@@ -394,7 +383,7 @@ document_chunks
 可返回用于诊断或展示的字段：
 
 - 文档 `status`、`errorCode`、`errorMessage`
-- chunk `qdrantPointId`、`embeddingProvider`、`embeddingDimension`（当前为兼容/诊断字段）
+- chunk `embeddingProvider`、`embeddingDimension`（诊断字段）
 - query `trace`
 
 如果 gateway 公开契约没有这些字段，服务本地可先保留内部字段，但 browser-facing API 必须等 gateway OpenAPI 接收后再暴露。

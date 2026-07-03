@@ -466,12 +466,6 @@ func TestKnowledgeQueryTraceUsesConfiguredRuntimeValues(t *testing.T) {
 	if summary.Trace.EmbeddingDimension == 0 {
 		t.Fatalf("embeddingDimension must not claim zero as a runtime fact")
 	}
-	if summary.Trace.QdrantCollection == "elasticsearch" {
-		t.Fatalf("qdrantCollection must not claim elasticsearch as a fact")
-	}
-	if summary.Trace.QdrantCollection != runtimeManagedTraceValue {
-		t.Fatalf("qdrantCollection=%q", summary.Trace.QdrantCollection)
-	}
 }
 
 func TestMapRetrievalChunkOmitsMissingChunkIndex(t *testing.T) {

@@ -172,7 +172,7 @@ func TestGetReportFileContentFailureUsesErrorEnvelope(t *testing.T) {
 	files := &leakingReportFileContentClient{
 		err: service.NewError(
 			service.CodeDependency,
-			"minio bucket raw objectKey provider.internal qdrant prompt=secret",
+			"minio bucket raw objectKey provider.internal elasticsearch prompt=secret",
 			nil,
 		),
 	}

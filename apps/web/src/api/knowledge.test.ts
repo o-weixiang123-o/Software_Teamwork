@@ -204,7 +204,6 @@ describe('knowledge gateway API', () => {
                 embeddingModel: 'bge',
                 embeddingProvider: 'ai-gateway',
                 hitCount: 0,
-                qdrantCollection: 'knowledge',
                 rerank: false,
                 searchTopK: 10,
                 scoreThreshold: 0,

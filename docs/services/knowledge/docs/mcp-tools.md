@@ -111,7 +111,7 @@ alias `knowledge` 注册后向模型暴露带前缀名称：
 
 稳定错误码为 `validation_error`、`unauthorized`、`forbidden`、`not_found`、
 `conflict`、`rate_limited`、`dependency_error`、`internal_error`。底层错误、凭据、SQL、内部 URL、
-Qdrant/File/AI provider 原始响应不得进入输出。
+runtime doc engine、File 或 AI provider 原始响应不得进入输出。
 
 失败示例：
 
@@ -444,7 +444,7 @@ MCP 不直接复用 OpenAPI 中 `updatedAt` 可空的 REST `DocumentSummary`。#
 }
 ```
 
-输出不包含 token count、embedding provider/model/dimension、向量、Qdrant point ID、
+输出不包含 token count、embedding provider/model/dimension、向量、runtime index point ID、
 内部 metadata 或文件存储引用。
 
 ## 7. Agent 选用规则

@@ -187,7 +187,7 @@ func (r cancelAfterCompletedCitationRunner) RunWithObserver(_ context.Context, i
 	tool := agent.Message{
 		Role:    agent.RoleTool,
 		Name:    "search_knowledge",
-		Content: `{"results":[{"documentId":"doc-1","documentName":"Doc","chunkId":"chunk-1","text":"quoted"}]}`,
+		Content: `{"results":[{"knowledgeBaseId":"kb-1","documentId":"doc-1","documentName":"Doc","chunkId":"chunk-1","text":"quoted"}]}`,
 	}
 	final := agent.Message{Role: agent.RoleAssistant, Content: "answer with citation"}
 	messages := append(append([]agent.Message(nil), input...), tool, final)
@@ -1730,7 +1730,7 @@ func TestContainsUnsafeReasoningContentRejectsInternalConnectionReferences(t *te
 		"http://postgres.service.consul:5432",
 		"http://minio.local:9000",
 		"localhost:9000",
-		"qdrant:6333",
+		"elasticsearch:9200",
 		"postgres.service.consul:5432",
 		"DATABASE_URL=postgres://postgres:postgres@localhost:5432/app",
 		"connection_string=host=knowledge-vendor port=9380",

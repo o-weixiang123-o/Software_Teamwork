@@ -5,7 +5,7 @@
 ```text
 Docker infra (postgres, redis, minio, minio-init, elasticsearch)
   -> host backend -> frontend
-Real parsing -> host Knowledge runtime/adapter using the default Elasticsearch infra
+Real parsing -> host Knowledge runtime API + on-demand worker
 ```
 
 不要启动业务服务容器，不要使用 `--build`，不要手工 export 一长串变量。
@@ -72,9 +72,9 @@ cd apps/web && bun run dev
 cd apps/web && bun run dev
 ```
 
-真实 Knowledge 解析、embedding、索引和检索链路是显式 opt-in。`dev-up.sh`
-会启动本地 Elasticsearch；需要真实解析时先在本地 `deploy/.env` 中填写
-provider 和 doc engine 配置，再重新运行 infra 启动：
+真实 Knowledge 解析、embedding、索引和检索链路需要 provider 配置。先在本地
+`deploy/.env` 中填写 provider；Elasticsearch 是默认本地 infra，由
+`./scripts/local/dev-up.sh` 启动：
 
 ```text
 KNOWLEDGE_AUTO_START_INGESTION=true
@@ -200,12 +200,11 @@ client 与 Document 工具，不代表完整 QA Agent + LLM 链路通过。Issue
 ## 谁负责什么
 
 - `dev-up.sh`：检查同一宿主机环境中的 Docker、Go、`psql`、`uv`（仅 `--china`
-  runtime 准备需要），infra pull/up、等待 `postgres` / `redis` / `minio` /
-  `elasticsearch` Compose health checks、单独运行一次性 `minio-init`、Go module 配置检查、migration、
+  runtime 准备需要），infra pull/up、等待 `postgres` / `redis` / `minio` / `elasticsearch`
+  Compose health checks；单独运行一次性 `minio-init`、Go module 配置检查、migration、
   demo seed；传入 `--china` 时还会自动准备 Knowledge runtime 依赖和 artifact 下载，
   可用 `--skip-knowledge-runtime-deps` 或 `LOCAL_SKIP_KNOWLEDGE_RUNTIME_DEPS=1` 跳过。
-  当前 Knowledge 索引准备属于宿主机 RAGFlow runtime/doc engine 路径，不再通过 Go
-  侧 Qdrant collection bootstrap。
+  当前 Knowledge 索引准备属于宿主机 RAGFlow runtime/doc engine 路径。
   `minio-init` 正常 `Exited (0)` 不应阻断后续步骤；非零失败时看
   `docker compose logs minio-init`。
 - `run-backend.sh`：后端进程启动、日志和进程组 PID。Knowledge 使用 `cmd/adapter`
@@ -362,7 +361,7 @@ Go modules 下载慢或超时：
 WSL 内存高：
 
 - 先看 `docker stats`。
-- 当前默认 Docker 只跑 infra；内存压力主要来自 PostgreSQL、Qdrant、MinIO、
+- 当前默认 Docker 只跑 infra；内存压力主要来自 PostgreSQL、MinIO、Elasticsearch、
   宿主机 RAGFlow runtime 或本机后端进程。
 - 不需要保留环境时先停后端，再执行 `docker compose -f deploy/docker-compose.yml --env-file deploy/.env down -v`。
 
@@ -436,9 +435,9 @@ go test ./internal/integration -run '^TestGatewayKnowledgeOwnerRouteSmoke$' -cou
   `AI_GATEWAY_LOCAL_CHAT_MODEL` 由 `./scripts/local/dev-up.sh` 自动写入本地 seed。
 - 默认 Knowledge adapter 使用 query-first readiness，不要求 runtime worker 已在启动时
   运行。需要证明真实上传、解析、embedding、索引和检索时，先让
-  `./scripts/local/dev-up.sh` 启动本地 Elasticsearch，再用
-  `./scripts/local/run-knowledge-parse-stack.sh` 显式启动 host-run runtime API、worker
-  和 Knowledge adapter。第一次启用前先执行
+  `./scripts/local/dev-up.sh` 通过根级 Compose 默认 infra 启动本地 Elasticsearch，
+  再用 `./scripts/local/run-knowledge-parse-stack.sh` 显式启动 host-run runtime API、
+  worker 和 Knowledge adapter。第一次启用前先执行
   `cp deploy/.env.example deploy/.env`，并在本地 `deploy/.env` 中显式设置
   `KNOWLEDGE_AUTO_START_INGESTION=true`、`DOC_ENGINE=elasticsearch`、
   `KNOWLEDGE_RUNTIME_ES_URL=http://127.0.0.1:9200` 及对应

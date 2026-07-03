@@ -53,7 +53,7 @@ Preconditions observed:
 - Gateway and QA were ready.
 - AI Gateway was degraded because embedding and rerank profiles were missing, but `chat_profile` was ok and the chat path produced model output.
 - Knowledge was degraded because the vendor runtime was unavailable, so successful `tool.completed` and `citation.delta` verification was blocked.
-- PostgreSQL, Redis, Qdrant, and MinIO containers were healthy.
+- PostgreSQL, Redis, Elasticsearch, and MinIO containers were healthy.
 
 ## 4. Test Case Matrix
 

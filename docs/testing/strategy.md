@@ -28,7 +28,7 @@
 
 ### 本地自动化
 
-本地自动化用于开发者在 PR 前快速验证改动，优先覆盖确定性强、依赖少、失败后容易定位的问题。前端以 typecheck、lint、format、build、Vitest/React Testing Library 和必要的 Playwright smoke 为主；后端以服务内 `go test ./...`、handler/service unit tests、fake dependency tests、OpenAPI/active route contract checks 和必要的 env-gated repository tests 为主。需要数据库、Redis、Qdrant、MinIO、Knowledge RAGFlow runtime 或真实模型 provider 的检查可以作为本地命令记录，但必须写清楚依赖环境、跳过条件和残余风险。
+本地自动化用于开发者在 PR 前快速验证改动，优先覆盖确定性强、依赖少、失败后容易定位的问题。前端以 typecheck、lint、format、build、Vitest/React Testing Library 和必要的 Playwright smoke 为主；后端以服务内 `go test ./...`、handler/service unit tests、fake dependency tests、OpenAPI/active route contract checks 和必要的 env-gated repository tests 为主。需要数据库、Redis、Elasticsearch/runtime doc engine、MinIO、Knowledge RAGFlow runtime 或真实模型 provider 的检查可以作为本地命令记录，但必须写清楚依赖环境、跳过条件和残余风险。
 
 ### CI 自动化
 
@@ -68,10 +68,10 @@ CI 自动化用于保护 `develop`，只放入可以在 GitHub Actions 中稳定
 | 前端 API 类型 | `bun run --cwd apps/web api:generate`；确认 generated diff 符合预期。 |
 | 单个 Go 服务 | `cd services/<service> && go test ./...`；`go build ./cmd/server`。 |
 | QA 服务 | `cd services/qa && go test ./...`；`go build ./cmd/server`；`go build ./cmd/agent`。 |
-| Docker policy | `python3 scripts/check_docker_policy.py`；验证根级 Compose 默认服务只包含 `postgres`、`redis`、`qdrant`、`minio`、`minio-init`、`elasticsearch`；根 Compose 不包含 `build:` 或 profile 服务，基础设施镜像默认值不使用 `latest`，`deploy/.env.example` 不启用第三方镜像源或 profile。 |
-| 本地启动脚本 / 文档 | `bash -n scripts/local/dev-up.sh scripts/local/run-backend.sh scripts/local/stop-backend.sh`；`python3 scripts/verify_local_seed_contract.py`；确认 README/deploy/runbook 第一屏仍是 `cp deploy/.env.example deploy/.env`、`./scripts/local/dev-up.sh`、`./scripts/local/run-backend.sh`、`cd apps/web && bun install && bun run dev`，默认源保持官方，`--china` 明确覆盖 Docker/Go/uv/runtime artifact 下载且不改写 `deploy/.env`，本地入口脚本都有开始/成功/失败命令行摘要，`dev-up.sh` 在 migration/seed 前等待 infra health、仅在 `QDRANT_URL` 明确配置时处理 legacy/test-only Qdrant collection、检查 Go module 配置，`run-backend.sh` 预检 Go module 下载并汇总早退服务日志，Go module proxy 排障说明区分 `GOPROXY`、Docker registry rewrite、GitHub release/raw 镜像和 `UV_DEFAULT_INDEX`，AI Gateway 本地 seed 使用 `localhost:11434`，stop 脚本按进程组停止 host-run 服务。 |
+| Docker policy | `python3 scripts/check_docker_policy.py`；验证根级 Compose 默认服务只包含 `postgres`、`redis`、`minio`、`minio-init`、`elasticsearch`；根 Compose 不包含 `build:`，基础设施镜像默认值不使用 `latest`，`deploy/.env.example` 不启用第三方镜像源。 |
+| 本地启动脚本 / 文档 | `bash -n scripts/local/dev-up.sh scripts/local/run-backend.sh scripts/local/stop-backend.sh`；`python3 scripts/verify_local_seed_contract.py`；确认 README/deploy/runbook 第一屏仍是 `cp deploy/.env.example deploy/.env`、`./scripts/local/dev-up.sh`、`./scripts/local/run-backend.sh`、`cd apps/web && bun install && bun run dev`，默认源保持官方，`--china` 明确覆盖 Docker/Go/uv/runtime artifact 下载且不改写 `deploy/.env`，本地入口脚本都有开始/成功/失败命令行摘要，`dev-up.sh` 在 migration/seed 前等待 infra health、检查 Go module 配置，`run-backend.sh` 预检 Go module 下载并汇总早退服务日志，Go module proxy 排障说明区分 `GOPROXY`、Docker registry rewrite、GitHub release/raw 镜像和 `UV_DEFAULT_INDEX`，AI Gateway 本地 seed 使用 `localhost:11434`，stop 脚本按进程组停止 host-run 服务。 |
 | Docker environment | `python3 scripts/check_docker_environment.py --profile all --clean-env`；用于区分 registry rewrite、daemon mirror、Docker Hub direct 和 shell proxy 的问题。CI 只跑 `--skip-network`，真实 manifest 探测作为本地/排障检查。 |
-| Compose | `docker compose -f deploy/docker-compose.yml --env-file deploy/.env.example config --quiet`；默认服务清单只能是六个 infra 服务，包含 `elasticsearch`。 |
+| Compose | `docker compose -f deploy/docker-compose.yml --env-file deploy/.env.example config --quiet`；默认服务清单只能是 `postgres`、`redis`、`minio`、`minio-init`、`elasticsearch`。 |
 | Knowledge repository / SQL | `cd services/knowledge && KNOWLEDGE_TEST_DATABASE_URL='postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable' go test ./internal/repository -count=1`。 |
 | Knowledge ingestion real deps | 启动 PostgreSQL/Knowledge runtime/Redis/MinIO/Elasticsearch 后执行 `cd services/knowledge && KNOWLEDGE_INGESTION_SMOKE=1 ... go test ./internal/integration -run '^TestKnowledgeIngestionRealDepsSmoke$' -count=1 -v`；默认无 env 时跳过，不进入普通 CI required check。当前 Knowledge 主路径不依赖 File Service。 |
 | Gateway -> Knowledge owner route | 启动 Gateway/Auth/Redis/Knowledge/PostgreSQL 和 Knowledge runtime 后执行 `cd services/knowledge && GATEWAY_KNOWLEDGE_OWNER_SMOKE=1 ... go test ./internal/integration -run '^TestGatewayKnowledgeOwnerRouteSmoke$' -count=1 -v`；默认无 env 时跳过，不进入普通 CI required check。 |

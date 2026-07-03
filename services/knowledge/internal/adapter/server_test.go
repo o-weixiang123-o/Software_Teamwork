@@ -392,7 +392,6 @@ func TestCreateKnowledgeQueryMapsRetrieval(t *testing.T) {
 			Trace   struct {
 				EmbeddingModel     string `json:"embeddingModel"`
 				EmbeddingDimension int    `json:"embeddingDimension"`
-				QdrantCollection   string `json:"qdrantCollection"`
 			} `json:"trace"`
 		} `json:"data"`
 	}
@@ -405,7 +404,7 @@ func TestCreateKnowledgeQueryMapsRetrieval(t *testing.T) {
 	if payload.Data.Results[0]["chunkId"] != "chunk_1" {
 		t.Fatalf("chunk=%v", payload.Data.Results[0])
 	}
-	if payload.Data.Trace.EmbeddingModel == "vendor-default" || payload.Data.Trace.EmbeddingDimension == 0 || payload.Data.Trace.QdrantCollection == "elasticsearch" {
+	if payload.Data.Trace.EmbeddingModel == "vendor-default" || payload.Data.Trace.EmbeddingDimension == 0 {
 		t.Fatalf("trace should not contain fake runtime facts: %+v", payload.Data.Trace)
 	}
 }

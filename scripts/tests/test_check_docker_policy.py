@@ -1,7 +1,10 @@
+import sys
 import tempfile
 import textwrap
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from scripts.check_docker_policy import verify_docker_policy
 
@@ -40,8 +43,6 @@ VALID_COMPOSE = textwrap.dedent(
         image: ${POSTGRES_IMAGE:-postgres:16-alpine}
       redis:
         image: ${REDIS_IMAGE:-redis:7-alpine}
-      qdrant:
-        image: ${QDRANT_IMAGE:-qdrant/qdrant:v1.18.2}
       minio:
         image: ${MINIO_IMAGE:-minio/minio:RELEASE.2025-09-07T16-13-09Z}
       minio-init:
@@ -59,7 +60,6 @@ VALID_ENV = textwrap.dedent(
     GOSUMDB=sum.golang.org
     # POSTGRES_IMAGE=docker.m.daocloud.io/library/postgres:16-alpine
     # REDIS_IMAGE=docker.m.daocloud.io/library/redis:7-alpine
-    # QDRANT_IMAGE=docker.m.daocloud.io/qdrant/qdrant:v1.18.2
     # MINIO_IMAGE=docker.m.daocloud.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     # MINIO_MC_IMAGE=docker.m.daocloud.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
     KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE=docker.elastic.co/elasticsearch/elasticsearch:8.15.3
@@ -79,8 +79,8 @@ class DockerPolicyTests(unittest.TestCase):
 
     def test_root_compose_default_must_be_infra_only(self) -> None:
         compose = VALID_COMPOSE.replace(
-            "  qdrant:\n",
-            "  gateway:\n    image: ${GATEWAY_IMAGE:-registry.example.com/gateway:local}\n  qdrant:\n",
+            "  minio:\n",
+            "  gateway:\n    image: ${GATEWAY_IMAGE:-registry.example.com/gateway:local}\n  minio:\n",
         )
 
         issues = self.verify(files={"deploy/docker-compose.yml": compose})

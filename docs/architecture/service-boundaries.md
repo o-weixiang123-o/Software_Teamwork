@@ -14,7 +14,7 @@
 | `knowledge` | 知识库、知识文档上传入口、文档摄取状态、原始文档内容资源、RAGFlow runtime 适配、分块、嵌入工作流、检索策略、检索查询、索引归属、文档解析器运行时配置。 | 通过 gateway 暴露知识库 CRUD、文档上传/详情/内容/分块列表、知识查询和管理员解析器配置资源；解析、切块、embedding、索引和检索由 Knowledge 通过 `services/knowledge-runtime` 的 RAGFlow API/worker profile 完成。 | 用户身份、底层对象存储实现、LLM 答案生成、DOCX 导出、provider API key 存储、QA Agent 编排。 |
 | `qa` | 聊天会话、消息、Agent Host / ReAct 循环、MCP 工具编排、响应运行记录、模型调用摘要、工具调用记录、引用、会话临时附件元数据/解析状态/临时 chunk/Agent 检索入口、QA 配置版本、检索测试运行和 QA 指标。 | 暴露 `/api/v1/qa-sessions/**`（含 `/api/v1/qa-sessions/{sessionId}/attachments/**`）、`/api/v1/response-runs/**`、`/api/v1/messages/{messageId}/citations`、`/api/v1/citations/**`、`/api/v1/qa-config-versions/**`、`/api/v1/llm-config-versions/**`、`/api/v1/llm-connection-tests`、`/api/v1/retrieval-test-runs/**`、`/api/v1/qa-metrics/**` 下的 QA 路由；内部调用 AI Gateway 获取 OpenAI 兼容的 chat completions 和 Function Calling 传输；调用 MCP Client 进行工具发现/执行；需要长期知识检索时调用 Knowledge 拥有的查询接口。QA 检索默认使用项目全局知识库，非空 `defaultKnowledgeBaseIds` 只负责收窄范围。 | 知识库 CRUD、文件上传、报告记录管理、provider API key 存储、具体 MCP server 实现、直接 provider 调用、会话附件原始 bytes 存储实现、文档解析运行时、把会话临时附件写入 knowledge 长期索引、在公开前端契约中暴露原始 MCP 工具 schema、原始工具结果、`file_ref` 或 object key。 |
 | `document` | 报告模板、材料、报告记录、大纲、章节内容、报告任务、生成文件元数据、统计数据和报告操作日志。 | 暴露 `/api/v1/report-*` 和 `/api/v1/reports/**` 下的报告生成路由；涉及文件或模型输出时，使用 file 服务处理文件对象存储/内容，使用 AI Gateway 进行模型调用。 | QA 聊天、知识索引、auth 持久化、provider API key 存储、直接暴露 MinIO object key 或存储 URL。 |
-| `ai-gateway` | 模型 profile、provider 配置、API key 写入状态、OpenAI 兼容的 chat completions、Function Calling 传输、embeddings、OpenAI 风格 rerankings、provider 错误归一化。 | 内部 `/internal/v1/model-profiles`、`/internal/v1/chat/completions`、`/internal/v1/embeddings`、`/internal/v1/rerankings`；健康检查和就绪检查。 | 面向前端的 API、QA 会话/消息、Agent Run 状态、MCP 工具发现/执行、知识分块持久化、Qdrant 写入、报告记录、报告导出、领域权限决策。 |
+| `ai-gateway` | 模型 profile、provider 配置、API key 写入状态、OpenAI 兼容的 chat completions、Function Calling 传输、embeddings、OpenAI 风格 rerankings、provider 错误归一化。 | 内部 `/internal/v1/model-profiles`、`/internal/v1/chat/completions`、`/internal/v1/embeddings`、`/internal/v1/rerankings`；健康检查和就绪检查。 | 面向前端的 API、QA 会话/消息、Agent Run 状态、MCP 工具发现/执行、知识分块持久化、runtime doc engine 写入、报告记录、报告导出、领域权限决策。 |
 
 ## 工作流归属
 
@@ -77,7 +77,7 @@ MCP 原始工具 schema、完整工具参数/结果、内部审计细节、promp
 
 ## 错误模式
 
-- 直接在 gateway handler 中加入 SQL、MinIO、Qdrant 或 LLM 调用。
+- 直接在 gateway handler 中加入 SQL、MinIO、runtime doc engine 或 LLM 调用。
 - 添加 `/login`、`/logout`、`/download`、`/search`、`/generate`、`/export`、`/retry`、`/revoke` 等动作式路径，而不是把用户、会话、内容、查询、任务、文件、消息或事件建模为资源。
 - 在前端、gateway 和领域服务中重复实现权限逻辑，且没有单一归属方。
 - 当某个领域服务应该负责完整工作流时，让 gateway 把一个前端动作翻译成一条很长的业务工作流。

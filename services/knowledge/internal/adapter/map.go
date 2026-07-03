@@ -118,7 +118,6 @@ type knowledgeQueryTrace struct {
 	EmbeddingProvider  string  `json:"embeddingProvider"`
 	EmbeddingModel     string  `json:"embeddingModel"`
 	EmbeddingDimension int     `json:"embeddingDimension"`
-	QdrantCollection   string  `json:"qdrantCollection"`
 	SearchTopK         int     `json:"searchTopK"`
 	ScoreThreshold     float64 `json:"scoreThreshold"`
 	HitCount           int     `json:"hitCount"`
@@ -343,7 +342,6 @@ func knowledgeQueryFromVendor(queryID, query string, data *vendorclient.Retrieva
 			EmbeddingProvider:  "runtime",
 			EmbeddingModel:     firstNonEmpty(strings.TrimSpace(opts.VendorEmbeddingID), runtimeManagedTraceValue),
 			EmbeddingDimension: runtimeManagedEmbeddingDimension,
-			QdrantCollection:   runtimeManagedTraceValue,
 			SearchTopK:         topK,
 			ScoreThreshold:     scoreThreshold,
 			HitCount:           hitCount,

@@ -18,7 +18,7 @@ Confirmed Go infrastructure target stack:
 - Redis cache/session access: `go-redis`.
 - Redis queues: `asynq v0.26.0`.
 - Runtime-owned index stores: current Knowledge indexing and retrieval are
-  behind `services/knowledge-runtime`; do not add a Go Qdrant client for the
+  behind `services/knowledge-runtime`; do not add a Go index-store client for the
   default Knowledge path.
 - Object storage: File Service owns an `ObjectStore` port. Production target is
   MinIO or an equivalent persistent object-store adapter; the MinIO adapter is
@@ -46,7 +46,7 @@ Current repository facts from `docs/architecture/technology-decisions.md`:
   persistence baseline.
 - Knowledge owns retrieval-facing business contracts, but current vector/index
   persistence is inside `services/knowledge-runtime` (RAGFlow runtime, currently
-  Elasticsearch/doc engine). The Go adapter must not restore a Go Qdrant client,
+  Elasticsearch/doc engine). The Go adapter must not restore a Go index-store client,
   File Service upload handoff, or Go ingestion worker. QA, Gateway, Document,
   and AI Gateway must not read or mutate runtime index/storage internals.
 
@@ -431,7 +431,7 @@ Rules:
 
 - Treating Redis cache entries as durable workflow state.
 - Storing full documents in PostgreSQL when MinIO is the correct storage layer.
-- Duplicating knowledge metadata between PostgreSQL and Qdrant without a source-of-truth rule.
+- Duplicating knowledge metadata between PostgreSQL and runtime indexes without a source-of-truth rule.
 - Running external HTTP calls inside PostgreSQL transactions.
 - Letting `qa` bypass `knowledge` and directly own retrieval logic.
 
@@ -576,7 +576,7 @@ custom RoundTripper adds context.WithTimeout -> wraps response body -> cancel ha
   parser-config admin and migration-compatible fields, not the document bytes or
   chunk source of truth.
 - The Go adapter must not reintroduce `FILE_SERVICE_BASE_URL`,
-  `PARSER_SERVICE_BASE_URL`, a Go Qdrant client, or a Go asynq ingestion worker
+  `PARSER_SERVICE_BASE_URL`, a Go index-store client, or a Go asynq ingestion worker
   for Knowledge document ingestion.
 
 ### 4. Validation & Error Matrix
