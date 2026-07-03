@@ -1417,7 +1417,7 @@ func TestAskFailsMismatchedAnswerDeltas(t *testing.T) {
 	assertStreamPayloadsDoNotLeakSensitiveData(t, repository.savedEvents)
 }
 
-func TestAskRejectsToolTurnAnswerDeltas(t *testing.T) {
+func TestAskDoesNotReplayToolTurnAnswerDeltas(t *testing.T) {
 	repository := &fakeRepository{conversation: Conversation{ID: "conversation-id", OwnerUserID: "user-id", Status: "active"}}
 	runner, err := agent.NewRunner(&streamingToolThenAnswerModel{}, streamingToolClient{}, agent.Config{
 		MaxIterations:      3,
@@ -1435,12 +1435,11 @@ func TestAskRejectsToolTurnAnswerDeltas(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := qa.Ask(context.Background(), "user-id", "conversation-id", AskInput{Message: "stream answer with tool"}, nil)
-	appErr, ok := Classify(err)
-	if !ok || appErr.Code != CodeDependency || appErr.Message != "answer generation failed" {
-		t.Fatalf("error=%v, want dependency answer generation failed", err)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if result.ResponseRun.Status != "failed" || repository.finalization.Status != "failed" {
-		t.Fatalf("result=%+v finalization=%+v", result.ResponseRun, repository.finalization)
+	if result.AssistantMessage.Content != "final answer" || repository.finalization.AssistantMessage.Content != "final answer" {
+		t.Fatalf("result=%+v finalization=%+v", result.AssistantMessage, repository.finalization.AssistantMessage)
 	}
 	var answerTexts []string
 	var sawCompleted bool
@@ -1453,11 +1452,14 @@ func TestAskRejectsToolTurnAnswerDeltas(t *testing.T) {
 		}
 	}
 	joined := strings.Join(answerTexts, "")
-	if joined != "checking " {
+	if joined != "final answer" {
 		t.Fatalf("answer texts=%q events=%+v", answerTexts, repository.savedEvents)
 	}
-	if sawCompleted {
-		t.Fatalf("answer.completed emitted after invalid tool-turn answer deltas: %+v", repository.savedEvents)
+	if !sawCompleted {
+		t.Fatalf("missing answer.completed after final answer: %+v", repository.savedEvents)
+	}
+	if strings.Contains(joined, "checking") {
+		t.Fatalf("tool-call turn content leaked into answer deltas: %q", answerTexts)
 	}
 	assertStreamPayloadsDoNotLeakSensitiveData(t, repository.savedEvents)
 }

@@ -235,13 +235,18 @@ conversations -> messages -> message_content_blocks
 - `reasoning.step` contains only displayable Agent progress. It must never
   contain prompts, tool arguments, tool results, or private chain-of-thought.
 - Model calls may use OpenAI-compatible streaming completions when configured.
-  Agent progress is sent immediately. Provider `delta.content` chunks that
-  belong to the final assistant answer are projected into ordered
-  `answer.delta` events. Non-streaming responses, or streaming providers that
-  do not emit answer content chunks, fall back to one final `answer.delta`.
-  If a model turn also contains `tool_calls`, any streamed content from that
-  turn is an invalid model response for QA streaming; the run must fail instead
-  of completing with answer deltas that differ from the final assistant answer.
+  Agent progress is sent immediately. Provider `delta.content` chunks are
+  projected into ordered `answer.delta` events when the turn can be safely
+  identified as final-answer text. If no tools are exposed to the model, answer
+  chunks may be emitted as they arrive. When tools are exposed with
+  `tool_choice=auto`, answer chunks are buffered for that model turn and
+  released only after the completed assistant message is confirmed to contain no
+  `tool_calls`; streamed content from tool-call turns must be discarded and must
+  not be emitted or persisted as public `answer.delta`. Non-streaming responses,
+  or streaming providers that do not emit answer content chunks, fall back to one
+  final `answer.delta`. If emitted answer deltas do not match the final assistant
+  answer, the run must fail instead of completing with divergent SSE/replay
+  content.
 - `QA_DATABASE_URL` is required by `cmd/server`; `cmd/agent` does not require
   PostgreSQL. `QA_HTTP_ADDR`, `QA_MAX_REQUEST_BYTES`, and
   `QA_SHUTDOWN_TIMEOUT` have safe local defaults.

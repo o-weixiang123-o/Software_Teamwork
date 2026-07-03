@@ -149,9 +149,13 @@ func (r *Runner) run(ctx context.Context, input []Message, observer Observer, to
 	}
 
 	messages := append([]Message(nil), input...)
+	// When no tools are exposed, the provider cannot legally return tool calls,
+	// so answer chunks are safe to project as they arrive. With tool_choice=auto,
+	// a turn is only known to be a final answer after Complete returns.
+	streamAnswerDeltas := len(toolDefs) == 0
 	for iteration := 1; iteration <= r.cfg.MaxIterations; iteration++ {
 		emit(observer, Event{Type: EventModelStarted, Iteration: iteration})
-		answerDeltaCount := 0
+		var answerDeltas []string
 		var reasoningFilter ReasoningFilter
 		if r.cfg.ReasoningFilterFactory != nil {
 			reasoningFilter = r.cfg.ReasoningFilterFactory()
@@ -171,8 +175,11 @@ func (r *Runner) run(ctx context.Context, input []Message, observer Observer, to
 		})
 		modelCtx = WithAnswerDeltaObserver(modelCtx, func(delta string) {
 			if delta != "" {
-				answerDeltaCount++
-				emit(observer, Event{Type: EventAnswerDelta, Iteration: iteration, AnswerContent: delta})
+				if streamAnswerDeltas {
+					emit(observer, Event{Type: EventAnswerDelta, Iteration: iteration, AnswerContent: delta})
+				} else {
+					answerDeltas = append(answerDeltas, delta)
+				}
 			}
 		})
 		completion, err := r.model.Complete(modelCtx, messages, toolDefs)
@@ -186,9 +193,6 @@ func (r *Runner) run(ctx context.Context, input []Message, observer Observer, to
 		if assistant.Role != RoleAssistant {
 			return Result{}, fmt.Errorf("%w: expected assistant role, got %q", ErrInvalidResponse, assistant.Role)
 		}
-		if len(assistant.ToolCalls) > 0 && answerDeltaCount > 0 {
-			return Result{}, fmt.Errorf("%w: streamed answer content on tool-call turn", ErrInvalidResponse)
-		}
 		messages = append(messages, assistant)
 		if strings.TrimSpace(completion.ReasoningContent) != "" && !completion.ReasoningContentStreamed {
 			emitReasoningDelta(completion.ReasoningContent, true)
@@ -200,6 +204,11 @@ func (r *Runner) run(ctx context.Context, input []Message, observer Observer, to
 		if len(assistant.ToolCalls) == 0 {
 			if strings.TrimSpace(assistant.Content) == "" {
 				return Result{}, fmt.Errorf("%w: empty final assistant message", ErrInvalidResponse)
+			}
+			if !streamAnswerDeltas {
+				for _, delta := range answerDeltas {
+					emit(observer, Event{Type: EventAnswerDelta, Iteration: iteration, AnswerContent: delta})
+				}
 			}
 			emit(observer, Event{Type: EventAgentCompleted, Iteration: iteration, FinishReason: completion.FinishReason})
 			return Result{Messages: messages, Final: assistant, Iterations: iteration}, nil
