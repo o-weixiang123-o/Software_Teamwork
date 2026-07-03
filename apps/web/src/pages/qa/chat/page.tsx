@@ -807,6 +807,27 @@ export function ChatPage() {
           }
           patchAssistant({ thinking: [...steps] })
         },
+        onReasoningDelta(data) {
+          if (!verifySeq(data.seq)) return
+          const text = typeof data.content === 'string' ? data.content : typeof data.text === 'string' ? data.text : ''
+          if (!text) return
+          const reasoningIdx = steps.findIndex((s) => s.type === 'generation' && s.status === 'running')
+          if (reasoningIdx >= 0) {
+            const currentDetail = steps[reasoningIdx].detail || ''
+            steps[reasoningIdx] = {
+              ...steps[reasoningIdx],
+              detail: currentDetail + text,
+            } as QAThinkingStep
+          } else {
+            steps.push({
+              type: 'generation',
+              label: '思考中',
+              status: 'running',
+              detail: text,
+            } as QAThinkingStep)
+          }
+          patchAssistant({ thinking: [...steps] })
+        },
         onToolStarted(data) {
           if (!verifySeq(data.seq)) return
           const toolName = sanitizeToolName(data.toolName)

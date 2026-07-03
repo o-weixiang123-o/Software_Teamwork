@@ -573,9 +573,9 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 				reasoningBuf.confirmSafe(isReasoningSafe)
 				delta := reasoningBuf.delta()
 				if delta != "" {
-					sanitizedEmitted := sanitizeReasoningContent(string(reasoningBuf.buffer[:reasoningBuf.emittedLength]))
-					sanitizedConfirmed := sanitizeReasoningContent(string(reasoningBuf.buffer[:reasoningBuf.confirmedLength]))
-					sanitizedDelta := sanitizedConfirmed[len(sanitizedEmitted):]
+					fullSanitized := sanitizeReasoningContent(string(reasoningBuf.buffer))
+					emittedSanitized := sanitizeReasoningContent(string(reasoningBuf.buffer[:reasoningBuf.emittedLength]))
+					sanitizedDelta := fullSanitized[len(emittedSanitized):]
 					if sanitizedDelta != "" {
 						emit("reasoning.delta", map[string]any{"messageId": assistantMessage.ID, "text": sanitizedDelta})
 					}
