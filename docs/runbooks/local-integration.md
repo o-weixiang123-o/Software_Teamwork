@@ -3,8 +3,9 @@
 默认联调路径只有一条：
 
 ```text
-Docker infra -> host backend -> frontend
-Optional real parsing -> Compose Elasticsearch -> host Knowledge runtime/adapter
+Docker infra (postgres, redis, minio, minio-init, elasticsearch)
+  -> host backend -> frontend
+Real parsing -> host Knowledge runtime/adapter using the default Elasticsearch infra
 ```
 
 不要启动业务服务容器，不要使用 `--build`，不要手工 export 一长串变量。

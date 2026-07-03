@@ -934,7 +934,8 @@ Runtime rules:
 - `run-knowledge-parse-stack.sh` must not run direct `docker build` or
   `docker run` for Elasticsearch. It verifies the configured
   `KNOWLEDGE_RUNTIME_ES_URL` and starts host-run runtime processes; local
-  Elasticsearch lifecycle belongs to the root Compose profile in `dev-up.sh`.
+  Elasticsearch lifecycle belongs to the default root Compose infrastructure
+  started by `dev-up.sh`.
 - `HF_ENDPOINT=https://hf-mirror.com` must not be active in committed defaults
   or forced by runtime scripts in official-default mode. Mainland China runtime
   model download mirrors are explicit through

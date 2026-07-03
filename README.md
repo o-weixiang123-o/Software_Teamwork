@@ -40,7 +40,7 @@ gateway service
    +--> AI Gateway
 
 基础设施:
-postgres + redis + qdrant + minio
+postgres + redis + qdrant + minio + minio-init + elasticsearch
 ```
 
 服务职责：

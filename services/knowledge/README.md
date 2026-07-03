@@ -132,8 +132,8 @@ as documented in
 `../knowledge-runtime/README.md`.
 
 For the real host-run Knowledge parsing stack, use the root helper scripts. The
-root Compose Elasticsearch service starts with the default local infrastructure;
-the runtime helper starts `services/knowledge-runtime` API, runtime worker, and
+default root Compose infrastructure starts Elasticsearch; the runtime helper
+starts `services/knowledge-runtime` API, runtime worker, and
 the Knowledge adapter, and forces adapter auto-ingestion on for upload-to-parse
 diagnostics. First copy `deploy/.env.example` to `deploy/.env`, then fill the
 runtime model provider variables documented in `../knowledge-runtime/README.md`.

@@ -18,9 +18,9 @@ of this runtime; the project-owned Knowledge MCP bridge lives in
 
 ## Local development
 
-The root helpers are the preferred local path. Elasticsearch is an optional
-root Compose profile controlled by `deploy/.env`; the runtime helper starts only
-host-run processes.
+The root helpers are the preferred local path. Elasticsearch is part of the
+default root Compose infrastructure; the runtime helper starts only host-run
+processes and connects to the configured Elasticsearch URL.
 
 ```bash
 cp deploy/.env.example deploy/.env

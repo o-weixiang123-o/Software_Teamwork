@@ -15,6 +15,12 @@
 | 测试环境 | 本地 Debian 13 / Docker 29.6.1 / Docker Compose v5.2.0 / Go 1.25.4 / Dockerized PostgreSQL client wrapper |
 | 结论 | 测试通过 |
 
+说明：本报告记录 `Test/test/local-startup-diagnostics` / `796f7f218ae8`
+上的历史执行证据，不是当前 Docker 策略来源。当前本地 Docker 策略以
+`AGENTS.md`、`deploy/README.md`、`docs/runbooks/docker-image-pull-environment.md`
+和 `docs/testing/strategy.md` 为准；根级 Compose 默认基础设施清单已扩展为
+`postgres`、`redis`、`qdrant`、`minio`、`minio-init`、`elasticsearch`。
+
 ## 1. 测试目标
 
 - 验证旧 `deploy/.env` 缺少 `GOPROXY` / `GOSUMDB` 时，脚本只在当前进程使用仓库默认值并提示用户补齐，不改写本地文件。
@@ -39,7 +45,7 @@
 
 ### 测试范围
 
-- Compose orphan cleanup 和 infra-only baseline。
+- Compose orphan cleanup 和当时分支的 infra-only 观察值。
 - `dev-up.sh` 真实本地路径：infra health、MinIO init、Qdrant collection、migration、seed。
 - `run-backend.sh` 真实本地成功路径和隔离失败路径。
 - `stop-backend.sh` 真实停止清理路径。
@@ -55,7 +61,8 @@
 
 - Docker 清理前存在旧业务服务 orphan containers；已执行：
   `docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --remove-orphans`。
-- 清理后只剩 `postgres`、`redis`、`qdrant`、`minio` 四个长运行容器，均为 `healthy`。
+- 在该 commit 上清理后只剩 `postgres`、`redis`、`qdrant`、`minio` 四个长运行容器，
+  均为 `healthy`；这记录的是当时分支的实际观察值，不代表当前默认 Compose 策略。
 - 当前宿主机 `go` 安装在 `/usr/local/go/bin/go`，但不在默认 PATH；真实运行命令用临时 PATH 加入 `/usr/local/go/bin`。
 - 当前宿主机没有 native `psql` 且无免密 sudo；真实 `dev-up.sh` 使用临时 `/tmp/issue550-tools/psql` wrapper 调用 `docker.m.daocloud.io/library/postgres:16-alpine` 内的 `psql`，并将仓库只读挂载给容器读取 seed 文件。
 - 当前 `deploy/.env` 是旧文件，缺少 30 个 `.env.example` 默认键；正常成功路径用 `set -a; . deploy/.env.example; . deploy/.env; set +a` 在当前进程补齐缺失默认值，不改写 `deploy/.env`。
@@ -64,8 +71,8 @@
 
 | ID | 分类 | 用例 / 场景 | 预期结果 | 实际结果 | 结论 |
 | --- | --- | --- | --- | --- | --- |
-| TEST-001 | Docker | 清理 Compose orphan containers | 仅保留 infra baseline 容器 | 旧 `gateway/auth/.../parser` 容器被移除；`postgres/redis/qdrant/minio` healthy | pass |
-| TEST-002 | 静态检查 | Compose config 和服务清单 | config 可解析，服务仅 `minio/minio-init/postgres/qdrant/redis` | 通过 | pass |
+| TEST-001 | Docker | 清理 Compose orphan containers | 仅保留当时分支的 infra 容器 | 旧 `gateway/auth/.../parser` 容器被移除；`postgres/redis/qdrant/minio` healthy | pass |
+| TEST-002 | 静态检查 | Compose config 和服务清单 | config 可解析，服务仅为当时分支的 `minio/minio-init/postgres/qdrant/redis` | 通过 | pass |
 | TEST-003 | 静态检查 | Shell syntax、seed contract、unit test、Docker policy | 全部通过 | 全部通过 | pass |
 | TEST-004 | 真实启动 | `dev-up.sh` | infra、migration、seed 完成并输出成功摘要 | 完成，输出 `local dev-up: completed successfully` | pass |
 | TEST-005 | 真实启动 | `run-backend.sh` 成功路径 | Go module 预检通过、7 个 host-run 服务启动、输出成功摘要 | 完成，7 个 `/healthz` 均 ok | pass |
@@ -117,7 +124,7 @@
 
 | 证据类型 | 位置 / 链接 | 说明 |
 | --- | --- | --- |
-| Docker 状态 | `docker compose -f deploy/docker-compose.yml --env-file deploy/.env ps` | 仅 `postgres`、`redis`、`qdrant`、`minio` running/healthy。 |
+| Docker 状态 | `docker compose -f deploy/docker-compose.yml --env-file deploy/.env ps` | 该 commit 上仅 `postgres`、`redis`、`qdrant`、`minio` running/healthy；当前默认 Compose 策略以本文开头说明为准。 |
 | Go module failure output | `/tmp/issue550-go-failure.out` | 隔离 worktree 输出，包含默认 Go proxy、失败服务、有效设置和 remediation。 |
 | Early-exit output | `/tmp/issue550-early-exit.out` | 隔离 worktree 输出，包含失败服务汇总和 7 个日志 tail。 |
 | Host logs | `.local/logs/*.log` | 真实成功路径服务启动日志；历史 `parser.log` 为旧日志文件，不代表当前脚本启动 Parser。 |
