@@ -35,25 +35,6 @@ func (answerStreamingModel) Complete(ctx context.Context, messages []Message, _ 
 	return Completion{Message: Message{Role: RoleAssistant, Content: "first second"}, FinishReason: "stop"}, nil
 }
 
-type blockingAnswerStreamingModel struct {
-	release chan struct{}
-}
-
-func (m *blockingAnswerStreamingModel) Complete(ctx context.Context, messages []Message, _ []ToolDefinition) (Completion, error) {
-	if observer := AnswerDeltaObserverFromContext(ctx); observer != nil {
-		observer("first ")
-	}
-	select {
-	case <-m.release:
-	case <-ctx.Done():
-		return Completion{}, ctx.Err()
-	}
-	if observer := AnswerDeltaObserverFromContext(ctx); observer != nil {
-		observer("second")
-	}
-	return Completion{Message: Message{Role: RoleAssistant, Content: "first second"}, FinishReason: "stop"}, nil
-}
-
 type toolThenAnswerStreamingModel struct {
 	calls int
 }
@@ -74,6 +55,17 @@ func (m *toolThenAnswerStreamingModel) Complete(ctx context.Context, messages []
 		}}}, FinishReason: "tool_calls"}, nil
 	}
 	return Completion{Message: Message{Role: RoleAssistant, Content: "final answer"}, FinishReason: "stop"}, nil
+}
+
+type unexpectedToolCallStreamingModel struct{}
+
+func (unexpectedToolCallStreamingModel) Complete(ctx context.Context, messages []Message, _ []ToolDefinition) (Completion, error) {
+	if observer := AnswerDeltaObserverFromContext(ctx); observer != nil {
+		observer("checking ")
+	}
+	return Completion{Message: Message{Role: RoleAssistant, Content: "checking ", ToolCalls: []ToolCall{{
+		ID: "call-1", Type: "function", Function: FunctionCall{Name: "ghost_tool", Arguments: `{}`},
+	}}}, FinishReason: "tool_calls"}, nil
 }
 
 type fakeTools struct {
@@ -243,45 +235,6 @@ func TestRunnerEmitsAnswerDeltaFromModelStreamObserver(t *testing.T) {
 	}
 }
 
-func TestRunnerStreamsAnswerDeltaBeforeNoToolModelCompletes(t *testing.T) {
-	model := &blockingAnswerStreamingModel{release: make(chan struct{})}
-	runner := testRunner(t, model, &fakeTools{}, 1)
-	events := make(chan Event, 8)
-	resultErr := make(chan error, 1)
-	go func() {
-		result, err := runner.RunWithObserver(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, func(event Event) {
-			events <- event
-		})
-		if err != nil {
-			resultErr <- err
-			return
-		}
-		if result.Final.Content != "first second" {
-			resultErr <- errors.New("unexpected final answer")
-			return
-		}
-		resultErr <- nil
-	}()
-
-	timer := time.NewTimer(time.Second)
-	defer timer.Stop()
-	for {
-		select {
-		case event := <-events:
-			if event.Type == EventAnswerDelta && event.AnswerContent == "first " {
-				close(model.release)
-				if err := <-resultErr; err != nil {
-					t.Fatal(err)
-				}
-				return
-			}
-		case <-timer.C:
-			close(model.release)
-			t.Fatalf("answer delta was not emitted before model completion")
-		}
-	}
-}
-
 func TestRunnerSuppressesAnswerDeltasFromToolCallTurns(t *testing.T) {
 	tools := &fakeTools{definitions: []ToolDefinition{addToolDefinition()}, result: ToolResult{Content: `{"sum":1}`}}
 	runner := testRunner(t, &toolThenAnswerStreamingModel{}, tools, 3)
@@ -307,6 +260,22 @@ func TestRunnerSuppressesAnswerDeltasFromToolCallTurns(t *testing.T) {
 	}
 	if strings.Contains(joined, "checking") {
 		t.Fatalf("tool-call turn content leaked into answer deltas: %q", deltas)
+	}
+}
+
+func TestRunnerRejectsUnexpectedToolCallsWithoutToolsWithoutAnswerDeltas(t *testing.T) {
+	runner := testRunner(t, unexpectedToolCallStreamingModel{}, &fakeTools{}, 2)
+	var events []Event
+	_, err := runner.RunWithObserver(context.Background(), []Message{{Role: RoleUser, Content: "calculate"}}, func(event Event) {
+		events = append(events, event)
+	})
+	if !errors.Is(err, ErrInvalidResponse) {
+		t.Fatalf("error=%v, want invalid response", err)
+	}
+	for _, event := range events {
+		if event.Type == EventAnswerDelta || event.Type == EventToolStarted || event.Type == EventAgentCompleted {
+			t.Fatalf("unexpected public event after invalid no-tool tool call: %+v", events)
+		}
 	}
 }
 

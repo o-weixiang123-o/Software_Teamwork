@@ -236,17 +236,15 @@ conversations -> messages -> message_content_blocks
   contain prompts, tool arguments, tool results, or private chain-of-thought.
 - Model calls may use OpenAI-compatible streaming completions when configured.
   Agent progress is sent immediately. Provider `delta.content` chunks are
-  projected into ordered `answer.delta` events when the turn can be safely
-  identified as final-answer text. If no tools are exposed to the model, answer
-  chunks may be emitted as they arrive. When tools are exposed with
-  `tool_choice=auto`, answer chunks are buffered for that model turn and
-  released only after the completed assistant message is confirmed to contain no
-  `tool_calls`; streamed content from tool-call turns must be discarded and must
-  not be emitted or persisted as public `answer.delta`. Non-streaming responses,
-  or streaming providers that do not emit answer content chunks, fall back to one
-  final `answer.delta`. If emitted answer deltas do not match the final assistant
-  answer, the run must fail instead of completing with divergent SSE/replay
-  content.
+  buffered for each model turn and projected into ordered `answer.delta` events
+  only after the completed assistant message is confirmed to contain no
+  `tool_calls`. Streamed content from tool-call turns must be discarded and must
+  not be emitted or persisted as public `answer.delta`; if a model returns tool
+  calls when no tools were exposed, QA treats that as an invalid model response.
+  Non-streaming responses, or streaming providers that do not emit answer
+  content chunks, fall back to one final `answer.delta`. If emitted answer deltas
+  do not match the final assistant answer, the run must fail instead of
+  completing with divergent SSE/replay content.
 - `QA_DATABASE_URL` is required by `cmd/server`; `cmd/agent` does not require
   PostgreSQL. `QA_HTTP_ADDR`, `QA_MAX_REQUEST_BYTES`, and
   `QA_SHUTDOWN_TIMEOUT` have safe local defaults.
