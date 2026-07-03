@@ -235,7 +235,12 @@ func (s *Server) handleCreateChatCompletion(w http.ResponseWriter, r *http.Reque
 		writeOpenAIErrorFromError(w, err)
 		return
 	}
-	writeRawJSON(w, http.StatusOK, result.Body)
+	sanitizedBody, valid := sanitizeChatCompletion(result.Body)
+	if !valid {
+		writeOpenAIErrorFromError(w, &service.OpenAIError{HTTPStatus: http.StatusBadGateway, Message: "invalid response from provider", Type: "upstream_error", Code: "invalid_response"})
+		return
+	}
+	writeRawJSON(w, http.StatusOK, sanitizedBody)
 }
 
 func (s *Server) handleCreateChatCompletionStream(w http.ResponseWriter, r *http.Request, input service.ChatCompletionInput) {
@@ -686,6 +691,78 @@ func invalidProviderStreamChunk() streamChunkValidation {
 	}}
 }
 
+func sanitizeChatCompletion(payload []byte) ([]byte, bool) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &raw); err != nil {
+		return nil, false
+	}
+	sanitized := map[string]json.RawMessage{}
+	copyRawFields(sanitized, raw, "id", "object", "created", "model", "system_fingerprint")
+	choices, ok := raw["choices"]
+	if !ok {
+		return nil, false
+	}
+	sanitizedChoices, valid := sanitizeChatCompletionChoices(choices)
+	if !valid {
+		return nil, false
+	}
+	sanitized["choices"] = sanitizedChoices
+	if usage, ok := raw["usage"]; ok {
+		sanitizedUsage, valid := sanitizeStreamUsage(usage)
+		if !valid {
+			return nil, false
+		}
+		sanitized["usage"] = sanitizedUsage
+	}
+	encoded, err := json.Marshal(sanitized)
+	return encoded, err == nil
+}
+
+func sanitizeChatCompletionChoices(rawChoices json.RawMessage) (json.RawMessage, bool) {
+	var choices []map[string]json.RawMessage
+	if err := json.Unmarshal(rawChoices, &choices); err != nil {
+		return nil, false
+	}
+	sanitizedChoices := make([]map[string]json.RawMessage, 0, len(choices))
+	for _, choice := range choices {
+		sanitizedChoice := map[string]json.RawMessage{}
+		copyRawFields(sanitizedChoice, choice, "index", "finish_reason")
+		if message, ok := choice["message"]; ok {
+			sanitizedMessage, valid := sanitizeChatCompletionMessage(message)
+			if !valid {
+				return nil, false
+			}
+			sanitizedChoice["message"] = sanitizedMessage
+		}
+		sanitizedChoices = append(sanitizedChoices, sanitizedChoice)
+	}
+	encoded, err := json.Marshal(sanitizedChoices)
+	return encoded, err == nil
+}
+
+func sanitizeChatCompletionMessage(rawMessage json.RawMessage) (json.RawMessage, bool) {
+	var message map[string]json.RawMessage
+	if err := json.Unmarshal(rawMessage, &message); err != nil {
+		return nil, false
+	}
+	sanitized := map[string]json.RawMessage{}
+	copyRawFields(sanitized, message, "role", "content", "refusal")
+	if reasoning, ok := message["reasoning"]; ok {
+		if isJSONStringOrNull(reasoning) {
+			sanitized["reasoning"] = reasoning
+		}
+	}
+	if toolCalls, ok := message["tool_calls"]; ok {
+		sanitizedToolCalls, valid := sanitizeStreamToolCalls(toolCalls)
+		if !valid {
+			return nil, false
+		}
+		sanitized["tool_calls"] = sanitizedToolCalls
+	}
+	encoded, err := json.Marshal(sanitized)
+	return encoded, err == nil
+}
+
 func sanitizeOpenAIChatCompletionChunk(payload []byte) ([]byte, bool) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(payload, &raw); err != nil {
@@ -744,7 +821,12 @@ func sanitizeStreamDelta(rawDelta json.RawMessage) (json.RawMessage, bool) {
 		return nil, false
 	}
 	sanitizedDelta := map[string]json.RawMessage{}
-	copyRawFields(sanitizedDelta, delta, "role", "content", "reasoning", "refusal")
+	copyRawFields(sanitizedDelta, delta, "role", "content", "refusal")
+	if reasoning, ok := delta["reasoning"]; ok {
+		if isJSONStringOrNull(reasoning) {
+			sanitizedDelta["reasoning"] = reasoning
+		}
+	}
 	if functionCall, ok := delta["function_call"]; ok {
 		sanitizedFunctionCall, valid := sanitizeNamedArguments(functionCall)
 		if !valid {
@@ -761,6 +843,20 @@ func sanitizeStreamDelta(rawDelta json.RawMessage) (json.RawMessage, bool) {
 	}
 	encoded, err := json.Marshal(sanitizedDelta)
 	return encoded, err == nil
+}
+
+func isJSONStringOrNull(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	s := strings.TrimSpace(string(raw))
+	if s == "null" {
+		return true
+	}
+	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		return true
+	}
+	return false
 }
 
 func sanitizeStreamToolCalls(rawToolCalls json.RawMessage) (json.RawMessage, bool) {

@@ -170,7 +170,7 @@ func (r *Runner) run(ctx context.Context, input []Message, observer Observer, to
 			return Result{}, fmt.Errorf("%w: expected assistant role, got %q", ErrInvalidResponse, assistant.Role)
 		}
 		messages = append(messages, assistant)
-		emit(observer, Event{Type: EventModelCompleted, Iteration: iteration, FinishReason: completion.FinishReason, Usage: completion.Usage, ReasoningContent: assistant.ReasoningContent})
+		emit(observer, Event{Type: EventModelCompleted, Iteration: iteration, FinishReason: completion.FinishReason, Usage: completion.Usage})
 
 		if len(assistant.ToolCalls) == 0 {
 			if strings.TrimSpace(assistant.Content) == "" {

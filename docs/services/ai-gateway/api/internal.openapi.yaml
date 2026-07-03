@@ -722,6 +722,10 @@ components:
         content:
           type: string
           nullable: true
+        reasoning:
+          type: string
+          nullable: true
+          description: Optional reasoning content from the model.
         name:
           type: string
           description: Optional participant or tool name.
@@ -868,6 +872,10 @@ components:
         content:
           type: string
           nullable: true
+        reasoning:
+          type: string
+          nullable: true
+          description: Incremental reasoning content deltas when provider returns reasoning chunks.
         tool_calls:
           type: array
           items:

@@ -547,22 +547,25 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 		}
 	}
 	var lastContent string
-	var lastReasoningLength int
+	var lastReasoning string
 	reasoningBuf := newReasoningBuffer(4096)
 	var streamCallback func(agent.Completion)
 	if runtime.Stream {
 		streamCallback = func(completion agent.Completion) {
-			if completion.Message.Content != lastContent {
-				contentDelta := completion.Message.Content[len(lastContent):]
+			currentContent := completion.Message.Content
+			if len(currentContent) >= len(lastContent) && currentContent[:len(lastContent)] == lastContent {
+				contentDelta := currentContent[len(lastContent):]
 				if contentDelta != "" {
 					emit("answer.delta", map[string]any{"messageId": assistantMessage.ID, "text": contentDelta, "index": 0})
 				}
-				lastContent = completion.Message.Content
+				lastContent = currentContent
+			} else {
+				lastContent = currentContent
 			}
 			currentReasoning := completion.Message.ReasoningContent
-			if len(currentReasoning) > lastReasoningLength {
-				newContent := currentReasoning[lastReasoningLength:]
-				lastReasoningLength = len(currentReasoning)
+			if len(currentReasoning) >= len(lastReasoning) && currentReasoning[:len(lastReasoning)] == lastReasoning {
+				newContent := currentReasoning[len(lastReasoning):]
+				lastReasoning = currentReasoning
 				reasoningBuf.append(newContent)
 				delta := reasoningBuf.delta()
 				if delta != "" {
@@ -572,6 +575,10 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 					}
 					reasoningBuf.markEmitted(len([]rune(delta)))
 				}
+			} else {
+				lastReasoning = currentReasoning
+				reasoningBuf.reset()
+				reasoningBuf.append(currentReasoning)
 			}
 		}
 	}
@@ -1100,9 +1107,25 @@ func sanitizeReasoningContent(content string) string {
 	if content == "" {
 		return ""
 	}
+	content = redactProviderRawErrors(content)
 	content = redactInternalURLs(content)
 	content = redactSensitiveSecrets(content)
 	return content
+}
+
+var providerRawErrorPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)provider raw error[^\n\r]*`),
+	regexp.MustCompile(`(?i)provider error[^\n\r]*`),
+	regexp.MustCompile(`(?i)raw provider[^\n\r]*`),
+	regexp.MustCompile(`(?i)raw error[^\n\r]*`),
+}
+
+func redactProviderRawErrors(content string) string {
+	result := content
+	for _, pattern := range providerRawErrorPatterns {
+		result = pattern.ReplaceAllString(result, "[REDACTED]")
+	}
+	return result
 }
 
 var internalURLPatterns = []*regexp.Regexp{
@@ -1142,6 +1165,24 @@ var internalURLPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`https://172\.2[0-9]\.`),
 	regexp.MustCompile(`https://172\.3[0-1]\.`),
 	regexp.MustCompile(`https://192\.168\.`),
+	regexp.MustCompile(`http://169\.254\.`),
+	regexp.MustCompile(`https://169\.254\.`),
+	regexp.MustCompile(`http://\[::1\]`),
+	regexp.MustCompile(`https://\[::1\]`),
+	regexp.MustCompile(`http://\[fe80`),
+	regexp.MustCompile(`https://\[fe80`),
+	regexp.MustCompile(`http://host\.docker\.internal`),
+	regexp.MustCompile(`https://host\.docker\.internal`),
+	regexp.MustCompile(`http://kubernetes\.default`),
+	regexp.MustCompile(`https://kubernetes\.default`),
+	regexp.MustCompile(`\.local/`),
+	regexp.MustCompile(`\.svc\.cluster\.local/`),
+	regexp.MustCompile(`\.svc/`),
+	regexp.MustCompile(`\.cluster\.local/`),
+	regexp.MustCompile(`service\.consul`),
+	regexp.MustCompile(`\.consul/`),
+	regexp.MustCompile(`internal\.provider`),
+	regexp.MustCompile(`internal\.[^/]+/`),
 }
 
 func redactInternalURLs(content string) string {
@@ -1206,4 +1247,19 @@ func (rb *reasoningBuffer) delta() string {
 
 func (rb *reasoningBuffer) markEmitted(length int) {
 	rb.emittedLength = min(rb.emittedLength+length, len(rb.buffer))
+}
+
+func (rb *reasoningBuffer) peek(length int) string {
+	if length <= 0 {
+		return ""
+	}
+	if length > len(rb.buffer) {
+		return string(rb.buffer)
+	}
+	return string(rb.buffer[:length])
+}
+
+func (rb *reasoningBuffer) reset() {
+	rb.buffer = rb.buffer[:0]
+	rb.emittedLength = 0
 }
