@@ -144,6 +144,14 @@ client 与 Document 工具，不代表完整 QA Agent + LLM 链路通过。Issue
   调用宿主机 RAGFlow runtime API/worker。启动前会用当前 `deploy/.env` 对每个 Go
   服务执行 `go mod download` 预检；服务 fork 后默认观察 8 秒，若进程组很快退出，
   会直接汇总对应 `.local/logs/<service>.log` 尾部。
+- `run-knowledge-parse-stack.sh`：真实 Knowledge 文档解析链路入口。默认启动
+  host-run `services/knowledge-runtime` API、runtime worker 和 Knowledge adapter，
+  并把 `KNOWLEDGE_AUTO_START_INGESTION` 打开，适合验证 PDF 上传、解析、切块、
+  embedding、索引和检索。脚本会把 runtime URL host 加入 `NO_PROXY`，避免 shell
+  代理把 `127.0.0.1` 或 Docker bridge IP 请求截成 `502`；旧 `.env` 缺本地 runtime
+  token 时使用仓库 local default。若要复用已运行的 runtime API，可设置
+  `KNOWLEDGE_PARSE_VENDOR_RUNTIME_URL=http://<runtime-host>:9380`，非本机地址会自动进入
+  external-runtime 模式，仅启动 Knowledge adapter。
 - Go module 下载默认来自 `deploy/.env` 里的 `GOPROXY` / `GOSUMDB`，覆盖
   `dev-up.sh` 里的 goose migration 和 `run-backend.sh` 里的 Go 服务 `go run`。
   官方默认值是 `https://proxy.golang.org,direct` / `sum.golang.org`；`--china`
@@ -176,6 +184,21 @@ RAGFlow runtime 启动慢：
 - 如果此前用 `--skip-knowledge-runtime-deps` 跳过，可按
   `services/knowledge-runtime/README.md` 手工补跑 runtime 下载脚本。
 - runtime API 和 worker 走宿主机启动，不通过根级 Docker Compose 构建或运行。
+- 需要真实 PDF 解析链路时优先使用：
+
+  ```bash
+  ./scripts/local/run-knowledge-parse-stack.sh
+  python3 scripts/local/knowledge-pdf-e2e.py DL_T_673-1999.pdf
+  ```
+
+  如果 runtime API 已在容器网络中运行但没有映射 `9380` 到宿主机，显式传入容器 bridge
+  地址即可；脚本会补 `NO_PROXY` 并只启动 adapter：
+
+  ```bash
+  KNOWLEDGE_PARSE_VENDOR_RUNTIME_URL=http://172.22.0.6:9380 \
+    ./scripts/local/run-knowledge-parse-stack.sh
+  ```
+
 - 默认保留 `deploy/.env.example` 里的 `ENABLE_TIMEOUT_ASSERTION=1`，让 runtime
   worker 的解析、embedding 和存储调用超时保护生效。
 - 不要恢复 `services/parser`；PDF 解析、切块、embedding、索引和检索由 RAGFlow

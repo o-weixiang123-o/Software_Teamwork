@@ -126,6 +126,33 @@ Root Compose only starts shared infrastructure. Start the vendor Python API
 as documented in
 `../knowledge-runtime/README.md`.
 
+For the real host-run Knowledge parsing stack, use the root helper script. It
+starts `services/knowledge-runtime` API, runtime worker, and the Knowledge
+adapter, and forces adapter auto-ingestion on for upload-to-parse diagnostics:
+
+```bash
+./scripts/local/run-knowledge-parse-stack.sh
+python3 scripts/local/knowledge-pdf-e2e.py DL_T_673-1999.pdf
+```
+
+The helper normalizes local wiring that is easy to get wrong by hand:
+
+- `VENDOR_RUNTIME_URL=host.docker.internal` from an old `.env` is not used for
+  the host-run adapter; the script defaults to `http://127.0.0.1:9380`.
+- The runtime URL host is added to `NO_PROXY`, so shell proxy settings do not
+  intercept adapter calls to localhost or Docker bridge IPs.
+- Old local `.env` files that lack the runtime service token use the tracked
+  local development token defaults for `scripts/local` only.
+- To reuse an already running runtime API, set
+  `KNOWLEDGE_PARSE_VENDOR_RUNTIME_URL=http://<runtime-host>:9380`; non-loopback
+  URLs automatically switch the script to external-runtime mode and start only
+  the Knowledge adapter.
+
+The PDF smoke creates an isolated knowledge base, uploads the PDF through the
+adapter, waits for runtime parsing to finish, checks chunk count, executes a
+`knowledge-queries` retrieval, prints the query hit count and previews, then
+cleans up the created resources unless `KNOWLEDGE_PDF_E2E_KEEP_RESOURCES=1`.
+
 `services/parser` is retired; document parsing uses vendor deepdoc.
 
 ## Migrations
