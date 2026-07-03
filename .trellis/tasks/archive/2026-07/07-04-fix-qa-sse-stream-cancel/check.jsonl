@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "QA service-local verification commands and test expectations."}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Cancellation and dependency errors must remain classified and sanitized."}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "SSE/model/tool paths must not leak secrets or sensitive payloads in logs."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "SSE data flow crosses handler, service, agent, model client, persistence, and replay layers."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Observer/event patterns should reuse existing reasoning-delta and active-run cancellation patterns."}
