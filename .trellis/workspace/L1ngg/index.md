@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 18
-- **Last Active**: 2026-07-03
+- **Total Sessions**: 19
+- **Last Active**: 2026-07-04
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~649 | Active |
+| `journal-1.md` | ~682 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 19 | 2026-07-04 | Knowledge runtime on-demand worker | `922a771b` | `L1nggTeam/fix/bugfix` |
 | 18 | 2026-07-03 | Fix Knowledge runtime review edge cases | `84394519` | `L1nggTeam/feat/ragflow-runtime-vendor` |
 | 17 | 2026-07-03 | Fix Knowledge compatibility debt | `6e9138df`, `a18ee9f3` | `L1nggTeam/feat/ragflow-runtime-vendor` |
 | 16 | 2026-07-03 | PR #440 review fixes and upstream sync | `4ae208ee`, `9e8ae239`, `cf6fcf54`, `34d9af5c`, `00132413`, `95c63566`, `48613bb6`, `32daa6ef`, `f3f01f9b`, `1690a6af` | `L1nggTeam/feat/ragflow-runtime-vendor` |

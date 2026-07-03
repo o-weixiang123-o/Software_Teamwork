@@ -647,3 +647,36 @@ Fixed PR review regressions for Knowledge runtime metadata fallback limits, miss
 ### Next Steps
 
 - None - task complete
+
+
+## Session 19: Knowledge runtime on-demand worker
+
+**Date**: 2026-07-04
+**Task**: Knowledge runtime on-demand worker
+**Branch**: `L1nggTeam/fix/bugfix`
+
+### Summary
+
+Split Knowledge runtime API and worker dependency profiles; made document parsing queue-first with on-demand local worker startup and idle shutdown; updated startup docs, KEDA example, and regression checks.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `922a771b` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
