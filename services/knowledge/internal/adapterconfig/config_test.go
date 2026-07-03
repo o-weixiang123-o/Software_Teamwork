@@ -32,6 +32,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.VendorRuntimeToken != "runtime-service-token" {
 		t.Fatalf("VendorRuntimeToken=%q", cfg.VendorRuntimeToken)
 	}
+	if cfg.ProjectRuntimeUserID != "knowledge_mcp_service" {
+		t.Fatalf("ProjectRuntimeUserID=%q", cfg.ProjectRuntimeUserID)
+	}
 }
 
 func TestLoadRequiresServiceToken(t *testing.T) {
@@ -119,5 +122,22 @@ func TestLoadCustomVendorURL(t *testing.T) {
 	}
 	if cfg.VendorRuntimeURL != "http://knowledge-vendor:9380" {
 		t.Fatalf("VendorRuntimeURL=%q", cfg.VendorRuntimeURL)
+	}
+}
+
+func TestLoadProjectRuntimeUserIDOverride(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("KNOWLEDGE_MCP_USER_ID", "mcp_service")
+	t.Setenv("KNOWLEDGE_PROJECT_RUNTIME_USER_ID", "project_runtime")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.ProjectRuntimeUserID != "project_runtime" {
+		t.Fatalf("ProjectRuntimeUserID=%q", cfg.ProjectRuntimeUserID)
+	}
+	if cfg.MCPUserID != "mcp_service" {
+		t.Fatalf("MCPUserID=%q", cfg.MCPUserID)
 	}
 }

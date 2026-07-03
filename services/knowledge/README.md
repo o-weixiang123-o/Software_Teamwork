@@ -37,6 +37,7 @@ The MCP transport and QA integration workflow are documented in
 | `KNOWLEDGE_SHUTDOWN_TIMEOUT` | no | `10s` | Graceful shutdown timeout. |
 | `KNOWLEDGE_MCP_ADDR` | no | - | Optional Streamable HTTP MCP listen address, for example `127.0.0.1:8093`. |
 | `KNOWLEDGE_MCP_USER_ID` | no | `knowledge_mcp_service` | Fixed user id used by MCP bridge calls. |
+| `KNOWLEDGE_PROJECT_RUNTIME_USER_ID` | no | `KNOWLEDGE_MCP_USER_ID` | Runtime user id whose visible datasets form the project-wide QA RAG pool. |
 | `KNOWLEDGE_MCP_PERMISSIONS` | no | `knowledge:read` | Fixed permission set used by MCP bridge calls; write tools require `knowledge:write`. |
 | `KNOWLEDGE_MCP_ROLES` | no | - | Fixed role set used by MCP bridge calls. |
 | `KNOWLEDGE_AI_GATEWAY_URL` | no | - | Enables `answer_from_knowledge` MCP tool by calling AI Gateway chat completions. |
@@ -110,6 +111,9 @@ Rules:
 
 - Read routes require `knowledge:read` or `knowledge:write` (or admin roles).
 - Mutations require `knowledge:write` (or admin roles).
+- Trusted QA retrieval is the exception: QA uses service-token authenticated
+  `knowledge-queries` for project-wide RAG, so a QA user does not need
+  Knowledge management `knowledge:read` merely to ask questions.
 - Vendor errors map to standard `{error}` envelopes.
 
 ## Data Model

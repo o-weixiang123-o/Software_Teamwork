@@ -81,7 +81,7 @@ func (c *KnowledgeToolClient) ListTools(ctx context.Context) ([]agent.ToolDefini
 			Type: "function",
 			Function: agent.FunctionTool{
 				Name:        ToolSearchKnowledge,
-				Description: "Search user-accessible knowledge bases for relevant information. Returns summarized results with citations.",
+				Description: "Search the project knowledge base pool available to QA. Returns summarized results with citations.",
 				Parameters: map[string]any{
 					"type": "object",
 					"properties": map[string]any{
@@ -92,7 +92,7 @@ func (c *KnowledgeToolClient) ListTools(ctx context.Context) ([]agent.ToolDefini
 						"knowledge_base_ids": map[string]any{
 							"type":        "array",
 							"items":       map[string]any{"type": "string"},
-							"description": "Optional list of knowledge base IDs to search. If empty, uses default configured bases.",
+							"description": "Optional list of knowledge base IDs to search. If empty, uses default configured bases or the project pool.",
 						},
 						"top_k": map[string]any{
 							"type":        "integer",
@@ -178,12 +178,10 @@ func (c *KnowledgeToolClient) searchKnowledge(ctx context.Context, arguments jso
 	toolCtx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	// Enforce knowledge base restrictions from context
-	// When QA config exists (defaultKBIDs != nil):
-	//   - Both request-level and model-provided KB IDs must be a subset of the allowlist
-	//   - Empty defaultKBIDs means "config exists but no KBs allowed"
-	// When no QA config exists (defaultKBIDs == nil):
-	//   - No restriction (backward compatible)
+	// Enforce knowledge base restrictions from context. Non-empty defaultKBIDs
+	// acts as an allowlist. Empty defaultKBIDs means QA has no preselected KB
+	// scope; Knowledge expands retrieval to the project pool when no IDs are
+	// provided.
 	requestKBIDs := contextutil.KnowledgeBaseIDsFromContext(ctx)
 	defaultKBIDs := contextutil.DefaultKnowledgeBaseIDsFromContext(ctx)
 
@@ -194,16 +192,13 @@ func (c *KnowledgeToolClient) searchKnowledge(ctx context.Context, arguments jso
 		targetKBIDs = input.KnowledgeBaseIDs
 	}
 
-	if defaultKBIDs != nil {
+	if len(defaultKBIDs) > 0 {
 		// QA config exists - enforce KB allowlist restriction
 		allowed := make(map[string]struct{}, len(defaultKBIDs))
 		for _, id := range defaultKBIDs {
 			allowed[id] = struct{}{}
 		}
 		if len(targetKBIDs) == 0 {
-			if len(defaultKBIDs) == 0 {
-				return toolFailure("no_available_knowledge_bases", "no knowledge bases are configured for this QA setup"), nil
-			}
 			input.KnowledgeBaseIDs = defaultKBIDs
 		} else {
 			for _, id := range targetKBIDs {

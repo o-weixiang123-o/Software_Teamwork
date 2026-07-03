@@ -128,3 +128,25 @@ func TestKnowledgeToolUsesModelScoreThresholdWhenNoDefaultConfigured(t *testing.
 		t.Fatal("scoreThreshold should be marked configured")
 	}
 }
+
+func TestKnowledgeToolAllowsAllAccessibleBasesWhenDefaultListEmpty(t *testing.T) {
+	retriever := &captureKnowledgeRetriever{}
+	client, err := NewKnowledgeToolClient(KnowledgeToolConfig{RetrievalClient: retriever})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := contextutil.WithUserID(context.Background(), "user-1")
+	ctx = contextutil.WithDefaultKnowledgeBaseIDs(ctx, []string{})
+	args := json.RawMessage(`{"query":"继电保护","knowledge_base_ids":["kb-any"]}`)
+
+	result, err := client.CallTool(ctx, ToolSearchKnowledge, args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected tool failure: %+v", result)
+	}
+	if len(retriever.input.KnowledgeBaseIDs) != 1 || retriever.input.KnowledgeBaseIDs[0] != "kb-any" {
+		t.Fatalf("knowledgeBaseIDs=%+v, want model-provided KB when default list is empty", retriever.input.KnowledgeBaseIDs)
+	}
+}

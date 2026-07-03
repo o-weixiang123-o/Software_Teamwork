@@ -394,10 +394,12 @@ func (s *ConfigService) LoadRuntimeConfiguration(ctx context.Context) (RuntimeCo
 	if qaConfig.ID == "" {
 		agentConfig = DefaultAgentConfig()
 	}
-	// Use nil to indicate "no QA config" (no KB restriction), empty slice means "config exists but no KBs allowed"
+	// Nil still means there is no active QA config. An active config with an
+	// empty default list means no preselected KB scope; QA retrieval uses the
+	// project-wide Knowledge pool at retrieval time.
 	var effectiveDefaultKBIDs []string
 	if qaConfig.ID != "" {
-		effectiveDefaultKBIDs = defaultKBIDs
+		effectiveDefaultKBIDs = append([]string{}, defaultKBIDs...)
 	}
 	return RuntimeConfiguration{
 		LLM: llm, SystemPrompt: prompt, MCPServers: servers,

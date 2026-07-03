@@ -132,7 +132,7 @@ Qdrant/File/AI provider 原始响应不得进入输出。
 
 ## 3. `knowledge__search`
 
-在当前用户可见的知识库中做语义检索，返回按相关度排序的安全 chunk 摘要和后续读取
+在固定 MCP caller 或项目级 QA RAG 知识库池中做语义检索，返回按相关度排序的安全 chunk 摘要和后续读取
 所需的资源 ID。模型应优先调用此工具，再按需调用 `knowledge__get_chunk`。
 
 这里的参数边界是 **MCP wrapper 有意收窄的模型工具契约**，不继承现有
@@ -147,7 +147,7 @@ Knowledge 检索服务。该限制用于约束单次 Agent 工具结果规模，
 | 字段 | 类型 | 必填 | 默认值 | 约束与语义 |
 | --- | --- | --- | --- | --- |
 | `query` | string | 是 | - | 非空自然语言查询。 |
-| `knowledgeBaseIds` | string[] | 否 | `[]` | 限定检索范围；每项 trim 后，空 ID 被忽略、重复 ID 去重。归一化后为空表示所有当前用户可见知识库。 |
+| `knowledgeBaseIds` | string[] | 否 | `[]` | 限定检索范围；每项 trim 后，空 ID 被忽略、重复 ID 去重。归一化后为空表示使用项目级 QA RAG 知识库池。 |
 | `topK` | integer | 否 | `5` | `1..20`，最大返回候选数。 |
 | `scoreThreshold` | number | 否 | `0` | `0..1`，低于阈值的结果不返回。 |
 | `rerank` | boolean | 否 | `false` | 是否请求 Knowledge 使用已配置 reranker。 |
@@ -233,7 +233,7 @@ Knowledge 检索服务。该限制用于约束单次 Agent 工具结果规模，
 
 ## 4. `knowledge__list_documents`
 
-分页列出某个当前用户可见知识库中的文档，可按处理状态过滤。
+分页列出某个固定 MCP caller 或项目 runtime 身份可见知识库中的文档，可按处理状态过滤。
 
 ### 4.1 输入参数
 
@@ -303,7 +303,7 @@ Knowledge 检索服务。该限制用于约束单次 Agent 工具结果规模，
 
 ## 5. `knowledge__get_document`
 
-读取单篇当前用户可见文档的安全元数据与处理状态。
+读取单篇固定 MCP caller 或项目 runtime 身份可见文档的安全元数据与处理状态。
 
 ### 5.1 输入参数与 schema
 
@@ -372,7 +372,7 @@ MCP 不直接复用 OpenAPI 中 `updatedAt` 可空的 REST `DocumentSummary`。#
 
 ## 6. `knowledge__get_chunk`
 
-读取一个当前用户可见 chunk 的完整文本。通常只应使用
+读取一个固定 MCP caller 或项目 runtime 身份可见 chunk 的完整文本。通常只应使用
 `knowledge__search.results[].chunkId` 作为输入，避免模型猜测 ID。
 
 `chunkId` 不是授权凭证。实现必须使用带当前用户 `AccessScope` 的 chunk/document
@@ -387,17 +387,23 @@ MCP 不直接复用 OpenAPI 中 `updatedAt` 可空的 REST `DocumentSummary`。#
 | 字段 | 类型 | 必填 | 约束与语义 |
 | --- | --- | --- | --- |
 | `chunkId` | string | 是 | 非空 Knowledge chunk ID。 |
+| `documentId` | string | 是 | `knowledge__search` 同一条命中的 document ID，用于 scoped chunk 查询。 |
 
 ```json
 {
   "type": "object",
   "additionalProperties": false,
-  "required": ["chunkId"],
+  "required": ["chunkId", "documentId"],
   "properties": {
     "chunkId": {
       "type": "string",
       "minLength": 1,
       "description": "Knowledge chunk ID from a search result."
+    },
+    "documentId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Knowledge document ID from the same search result."
     }
   }
 }

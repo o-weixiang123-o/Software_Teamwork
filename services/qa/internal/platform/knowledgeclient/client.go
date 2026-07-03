@@ -15,6 +15,11 @@ import (
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/qa/internal/service"
 )
 
+const (
+	knowledgeRetrievalScopeHeader  = "X-Knowledge-Retrieval-Scope"
+	knowledgeRetrievalScopeProject = "project"
+)
+
 type Client struct {
 	baseURL      string
 	endpoint     string
@@ -203,6 +208,7 @@ func (c *Client) GetStats(ctx context.Context, userID string) (int, int, error) 
 func (c *Client) setTrustedHeaders(ctx context.Context, req *http.Request, userID string) {
 	req.Header.Set("X-Service-Token", c.serviceToken)
 	req.Header.Set("X-Caller-Service", "qa")
+	req.Header.Set(knowledgeRetrievalScopeHeader, knowledgeRetrievalScopeProject)
 	req.Header.Set("X-User-Id", userID)
 	if requestID := service.RequestIDFromContext(ctx); requestID != "" {
 		req.Header.Set("X-Request-Id", requestID)

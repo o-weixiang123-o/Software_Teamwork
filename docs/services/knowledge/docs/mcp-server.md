@@ -58,6 +58,7 @@ alias 前缀。
 | 变量 | 用途 |
 | --- | --- |
 | `KNOWLEDGE_MCP_USER_ID` | adapter 内部请求的固定用户身份 |
+| `KNOWLEDGE_PROJECT_RUNTIME_USER_ID` | 项目级 QA RAG 知识库池使用的 runtime 身份；默认继承 `KNOWLEDGE_MCP_USER_ID` |
 | `KNOWLEDGE_MCP_ROLES` | 固定角色集合 |
 | `KNOWLEDGE_MCP_PERMISSIONS` | 固定权限，默认 `knowledge:read` |
 
@@ -109,6 +110,7 @@ Knowledge 侧：
 | --- | --- | --- |
 | `KNOWLEDGE_MCP_ADDR` | 空 | MCP 监听地址；local 模板为 `127.0.0.1:8093` |
 | `KNOWLEDGE_MCP_USER_ID` | `knowledge_mcp_service` | 固定受信任 caller |
+| `KNOWLEDGE_PROJECT_RUNTIME_USER_ID` | `KNOWLEDGE_MCP_USER_ID` | 项目级 QA RAG 知识库池使用的 runtime 身份 |
 | `KNOWLEDGE_MCP_ROLES` | 空 | 固定角色 |
 | `KNOWLEDGE_MCP_PERMISSIONS` | `knowledge:read` | 固定权限 |
 | `KNOWLEDGE_SERVICE_TOKEN` | 无 | REST 与 MCP 共用的内部服务令牌 |

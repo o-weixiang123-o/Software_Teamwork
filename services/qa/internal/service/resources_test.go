@@ -26,8 +26,47 @@ func TestReportGenerationDirectiveMentionsContentReportTool(t *testing.T) {
 	if !strings.Contains(directive, "document__generate_report_from_content") ||
 		!strings.Contains(directive, "search_session_attachments") ||
 		!strings.Contains(directive, "include_report_source=true") ||
-		!strings.Contains(directive, "report_source_excerpt") {
+		!strings.Contains(directive, "report_source_excerpt") ||
+		!strings.Contains(directive, "long-term knowledge-base retrieval") {
 		t.Fatalf("directive=%q, want attachment-to-report tool guidance", directive)
+	}
+}
+
+func TestAttachmentDirectiveKeepsKnowledgeRAGAvailable(t *testing.T) {
+	directive := requestDirective(AskInput{
+		Mode:             "knowledge_qa",
+		AttachmentIDs:    []string{"att-1"},
+		KnowledgeBaseIDs: []string{"kb-1"},
+	})
+	for _, want := range []string{
+		"search_session_attachments",
+		"do not replace long-term knowledge-base RAG",
+		"search_knowledge or knowledge__search",
+		"restrict it to: kb-1",
+	} {
+		if !strings.Contains(directive, want) {
+			t.Fatalf("directive=%q, want %q", directive, want)
+		}
+	}
+}
+
+func TestKnowledgeQADirectiveMentionsLongTermRAG(t *testing.T) {
+	directive := requestDirective(AskInput{
+		Mode:             "knowledge_qa",
+		AttachmentIDs:    []string{" ", ""},
+		KnowledgeBaseIDs: []string{"kb-1", " ", "kb-1"},
+	})
+	for _, want := range []string{
+		"long-term knowledge-base retrieval",
+		"search_knowledge or knowledge__search",
+		"restrict it to: kb-1",
+	} {
+		if !strings.Contains(directive, want) {
+			t.Fatalf("directive=%q, want %q", directive, want)
+		}
+	}
+	if strings.Contains(directive, "search_session_attachments") {
+		t.Fatalf("directive=%q, did not expect attachment guidance for blank attachment IDs", directive)
 	}
 }
 

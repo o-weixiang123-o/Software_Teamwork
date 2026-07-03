@@ -211,10 +211,17 @@ func (s *Server) checkVendorRuntime(ctx context.Context, includeInternal bool) (
 }
 
 func (s *Server) runtimeStatusUserID() string {
-	if userID := strings.TrimSpace(s.cfg.MCPUserID); userID != "" {
+	if userID := s.projectRuntimeUserID(); userID != "" {
 		return userID
 	}
 	return "knowledge_adapter_ready"
+}
+
+func (s *Server) projectRuntimeUserID() string {
+	if userID := strings.TrimSpace(s.cfg.ProjectRuntimeUserID); userID != "" {
+		return userID
+	}
+	return strings.TrimSpace(s.cfg.MCPUserID)
 }
 
 func summarizeRuntimeStatus(status map[string]interface{}) (bool, map[string]any) {

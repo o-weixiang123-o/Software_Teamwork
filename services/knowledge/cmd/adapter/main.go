@@ -71,7 +71,7 @@ func main() {
 	var mcpServer *http.Server
 	if cfg.MCPAddr != "" {
 		mcpCaller := kmcp.CallerContext{
-			UserID:       cfg.MCPUserID,
+			UserID:       cfg.ProjectRuntimeUserID,
 			ServiceToken: cfg.ServiceToken,
 			Roles:        cfg.MCPRoles,
 			Permissions:  cfg.MCPPermissions,

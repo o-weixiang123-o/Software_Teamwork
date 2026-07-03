@@ -258,7 +258,14 @@ paths:
     post:
       tags: [knowledge]
       summary: Create knowledge query
-      description: Creates a knowledge retrieval query. Empty or uncreated runtime indexes return a successful empty result set; invalid query/runtime business inputs return 400, missing or hidden datasets return 404, and runtime dependency failures return 502.
+      description: >-
+        Creates a knowledge retrieval query. Empty or uncreated runtime indexes
+        return a successful empty result set; invalid query/runtime business
+        inputs return 400, missing or hidden datasets return 404, and runtime
+        dependency failures return 502. Trusted QA callers may use this route
+        for project-wide QA RAG retrieval even when the end user does not have
+        Knowledge management permissions; non-empty knowledgeBaseIds still
+        narrows the query to the supplied knowledge bases.
       operationId: internalCreateKnowledgeQuery
       requestBody:
         required: true

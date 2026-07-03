@@ -50,8 +50,8 @@ func newMCPServer(adapterServer *adapter.Server, caller CallerContext, chatClien
 
 	sdkmcp.AddTool(server, &sdkmcp.Tool{
 		Name:        toolGetChunk,
-		Description: "Read the full text of a single chunk by its ID (obtained from search results).",
-	}, h.listDocumentChunks)
+		Description: "Read the full text of a single chunk by its knowledgeBaseId, documentId, and chunkId from search results.",
+	}, h.getChunk)
 
 	return server
 }

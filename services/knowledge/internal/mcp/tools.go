@@ -8,18 +8,18 @@ const (
 	toolGetChunk      = "get_chunk"
 
 	// Deprecated / internal: not published in the v1 MCP tool list.
-	toolSearchKnowledge      = "search_knowledge"
-	toolAnswerFromKnowledge  = "answer_from_knowledge"
-	toolListKnowledgeBases   = "list_knowledge_bases"
-	toolGetKnowledgeBase     = "get_knowledge_base"
-	toolCreateKnowledgeBase  = "create_knowledge_base"
-	toolUpdateKnowledgeBase  = "update_knowledge_base"
-	toolDeleteKnowledgeBase  = "delete_knowledge_base"
-	toolCreateDocument       = "create_document"
-	toolUpdateDocument       = "update_document"
-	toolDeleteDocument       = "delete_document"
-	toolListDocumentChunks   = "list_document_chunks"
-	toolGetDocumentContent   = "get_document_content"
+	toolSearchKnowledge     = "search_knowledge"
+	toolAnswerFromKnowledge = "answer_from_knowledge"
+	toolListKnowledgeBases  = "list_knowledge_bases"
+	toolGetKnowledgeBase    = "get_knowledge_base"
+	toolCreateKnowledgeBase = "create_knowledge_base"
+	toolUpdateKnowledgeBase = "update_knowledge_base"
+	toolDeleteKnowledgeBase = "delete_knowledge_base"
+	toolCreateDocument      = "create_document"
+	toolUpdateDocument      = "update_document"
+	toolDeleteDocument      = "delete_document"
+	toolListDocumentChunks  = "list_document_chunks"
+	toolGetDocumentContent  = "get_document_content"
 )
 
 // ToolCatalog returns the v1 MCP read-only tool names in stable order.
@@ -114,12 +114,12 @@ type getKnowledgeBaseInput struct {
 }
 
 type createKnowledgeBaseInput struct {
-	ID                *string         `json:"id,omitempty" jsonschema:"Optional client-specified ID"`
-	Name              string          `json:"name" jsonschema:"required,Knowledge base name"`
-	Description       *string         `json:"description,omitempty" jsonschema:"Knowledge base description"`
-	DocType           *string         `json:"docType,omitempty" jsonschema:"Document type / chunk method"`
-	ChunkStrategy     jsonRawObject   `json:"chunkStrategy,omitempty" jsonschema:"Chunk strategy configuration"`
-	RetrievalStrategy jsonRawObject   `json:"retrievalStrategy,omitempty" jsonschema:"Retrieval strategy configuration"`
+	ID                *string       `json:"id,omitempty" jsonschema:"Optional client-specified ID"`
+	Name              string        `json:"name" jsonschema:"required,Knowledge base name"`
+	Description       *string       `json:"description,omitempty" jsonschema:"Knowledge base description"`
+	DocType           *string       `json:"docType,omitempty" jsonschema:"Document type / chunk method"`
+	ChunkStrategy     jsonRawObject `json:"chunkStrategy,omitempty" jsonschema:"Chunk strategy configuration"`
+	RetrievalStrategy jsonRawObject `json:"retrievalStrategy,omitempty" jsonschema:"Retrieval strategy configuration"`
 }
 
 type updateKnowledgeBaseInput struct {
@@ -147,11 +147,11 @@ type getDocumentInput struct {
 }
 
 type createDocumentInput struct {
-	KnowledgeBaseID string          `json:"knowledgeBaseId" jsonschema:"required,Target knowledge base ID"`
-	FileName          string          `json:"fileName" jsonschema:"required,Uploaded file name"`
-	FileContentBase64 string          `json:"fileContentBase64" jsonschema:"required,Base64-encoded file bytes"`
-	ContentType       *string         `json:"contentType,omitempty" jsonschema:"Optional MIME type"`
-	Tags              []string        `json:"tags,omitempty" jsonschema:"Optional document tags"`
+	KnowledgeBaseID   string   `json:"knowledgeBaseId" jsonschema:"required,Target knowledge base ID"`
+	FileName          string   `json:"fileName" jsonschema:"required,Uploaded file name"`
+	FileContentBase64 string   `json:"fileContentBase64" jsonschema:"required,Base64-encoded file bytes"`
+	ContentType       *string  `json:"contentType,omitempty" jsonschema:"Optional MIME type"`
+	Tags              []string `json:"tags,omitempty" jsonschema:"Optional document tags"`
 }
 
 type updateDocumentInput struct {
@@ -163,10 +163,10 @@ type deleteDocumentInput struct {
 	DocumentID string `json:"documentId" jsonschema:"required,Document ID"`
 }
 
-type listDocumentChunksInput struct {
-	DocumentID string `json:"documentId" jsonschema:"required,Document ID"`
-	Page       int    `json:"page,omitempty" jsonschema:"Page number (default 1)"`
-	PageSize   int    `json:"pageSize,omitempty" jsonschema:"Page size (default 20, max 200)"`
+type getChunkInput struct {
+	KnowledgeBaseID string `json:"knowledgeBaseId" jsonschema:"required,Knowledge base ID from search results"`
+	ChunkID         string `json:"chunkId" jsonschema:"required,Chunk ID from search results"`
+	DocumentID      string `json:"documentId" jsonschema:"required,Document ID from search results"`
 }
 
 type getDocumentContentInput struct {

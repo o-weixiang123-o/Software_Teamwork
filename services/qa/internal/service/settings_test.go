@@ -9,19 +9,23 @@ import (
 )
 
 type settingsRepositoryStub struct {
-	activeLLM             StoredLLMConfig
-	activeQAConfigVersion QAConfigVersion
-	activeQAConfigErr     error
-	createdAgent          AgentConfig
-	createdRetrieval      RetrievalSettings
-	createdKBIDs          []string
-	createdPrompt         string
-	createCount           int
-	createCalled          bool
-	mcpServers            []MCPServerRecord
+	activeLLM                     StoredLLMConfig
+	activeQAConfigVersion         QAConfigVersion
+	activeQAConfigErr             error
+	activeDefaultKnowledgeBaseIDs *[]string
+	createdAgent                  AgentConfig
+	createdRetrieval              RetrievalSettings
+	createdKBIDs                  []string
+	createdPrompt                 string
+	createCount                   int
+	createCalled                  bool
+	mcpServers                    []MCPServerRecord
 }
 
 func (r *settingsRepositoryStub) GetActiveQAConfig(context.Context) (RetrievalSettings, []string, error) {
+	if r.activeDefaultKnowledgeBaseIDs != nil {
+		return RetrievalSettings{TopK: 5, ScoreThreshold: .7, RerankThreshold: .5, RerankTopN: 3}.WithScoreThresholdConfigured(), append([]string(nil), (*r.activeDefaultKnowledgeBaseIDs)...), nil
+	}
 	return RetrievalSettings{TopK: 5, ScoreThreshold: .7, RerankThreshold: .5, RerankTopN: 3}.WithScoreThresholdConfigured(), []string{"kb-old"}, nil
 }
 
@@ -310,6 +314,29 @@ func TestLoadRuntimeConfigurationAppendsBootstrapWhenOtherMCPRecordsExist(t *tes
 	}
 	if len(runtime.MCPServers) != 2 || runtime.MCPServers[1].Alias != "document" {
 		t.Fatalf("MCPServers=%+v, want unrelated database server plus bootstrap", runtime.MCPServers)
+	}
+}
+
+func TestLoadRuntimeConfigurationKeepsEmptyDefaultKnowledgeBaseScope(t *testing.T) {
+	emptyKBIDs := []string{}
+	repository := &settingsRepositoryStub{
+		activeQAConfigVersion:         QAConfigVersion{ID: "qa-config"},
+		activeDefaultKnowledgeBaseIDs: &emptyKBIDs,
+	}
+	svc, err := NewConfigService(repository, settingsCipherStub{}, BootstrapSettings{}, &settingsLLMTesterStub{}, settingsMCPTesterStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runtime, err := svc.LoadRuntimeConfiguration(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.DefaultKnowledgeBaseIDs == nil {
+		t.Fatal("default knowledge base IDs should be an empty configured scope, not nil")
+	}
+	if len(runtime.DefaultKnowledgeBaseIDs) != 0 {
+		t.Fatalf("default knowledge base IDs=%+v, want empty scope", runtime.DefaultKnowledgeBaseIDs)
 	}
 }
 

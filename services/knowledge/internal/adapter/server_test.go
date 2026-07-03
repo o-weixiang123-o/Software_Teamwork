@@ -306,6 +306,46 @@ func TestCreateKnowledgeQueryMapsRetrieval(t *testing.T) {
 	}
 }
 
+func TestCreateKnowledgeQueryExpandsAccessibleKnowledgeBasesWhenOmitted(t *testing.T) {
+	var searchBody map[string]any
+	vendor := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/datasets":
+			_, _ = w.Write([]byte(`{"code":0,"data":[{"id":"kb_1"},{"id":"kb_2"}],"total_datasets":2}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/datasets/search":
+			if err := json.NewDecoder(r.Body).Decode(&searchBody); err != nil {
+				t.Fatalf("decode search body: %v", err)
+			}
+			_, _ = w.Write([]byte(`{"code":0,"message":"success","data":{"total":0,"chunks":[]}}`))
+		default:
+			t.Fatalf("unexpected method=%s path=%s", r.Method, r.URL.Path)
+		}
+	}))
+	defer vendor.Close()
+
+	server := NewServer(adapterconfig.Config{
+		ServiceVersion:   "test",
+		VendorRuntimeURL: vendor.URL,
+		ServiceToken:     testServiceToken,
+	}, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-queries", strings.NewReader(`{"query":"hello"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-Id", "usr_test")
+	req.Header.Set("X-Service-Token", testServiceToken)
+	req.Header.Set("X-User-Permissions", "knowledge:read")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	datasetIDs, _ := searchBody["dataset_ids"].([]any)
+	if len(datasetIDs) != 2 || datasetIDs[0] != "kb_1" || datasetIDs[1] != "kb_2" {
+		t.Fatalf("dataset_ids=%v", searchBody["dataset_ids"])
+	}
+}
+
 func TestNotFoundRoute(t *testing.T) {
 	server := NewServer(adapterconfig.Config{
 		ServiceVersion:   "test",

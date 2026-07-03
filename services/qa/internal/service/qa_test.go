@@ -538,11 +538,12 @@ func (maxIterationsAgentRunner) RunWithToolResultCallback(ctx context.Context, i
 }
 
 type fakeRuntimeProvider struct {
-	runner         AgentRunner
-	prompt         string
-	maxIterations  int
-	overallTimeout time.Duration
-	retrieval      RetrievalSettings
+	runner                  AgentRunner
+	prompt                  string
+	maxIterations           int
+	overallTimeout          time.Duration
+	retrieval               RetrievalSettings
+	defaultKnowledgeBaseIDs []string
 }
 
 func (p fakeRuntimeProvider) Acquire() (RuntimeSnapshot, func(), error) {
@@ -554,7 +555,8 @@ func (p fakeRuntimeProvider) Acquire() (RuntimeSnapshot, func(), error) {
 		Runner: p.runner, SystemPrompt: p.prompt, LLMModel: "deepseek-v4-pro", LLMProfileID: "default",
 		QAConfigVersionID: "qa-config-id", LLMConfigVersionID: "llm-config-id",
 		MaxIterations: maxIterations, OverallTimeout: p.overallTimeout,
-		RetrievalSettings: p.retrieval,
+		RetrievalSettings:       p.retrieval,
+		DefaultKnowledgeBaseIDs: p.defaultKnowledgeBaseIDs,
 	}, func() {}, nil
 }
 
@@ -623,6 +625,63 @@ func TestAskRejectsUnsupportedDataAnalysis(t *testing.T) {
 	appErr, ok := Classify(err)
 	if !ok || appErr.Code != CodeUnsupportedIntent {
 		t.Fatalf("error = %v, want unsupported_intent", err)
+	}
+}
+
+func TestAskAddsAttachmentAndKnowledgeRAGDirective(t *testing.T) {
+	repository := &fakeRepository{conversation: Conversation{ID: "conversation-id", OwnerUserID: "user-id", Title: "新对话", Status: "active"}}
+	runner := &fakeAgentRunner{}
+	qa, err := NewQAService(repository, fakeRuntimeProvider{runner: runner, prompt: "system prompt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = qa.Ask(context.Background(), "user-id", "conversation-id", AskInput{
+		Message:          "结合附件和知识库回答",
+		Mode:             "knowledge_qa",
+		AttachmentIDs:    []string{"att-1"},
+		KnowledgeBaseIDs: []string{"kb-1"},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.input) < 2 || runner.input[1].Role != agent.RoleSystem {
+		t.Fatalf("runner messages=%+v, want request directive system message", runner.input)
+	}
+	directive := runner.input[1].Content
+	for _, want := range []string{
+		"search_session_attachments",
+		"do not replace long-term knowledge-base RAG",
+		"search_knowledge or knowledge__search",
+		"restrict it to: kb-1",
+	} {
+		if !strings.Contains(directive, want) {
+			t.Fatalf("directive=%q, want %q", directive, want)
+		}
+	}
+}
+
+func TestAskAllowsKnowledgeBaseIDsWhenDefaultKnowledgeBaseListEmpty(t *testing.T) {
+	repository := &fakeRepository{conversation: Conversation{ID: "conversation-id", OwnerUserID: "user-id", Title: "新对话", Status: "active"}}
+	runner := &fakeAgentRunner{}
+	qa, err := NewQAService(repository, fakeRuntimeProvider{
+		runner:                  runner,
+		prompt:                  "system prompt",
+		defaultKnowledgeBaseIDs: []string{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err = qa.Ask(context.Background(), "user-id", "conversation-id", AskInput{
+		Message:          "查询知识库",
+		Mode:             "knowledge_qa",
+		KnowledgeBaseIDs: []string{"kb-any"},
+	}, nil); err != nil {
+		t.Fatalf("Ask returned error with empty default KB list: %v", err)
+	}
+	if len(runner.input) < 2 || !strings.Contains(runner.input[1].Content, "restrict it to: kb-any") {
+		t.Fatalf("runner directive=%+v, want requested KB restriction guidance", runner.input)
 	}
 }
 

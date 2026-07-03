@@ -412,3 +412,129 @@ QA MCP Client -> KNOWLEDGE_MCP_ADDR (Streamable HTTP)
 Knowledge MCP -> Bridge -> adapter handlers -> vendorclient -> knowledge-runtime
 answer_from_knowledge -> Bridge retrieval -> KNOWLEDGE_AI_GATEWAY_URL chat
 ```
+
+## Scenario: QA Project-Global Knowledge Retrieval
+
+### 1. Scope / Trigger
+
+- Trigger: changing QA long-term RAG scope, QA `defaultKnowledgeBaseIds`,
+  Knowledge MCP search behavior, Knowledge `knowledge-queries`, citation source
+  visibility checks, or runtime identity configuration.
+- QA owns user-facing permission to ask questions. Knowledge owns persistent
+  knowledge bases, documents, parsing, embedding, and retrieval execution.
+- Session attachments are a separate temporary QA context source and must not be
+  inserted into persistent Knowledge indexes as part of QA ask handling.
+
+### 2. Signatures
+
+QA direct retrieval uses the Knowledge internal resource:
+
+```text
+POST /internal/v1/knowledge-queries
+GET  /internal/v1/documents/{documentId}
+```
+
+Trusted QA retrieval headers:
+
+```text
+X-Service-Token: <internal service token>
+X-Caller-Service: qa
+X-Knowledge-Retrieval-Scope: project
+X-User-Id: <authenticated QA user for audit context>
+X-Request-Id: <optional request id>
+```
+
+Knowledge runtime identity configuration:
+
+```text
+KNOWLEDGE_PROJECT_RUNTIME_USER_ID=<runtime user id>
+```
+
+Default:
+
+```text
+KNOWLEDGE_PROJECT_RUNTIME_USER_ID defaults to KNOWLEDGE_MCP_USER_ID
+KNOWLEDGE_MCP_USER_ID defaults to knowledge_mcp_service
+```
+
+### 3. Contracts
+
+- QA `defaultKnowledgeBaseIds` is an optional narrowing allowlist for long-term
+  Knowledge retrieval. Empty means "do not narrow", not "disable RAG".
+- A QA request with no explicit `knowledgeBaseIds` and an empty active
+  `defaultKnowledgeBaseIds` must use the project-wide QA RAG pool.
+- A non-empty active `defaultKnowledgeBaseIds` becomes the default retrieval
+  scope when the request omits `knowledgeBaseIds`.
+- When both non-empty defaults and explicit request `knowledgeBaseIds` exist,
+  QA must reject IDs outside the default allowlist before calling Knowledge.
+- A standard QA user does not need Knowledge management `knowledge:read` to
+  retrieve through QA's trusted path.
+- Knowledge management APIs keep normal `knowledge:read` / `knowledge:write`
+  authorization. Only trusted QA retrieval and citation source visibility use
+  `X-Knowledge-Retrieval-Scope: project`.
+- Knowledge resolves the project pool by listing/searching runtime datasets
+  visible to `KNOWLEDGE_PROJECT_RUNTIME_USER_ID`.
+- QA must send the project retrieval scope header for both direct
+  `knowledge-queries` retrieval and citation source checks.
+- Knowledge MCP search may omit `knowledgeBaseIds`; an empty list delegates to
+  the adapter's project/runtime pool. The QA MCP guard still injects narrowed
+  IDs when request/default QA scope is non-empty.
+- Disabling long-term RAG is done by removing `search_knowledge` /
+  `knowledge__search` from the enabled tool list, not by setting an empty
+  default knowledge-base list.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Direct Knowledge caller lacks `knowledge:read` and has no trusted QA project scope header | `403 forbidden`. |
+| Trusted QA caller has project scope header and user lacks `knowledge:read` | Retrieval or citation visibility proceeds under project runtime identity. |
+| QA default allowlist is non-empty and request includes an outside KB id | QA rejects before retrieval or returns an error tool result; do not call Knowledge with the outside id. |
+| Request/default scope is empty and project runtime identity has no visible KBs | Knowledge returns `400 validation_error` for no project knowledge bases. |
+| Runtime rejects an explicit/default KB under project identity | Map to the existing sanitized Knowledge/QA dependency or forbidden error path. |
+
+### 5. Good/Base/Bad Cases
+
+- Good: QA asks with no KB filter, Knowledge receives trusted project scope,
+  expands dataset ids with `KNOWLEDGE_PROJECT_RUNTIME_USER_ID`, and searches the
+  project pool.
+- Good: QA config has `defaultKnowledgeBaseIds=["kb_a"]`; direct and MCP
+  retrieval both use only `kb_a` unless the request supplies a subset.
+- Base: Knowledge management UI calls the same `knowledge-queries` endpoint with
+  `knowledge:read`; it keeps user-scoped management authorization.
+- Bad: require the end user's `knowledge:read` for QA answers, use the end user's
+  runtime tenant to expand empty QA retrieval scope, or interpret empty defaults
+  as disabled RAG.
+
+### 6. Tests Required
+
+- QA service tests: empty default preserves global retrieval semantics; non-empty
+  default narrows; outside explicit IDs are rejected.
+- QA Knowledge client tests: trusted retrieval and citation source checks include
+  `X-Knowledge-Retrieval-Scope: project` and do not require
+  `X-User-Permissions`.
+- Knowledge adapter tests: trusted QA `knowledge-queries` without
+  `knowledge:read` uses project runtime identity for dataset listing and search.
+- Knowledge adapter tests: trusted QA document visibility without
+  `knowledge:read` uses project runtime identity.
+- Knowledge MCP/QA manager tests: MCP `search_knowledge` can omit IDs for global
+  scope and receives injected narrowed IDs when QA scope is non-empty.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```text
+QA user without knowledge:read
+-> QA forwards only X-User-Id
+-> Knowledge readScope rejects retrieval with 403
+```
+
+#### Correct
+
+```text
+QA user with qa:use
+-> QA forwards X-Caller-Service: qa and X-Knowledge-Retrieval-Scope: project
+-> Knowledge keeps X-User-Id for audit context
+-> Knowledge lists/searches using KNOWLEDGE_PROJECT_RUNTIME_USER_ID
+```

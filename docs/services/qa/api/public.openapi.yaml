@@ -653,6 +653,12 @@ components:
         knowledgeBaseIds:
           type: array
           items: { type: string }
+          description: >-
+            Optional request-level long-term knowledge-base scope. When
+            omitted, QA uses the configured default scope; if the default scope
+            is empty, QA retrieves from the project-wide knowledge base pool.
+            This request scope narrows QA RAG only; it is not the Knowledge
+            management permission model.
         retrieval: { $ref: '#/components/schemas/RetrievalOptions' }
         attachmentIds:
           type: array
@@ -822,6 +828,12 @@ components:
         defaultKnowledgeBaseIds:
           type: array
           items: { type: string }
+          description: >-
+            Default long-term knowledge-base scope for QA RAG. Empty means no
+            preselected scope, so QA retrieves from the project-wide knowledge
+            base pool. A non-empty list narrows QA retrieval and acts as the
+            request-level allowlist. Disable RAG by removing knowledge search
+            tools from enabledToolNames.
         retrieval: { $ref: '#/components/schemas/RetrievalOptions' }
         llm: { $ref: '#/components/schemas/ModelConfigPublic' }
         agent: { $ref: '#/components/schemas/AgentConfig' }

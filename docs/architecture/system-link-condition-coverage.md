@@ -365,11 +365,18 @@
 2. 用户可上传会话临时附件；QA 保存附件 metadata/状态，内部调用 file 保存原始 bytes，解析时走 Knowledge/RAGFlow runtime 边界，并保存临时 chunk。
 3. 用户创建 message，可关联 ready attachments，并可请求 JSON 或 `text/event-stream`。
 4. QA 创建用户消息、助手占位、response run、初始事件。
-5. QA 加载 QA/LLM config，准备工具白名单、会话附件上下文、知识库检索上下文、全局 `systemPrompt` snapshot 和模型上下文。
+5. QA 加载 QA/LLM config，准备工具白名单、会话附件上下文、知识库检索上下文、全局 `systemPrompt` snapshot 和模型上下文；长期 Knowledge RAG 和本会话附件检索均可被模型选择，二者不互斥。
 6. QA 调 AI Gateway chat/function calling。
 7. 若模型返回 tool calls，QA 通过 MCP Client 执行 `tools/call`，保存脱敏 tool-call summary；Document report-generation 工具结果只映射为 `reportArtifact` 安全摘要。
 8. QA 将工具结果裁剪脱敏后追加为 tool message，继续下一轮 ReAct。
 9. QA 生成最终回答，保存消息、run 状态、model invocation summary、citations 和 SSE replay events。
+
+会话附件只生成 QA 临时 chunks 并通过 `search_session_attachments` 查询，不自动写入
+Knowledge 长期知识库。长期知识库检索通过内置 `search_knowledge` 或 Knowledge MCP
+`knowledge__search` 访问 Knowledge 拥有的索引；请求级和默认 `knowledgeBaseIds` 只用于
+收窄检索范围。QA 默认 `knowledgeBaseIds` 为空表示使用项目全局长期知识库，不按最终用户
+的 Knowledge 管理权限或 runtime 用户可见数据集收窄；禁用长期 RAG 应通过工具白名单移除
+长期知识库检索工具。
 10. 前端查询 response run、tool calls、citations、retrieval test 或 metrics。
 
 **条件分支**

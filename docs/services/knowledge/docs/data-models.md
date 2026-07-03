@@ -211,7 +211,7 @@ parser_configs
 | 逻辑字段 | HTTP 字段 | 类型 | 说明 |
 | --- | --- | --- | --- |
 | `Query` | `query` | string | 查询文本，当前最大 2000 字符。 |
-| `KnowledgeBaseIDs` | `knowledgeBaseIds` | string[] | 限定知识库；为空时按用户权限检索可访问知识库。 |
+| `KnowledgeBaseIDs` | `knowledgeBaseIds` | string[] | 限定知识库；普通 Knowledge 调用为空时按用户权限检索可访问知识库；受信任 QA RAG 调用为空时使用项目级知识库池。 |
 | `TopK` | `topK` | integer | 返回候选数，默认 runtime config，范围 1-100。 |
 | `ScoreThreshold` | `scoreThreshold` | number | 相似度阈值，默认 runtime config。 |
 | `Tags` | `tags` | string[] | 标签过滤。 |

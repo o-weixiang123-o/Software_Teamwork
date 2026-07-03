@@ -36,9 +36,20 @@
 | --- | --- | --- |
 | AI Gateway chat | 用户可创建回答运行、profile/config 可用、调用摘要可审计。 | Provider 调用、API key 保护和错误归一化。 |
 | MCP tools | 工具白名单、用户权限、参数 schema、超时、幂等键。 | 具体工具的业务权限和数据脱敏。 |
-| Knowledge retrieval/citation source | 用户是否可在当前 QA 上下文使用检索工具。 | 知识库、文档、chunk 和原文读取权限。 |
+| Knowledge retrieval/citation source | 用户是否可在当前 QA 上下文使用检索工具；请求级 `knowledgeBaseIds` 必须受 QA 默认知识库 allowlist 约束。默认 allowlist 为空表示 QA 使用项目全局长期知识库，不要求最终用户具备 Knowledge 管理面的 `knowledge:read`。 | 知识库管理、文档管理、chunk 原文读取和直接 Knowledge 资源权限。 |
 | Document report tools | 用户是否可调用报告工具。 | 报告、模板、文件、settings 和操作日志权限。 |
-| File / QA attachment processing | 会话 owner 和附件状态。 | File 保存 bytes；QA 负责附件解析状态和会话临时 chunks；附件不得写入 Knowledge 长期索引。 |
+| File / QA attachment processing | 会话 owner、附件状态和本次消息绑定的附件 IDs。 | File 保存 bytes；QA 负责附件解析状态和会话临时 chunks；附件不得写入 Knowledge 长期索引。 |
+
+QA 回答时长期 Knowledge RAG 和会话附件检索是互补来源：`search_knowledge` /
+`knowledge__search` 查询长期知识库，`search_session_attachments` 只查询当前会话已绑定、
+ready 的临时附件 chunks。上传到 QA 会话的文件不得因为被问答使用而自动进入 Knowledge
+长期知识库；只有用户明确执行 Knowledge 文档上传/加入知识库流程时，才由 Knowledge
+拥有长期文档、解析、embedding 和索引生命周期。
+
+QA 配置的 `defaultKnowledgeBaseIds` 只表达默认检索范围：非空时限制模型的长期知识库检索
+范围，空数组表示搜索项目全局长期知识库。QA 检索权限由 QA 使用权限授权，不能等同于
+Knowledge 管理面的 `knowledge:read`。禁用长期 RAG 应通过工具白名单移除
+`search_knowledge` / `knowledge__search`，不要把空默认知识库列表解释为“无可用知识库”。
 
 ## 拒绝规则
 

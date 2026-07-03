@@ -92,13 +92,12 @@ func (h *toolHandlers) runKnowledgeSearch(ctx context.Context, caller CallerCont
 	if query == "" {
 		return searchKnowledgeOutput{}, fmt.Errorf("query is required")
 	}
-	if len(params.KnowledgeBaseIDs) == 0 {
-		return searchKnowledgeOutput{}, fmt.Errorf("knowledgeBaseIds must include at least one knowledge base id")
-	}
 
 	payload := map[string]any{
-		"query":            query,
-		"knowledgeBaseIds": params.KnowledgeBaseIDs,
+		"query": query,
+	}
+	if len(params.KnowledgeBaseIDs) > 0 {
+		payload["knowledgeBaseIds"] = params.KnowledgeBaseIDs
 	}
 	if params.TopK > 0 {
 		payload["topK"] = params.TopK
@@ -472,19 +471,57 @@ func (h *toolHandlers) deleteDocument(ctx context.Context, _ *sdkmcp.CallToolReq
 	return nil, deleteResourceOutput{Deleted: true, ID: docID}, nil
 }
 
-func (h *toolHandlers) listDocumentChunks(ctx context.Context, _ *sdkmcp.CallToolRequest, input listDocumentChunksInput) (*sdkmcp.CallToolResult, map[string]any, error) {
+func (h *toolHandlers) getChunk(ctx context.Context, _ *sdkmcp.CallToolRequest, input getChunkInput) (*sdkmcp.CallToolResult, map[string]any, error) {
+	kbID := strings.TrimSpace(input.KnowledgeBaseID)
+	if kbID == "" {
+		return nil, nil, fmt.Errorf("knowledgeBaseId is required")
+	}
+	chunkID := strings.TrimSpace(input.ChunkID)
+	if chunkID == "" {
+		return nil, nil, fmt.Errorf("chunkId is required")
+	}
 	docID := strings.TrimSpace(input.DocumentID)
 	if docID == "" {
 		return nil, nil, fmt.Errorf("documentId is required")
 	}
-	query := url.Values{}
-	if input.Page > 0 {
-		query.Set("page", fmt.Sprintf("%d", input.Page))
+	for page := 1; ; page++ {
+		query := url.Values{}
+		query.Set("knowledgeBaseId", kbID)
+		query.Set("page", fmt.Sprintf("%d", page))
+		query.Set("pageSize", "200")
+		status, respBody, _, err := h.bridge.DoGET(ctx, h.effectiveCaller(), "/internal/v1/documents/"+url.PathEscape(docID)+"/chunks", query)
+		if err != nil {
+			return nil, nil, err
+		}
+		if status != http.StatusOK {
+			return nil, nil, adapterErrorMessage(status, respBody)
+		}
+		list, err := decodeAdapterList(respBody)
+		if err != nil {
+			return nil, nil, err
+		}
+		items, err := rawToSlice(list.Data)
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, mapped := range items {
+			if strings.TrimSpace(fmt.Sprint(mapped["id"])) == chunkID {
+				mapped["chunkId"] = chunkID
+				return nil, mapped, nil
+			}
+		}
+		pageInfo, err := rawToMap(list.Page)
+		if err != nil {
+			return nil, nil, err
+		}
+		total := intFromAny(pageInfo["total"])
+		pageSize := intFromAny(pageInfo["pageSize"])
+		currentPage := intFromAny(pageInfo["page"])
+		if len(items) == 0 || pageSize <= 0 || currentPage*pageSize >= total {
+			break
+		}
 	}
-	if input.PageSize > 0 {
-		query.Set("pageSize", fmt.Sprintf("%d", input.PageSize))
-	}
-	return h.adapterList(ctx, h.effectiveCaller(), "/internal/v1/documents/"+url.PathEscape(docID)+"/chunks", query)
+	return nil, nil, fmt.Errorf("chunk not found")
 }
 
 func (h *toolHandlers) getDocumentContent(ctx context.Context, _ *sdkmcp.CallToolRequest, input getDocumentContentInput) (*sdkmcp.CallToolResult, getDocumentContentOutput, error) {
@@ -603,4 +640,20 @@ func (h *toolHandlers) adapterDelete(ctx context.Context, caller CallerContext, 
 		return adapterErrorMessage(status, respBody)
 	}
 	return nil
+}
+
+func intFromAny(value any) int {
+	switch typed := value.(type) {
+	case int:
+		return typed
+	case int64:
+		return int(typed)
+	case float64:
+		return int(typed)
+	case json.Number:
+		n, _ := typed.Int64()
+		return int(n)
+	default:
+		return 0
+	}
 }

@@ -16,10 +16,13 @@ func TestRetrievePropagatesTrustedContextAndMapsResults(t *testing.T) {
 		if r.URL.Path != "/internal/v1/knowledge-queries" {
 			t.Errorf("path=%q", r.URL.Path)
 		}
-		for name, want := range map[string]string{"X-Service-Token": "service-token", "X-Caller-Service": "qa", "X-User-Id": "user-1", "X-Request-Id": "req-knowledge-test"} {
+		for name, want := range map[string]string{"X-Service-Token": "service-token", "X-Caller-Service": "qa", "X-Knowledge-Retrieval-Scope": "project", "X-User-Id": "user-1", "X-Request-Id": "req-knowledge-test"} {
 			if got := r.Header.Get(name); got != want {
 				t.Errorf("%s=%q want %q", name, got, want)
 			}
+		}
+		if got := r.Header.Get("X-User-Permissions"); got != "" {
+			t.Errorf("X-User-Permissions=%q want empty", got)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"data":{"results":[{"score":0.9,"knowledgeBaseId":"kb-1","documentId":"doc-1","chunkId":"chunk-1","documentName":"guide","contentPreview":"preview"}]},"requestId":"req-knowledge-test"}`))
@@ -78,10 +81,13 @@ func TestRetrieveSendsConfiguredZeroScoreThreshold(t *testing.T) {
 func TestCheckCitationSourcesPropagatesContextAndMapsVisibility(t *testing.T) {
 	seen := map[string]bool{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		for name, want := range map[string]string{"X-Service-Token": "service-token", "X-Caller-Service": "qa", "X-User-Id": "user-1", "X-Request-Id": "req-citation-source"} {
+		for name, want := range map[string]string{"X-Service-Token": "service-token", "X-Caller-Service": "qa", "X-Knowledge-Retrieval-Scope": "project", "X-User-Id": "user-1", "X-Request-Id": "req-citation-source"} {
 			if got := r.Header.Get(name); got != want {
 				t.Errorf("%s=%q want %q", name, got, want)
 			}
+		}
+		if got := r.Header.Get("X-User-Permissions"); got != "" {
+			t.Errorf("X-User-Permissions=%q want empty", got)
 		}
 		seen[r.URL.Path] = true
 		switch r.URL.Path {

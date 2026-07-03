@@ -425,8 +425,10 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 			return AskResult{}, err
 		}
 	}
+	input.AttachmentIDs = attachmentIDs
+	input.KnowledgeBaseIDs = normalizeIDList(input.KnowledgeBaseIDs)
 
-	if runtime.DefaultKnowledgeBaseIDs != nil {
+	if len(runtime.DefaultKnowledgeBaseIDs) > 0 {
 		if len(input.KnowledgeBaseIDs) > 0 {
 			allowed := make(map[string]struct{}, len(runtime.DefaultKnowledgeBaseIDs))
 			for _, id := range runtime.DefaultKnowledgeBaseIDs {
@@ -1095,11 +1097,19 @@ func requestDirective(input AskInput) string {
 	if input.Mode != "" && input.Mode != "unknown" {
 		parts = append(parts, "The requested QA mode is "+input.Mode+".")
 	}
-	if input.Mode == "report_generation" {
-		parts = append(parts, "For report generation, use search_session_attachments with include_report_source=true when the user uploaded files, then pass report_source_excerpt as content to document__generate_report_from_content. You may also call available Document report tools such as document__generate_report_outline, document__generate_report_text, document__get_generation_status, document__export_report_docx, and document__get_report_result. Treat accepted, pending, or running jobs as asynchronous work and avoid long blocking waits.")
+	attachmentIDs := normalizeIDList(input.AttachmentIDs)
+	knowledgeBaseIDs := normalizeIDList(input.KnowledgeBaseIDs)
+	if input.Mode == "knowledge_qa" {
+		parts = append(parts, "For knowledge QA, use long-term knowledge-base retrieval with search_knowledge or knowledge__search when the answer depends on approved domain facts.")
 	}
-	if len(input.KnowledgeBaseIDs) > 0 {
-		parts = append(parts, "When a knowledge tool supports knowledge-base filtering, restrict it to: "+strings.Join(input.KnowledgeBaseIDs, ", ")+".")
+	if len(attachmentIDs) > 0 {
+		parts = append(parts, "The current message has ready session attachments. Use search_session_attachments to retrieve relevant attachment chunks when they may help answer the user. Session attachments are temporary context and do not replace long-term knowledge-base RAG; when the question may need approved knowledge-base facts, also use search_knowledge or knowledge__search if those tools are available.")
+	}
+	if input.Mode == "report_generation" {
+		parts = append(parts, "For report generation, use search_session_attachments with include_report_source=true when the user uploaded files, then pass report_source_excerpt as content to document__generate_report_from_content. Use long-term knowledge-base retrieval as an additional source when the report needs approved domain facts. You may also call available Document report tools such as document__generate_report_outline, document__generate_report_text, document__get_generation_status, document__export_report_docx, and document__get_report_result. Treat accepted, pending, or running jobs as asynchronous work and avoid long blocking waits.")
+	}
+	if len(knowledgeBaseIDs) > 0 {
+		parts = append(parts, "When a knowledge tool supports knowledge-base filtering, restrict it to: "+strings.Join(knowledgeBaseIDs, ", ")+".")
 	}
 	return strings.Join(parts, " ")
 }

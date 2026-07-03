@@ -3794,6 +3794,11 @@ components:
           type: array
           items:
             type: string
+          description: >
+            Optional QA retrieval narrowing scope. When omitted and the active
+            QA config has no defaultKnowledgeBaseIds, QA uses the project-wide
+            knowledge pool rather than the current user's Knowledge management
+            visibility.
         topK:
           type: integer
           minimum: 1
@@ -6257,6 +6262,9 @@ components:
           type: array
           items:
             type: string
+          description: >
+            Optional default QA retrieval allowlist. An empty list means QA does
+            not narrow retrieval and uses the project-wide knowledge pool.
         knowledgeBases:
           type: array
           items:
@@ -6330,6 +6338,9 @@ components:
           type: array
           items:
             type: string
+          description: >
+            Optional default QA retrieval allowlist. An empty list means QA does
+            not narrow retrieval and uses the project-wide knowledge pool.
         knowledgeBases:
           type: array
           items:
@@ -6532,6 +6543,11 @@ components:
           type: array
           items:
             type: string
+          description: >
+            Optional QA retrieval narrowing scope. When omitted and the active
+            QA config has no defaultKnowledgeBaseIds, QA uses the project-wide
+            knowledge pool rather than the current user's Knowledge management
+            visibility.
         retrieval:
           $ref: '#/components/schemas/QARetrievalOptions'
         overrides:

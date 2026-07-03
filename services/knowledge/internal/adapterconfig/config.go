@@ -17,33 +17,35 @@ const (
 )
 
 type Config struct {
-	HTTPAddr           string
-	MCPAddr            string
-	MCPUserID          string
-	MCPRoles           string
-	MCPPermissions     string
-	ServiceVersion     string
-	Environment        string
-	ServiceToken       string
-	VendorRuntimeToken string
-	VendorRuntimeURL   string
-	VendorEmbeddingID  string
-	VendorRerankID     string
-	DatabaseURL        string
-	AutoStartIngestion bool
-	ShutdownTimeout    time.Duration
+	HTTPAddr             string
+	MCPAddr              string
+	MCPUserID            string
+	MCPRoles             string
+	MCPPermissions       string
+	ProjectRuntimeUserID string
+	ServiceVersion       string
+	Environment          string
+	ServiceToken         string
+	VendorRuntimeToken   string
+	VendorRuntimeURL     string
+	VendorEmbeddingID    string
+	VendorRerankID       string
+	DatabaseURL          string
+	AutoStartIngestion   bool
+	ShutdownTimeout      time.Duration
 }
 
 func Load() (Config, error) {
 	cfg := Config{
-		HTTPAddr:        stringValue("KNOWLEDGE_HTTP_ADDR", DefaultHTTPAddr),
-		MCPAddr:         strings.TrimSpace(os.Getenv("KNOWLEDGE_MCP_ADDR")),
-		MCPUserID:       stringValue("KNOWLEDGE_MCP_USER_ID", "knowledge_mcp_service"),
-		MCPRoles:        strings.TrimSpace(os.Getenv("KNOWLEDGE_MCP_ROLES")),
-		MCPPermissions:  stringValue("KNOWLEDGE_MCP_PERMISSIONS", "knowledge:read"),
-		ServiceVersion:  stringValue("KNOWLEDGE_SERVICE_VERSION", DefaultServiceVersion),
-		Environment:     stringValue("KNOWLEDGE_ENV", DefaultEnvironment),
-		ShutdownTimeout: DefaultShutdownTimeout,
+		HTTPAddr:             stringValue("KNOWLEDGE_HTTP_ADDR", DefaultHTTPAddr),
+		MCPAddr:              strings.TrimSpace(os.Getenv("KNOWLEDGE_MCP_ADDR")),
+		MCPUserID:            stringValue("KNOWLEDGE_MCP_USER_ID", "knowledge_mcp_service"),
+		MCPRoles:             strings.TrimSpace(os.Getenv("KNOWLEDGE_MCP_ROLES")),
+		MCPPermissions:       stringValue("KNOWLEDGE_MCP_PERMISSIONS", "knowledge:read"),
+		ProjectRuntimeUserID: stringValue("KNOWLEDGE_PROJECT_RUNTIME_USER_ID", stringValue("KNOWLEDGE_MCP_USER_ID", "knowledge_mcp_service")),
+		ServiceVersion:       stringValue("KNOWLEDGE_SERVICE_VERSION", DefaultServiceVersion),
+		Environment:          stringValue("KNOWLEDGE_ENV", DefaultEnvironment),
+		ShutdownTimeout:      DefaultShutdownTimeout,
 	}
 	cfg.VendorRuntimeURL = trimTrailingSlash(stringValue("VENDOR_RUNTIME_URL", DefaultVendorRuntimeURL))
 	cfg.VendorEmbeddingID = strings.TrimSpace(os.Getenv("KNOWLEDGE_VENDOR_EMBEDDING_ID"))
