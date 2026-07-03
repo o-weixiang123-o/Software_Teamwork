@@ -35,6 +35,28 @@ func (answerStreamingModel) Complete(ctx context.Context, messages []Message, _ 
 	return Completion{Message: Message{Role: RoleAssistant, Content: "first second"}, FinishReason: "stop"}, nil
 }
 
+type toolThenAnswerStreamingModel struct {
+	calls int
+}
+
+func (m *toolThenAnswerStreamingModel) Complete(ctx context.Context, messages []Message, _ []ToolDefinition) (Completion, error) {
+	m.calls++
+	if observer := AnswerDeltaObserverFromContext(ctx); observer != nil {
+		if m.calls == 1 {
+			observer("checking ")
+		} else {
+			observer("final ")
+			observer("answer")
+		}
+	}
+	if m.calls == 1 {
+		return Completion{Message: Message{Role: RoleAssistant, Content: "checking ", ToolCalls: []ToolCall{{
+			ID: "call-1", Type: "function", Function: FunctionCall{Name: "add", Arguments: `{"a":1}`},
+		}}}, FinishReason: "tool_calls"}, nil
+	}
+	return Completion{Message: Message{Role: RoleAssistant, Content: "final answer"}, FinishReason: "stop"}, nil
+}
+
 type fakeTools struct {
 	definitions []ToolDefinition
 	result      ToolResult
@@ -199,6 +221,33 @@ func TestRunnerEmitsAnswerDeltaFromModelStreamObserver(t *testing.T) {
 	}
 	if strings.Join(deltas, "") != result.Final.Content {
 		t.Fatalf("answer deltas=%q events=%+v", deltas, events)
+	}
+}
+
+func TestRunnerSuppressesAnswerDeltasFromToolCallTurns(t *testing.T) {
+	tools := &fakeTools{definitions: []ToolDefinition{addToolDefinition()}, result: ToolResult{Content: `{"sum":1}`}}
+	runner := testRunner(t, &toolThenAnswerStreamingModel{}, tools, 3)
+	var events []Event
+	result, err := runner.RunWithObserver(context.Background(), []Message{{Role: RoleUser, Content: "calculate"}}, func(event Event) {
+		events = append(events, event)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Final.Content != "final answer" {
+		t.Fatalf("final = %+v", result.Final)
+	}
+	var deltas []string
+	for _, event := range events {
+		if event.Type == EventAnswerDelta {
+			deltas = append(deltas, event.AnswerContent)
+		}
+	}
+	if strings.Join(deltas, "") != result.Final.Content {
+		t.Fatalf("answer deltas=%q events=%+v", deltas, events)
+	}
+	if strings.Contains(strings.Join(deltas, ""), "checking") {
+		t.Fatalf("tool-call turn content leaked into answer deltas: %q", deltas)
 	}
 }
 

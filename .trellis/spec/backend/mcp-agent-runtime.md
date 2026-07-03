@@ -239,6 +239,9 @@ conversations -> messages -> message_content_blocks
   belong to the final assistant answer are projected into ordered
   `answer.delta` events. Non-streaming responses, or streaming providers that
   do not emit answer content chunks, fall back to one final `answer.delta`.
+  If a model turn also contains `tool_calls`, any streamed content from that
+  turn is treated as intermediate assistant text and must not be emitted as
+  public `answer.delta`.
 - `QA_DATABASE_URL` is required by `cmd/server`; `cmd/agent` does not require
   PostgreSQL. `QA_HTTP_ADDR`, `QA_MAX_REQUEST_BYTES`, and
   `QA_SHUTDOWN_TIMEOUT` have safe local defaults.

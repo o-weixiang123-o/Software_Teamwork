@@ -417,6 +417,42 @@ type answerDeltaRunner struct {
 	final  string
 }
 
+type streamingToolThenAnswerModel struct {
+	calls int
+}
+
+func (m *streamingToolThenAnswerModel) Complete(ctx context.Context, _ []agent.Message, _ []agent.ToolDefinition) (agent.Completion, error) {
+	m.calls++
+	if observer := agent.AnswerDeltaObserverFromContext(ctx); observer != nil {
+		if m.calls == 1 {
+			observer("checking ")
+		} else {
+			observer("final ")
+			observer("answer")
+		}
+	}
+	if m.calls == 1 {
+		return agent.Completion{Message: agent.Message{Role: agent.RoleAssistant, Content: "checking ", ToolCalls: []agent.ToolCall{{
+			ID: "call-1", Type: "function", Function: agent.FunctionCall{Name: "search_knowledge", Arguments: `{"query":"x"}`},
+		}}}, FinishReason: "tool_calls"}, nil
+	}
+	return agent.Completion{Message: agent.Message{Role: agent.RoleAssistant, Content: "final answer"}, FinishReason: "stop"}, nil
+}
+
+type streamingToolClient struct{}
+
+func (streamingToolClient) ListTools(context.Context) ([]agent.ToolDefinition, error) {
+	return []agent.ToolDefinition{{Type: "function", Function: agent.FunctionTool{
+		Name:        "search_knowledge",
+		Description: "search knowledge",
+		Parameters:  map[string]any{"type": "object"},
+	}}}, nil
+}
+
+func (streamingToolClient) CallTool(context.Context, string, json.RawMessage) (agent.ToolResult, error) {
+	return agent.ToolResult{Content: `{"results":[]}`}, nil
+}
+
 func (r answerDeltaRunner) RunWithObserver(_ context.Context, input []agent.Message, observer agent.Observer) (agent.Result, error) {
 	observer(agent.Event{Type: agent.EventModelStarted, Iteration: 1})
 	for _, delta := range r.deltas {
@@ -1353,6 +1389,46 @@ func TestAskStreamsAnswerDeltasFromAgentEvents(t *testing.T) {
 	}
 	assertSSEEventTypesSeen(t, observed, "answer.delta", "answer.completed")
 	assertProgressPayloadsDoNotLeakSensitiveData(t, observed)
+	assertStreamPayloadsDoNotLeakSensitiveData(t, repository.savedEvents)
+}
+
+func TestAskDoesNotReplayToolTurnAnswerDeltas(t *testing.T) {
+	repository := &fakeRepository{conversation: Conversation{ID: "conversation-id", OwnerUserID: "user-id", Status: "active"}}
+	runner, err := agent.NewRunner(&streamingToolThenAnswerModel{}, streamingToolClient{}, agent.Config{
+		MaxIterations:      3,
+		ToolTimeout:        time.Second,
+		MaxToolResultBytes: 1024,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	qa, err := NewQAService(repository, fakeRuntimeProvider{
+		runner: runner,
+		prompt: "system",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := qa.Ask(context.Background(), "user-id", "conversation-id", AskInput{Message: "stream answer with tool"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.AssistantMessage.Content != "final answer" || repository.finalization.AssistantMessage.Content != "final answer" {
+		t.Fatalf("result=%+v finalization=%+v", result.AssistantMessage, repository.finalization.AssistantMessage)
+	}
+	var answerTexts []string
+	for _, event := range repository.savedEvents {
+		if event.EventType == "answer.delta" {
+			answerTexts = append(answerTexts, fmt.Sprint(event.Payload["text"]))
+		}
+	}
+	joined := strings.Join(answerTexts, "")
+	if joined != "final answer" {
+		t.Fatalf("answer texts=%q events=%+v", answerTexts, repository.savedEvents)
+	}
+	if strings.Contains(joined, "checking") {
+		t.Fatalf("tool-call turn content leaked into answer deltas: %q", answerTexts)
+	}
 	assertStreamPayloadsDoNotLeakSensitiveData(t, repository.savedEvents)
 }
 

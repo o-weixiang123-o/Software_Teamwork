@@ -207,6 +207,8 @@ Gateway OpenAPI 定义 browser-facing schema；本文只记录字段来源和边
 
 当 AI Gateway/provider 路径返回 OpenAI-compatible streaming content chunks 时，QA 会将最终回答的
 `delta.content` 投影为多个有序 `answer.delta` 事件；这些事件拼接后应与最终 assistant answer 一致。
+如果某一轮模型输出同时包含 `tool_calls`，该轮 `delta.content` 只视为中间 assistant 文本，不作为公开
+`answer.delta` 发送。
 非流式响应或 provider 未返回正文增量时，QA 保留兼容 fallback：在完成前发送一个包含最终回答的
 `answer.delta`。
 

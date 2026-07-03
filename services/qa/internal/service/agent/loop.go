@@ -151,6 +151,7 @@ func (r *Runner) run(ctx context.Context, input []Message, observer Observer, to
 	messages := append([]Message(nil), input...)
 	for iteration := 1; iteration <= r.cfg.MaxIterations; iteration++ {
 		emit(observer, Event{Type: EventModelStarted, Iteration: iteration})
+		var answerDeltas []string
 		var reasoningFilter ReasoningFilter
 		if r.cfg.ReasoningFilterFactory != nil {
 			reasoningFilter = r.cfg.ReasoningFilterFactory()
@@ -170,7 +171,7 @@ func (r *Runner) run(ctx context.Context, input []Message, observer Observer, to
 		})
 		modelCtx = WithAnswerDeltaObserver(modelCtx, func(delta string) {
 			if delta != "" {
-				emit(observer, Event{Type: EventAnswerDelta, Iteration: iteration, AnswerContent: delta})
+				answerDeltas = append(answerDeltas, delta)
 			}
 		})
 		completion, err := r.model.Complete(modelCtx, messages, toolDefs)
@@ -195,6 +196,9 @@ func (r *Runner) run(ctx context.Context, input []Message, observer Observer, to
 		if len(assistant.ToolCalls) == 0 {
 			if strings.TrimSpace(assistant.Content) == "" {
 				return Result{}, fmt.Errorf("%w: empty final assistant message", ErrInvalidResponse)
+			}
+			for _, delta := range answerDeltas {
+				emit(observer, Event{Type: EventAnswerDelta, Iteration: iteration, AnswerContent: delta})
 			}
 			emit(observer, Event{Type: EventAgentCompleted, Iteration: iteration, FinishReason: completion.FinishReason})
 			return Result{Messages: messages, Final: assistant, Iterations: iteration}, nil
