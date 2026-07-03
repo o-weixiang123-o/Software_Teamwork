@@ -26,7 +26,6 @@
 | `deepdoc/` | 文档解析器与视觉模型 |
 | `rag/` | 分块、嵌入、检索、GraphRAG、任务执行 |
 | `conf/` | 宿主机运行时配置（`service_conf.yaml`） |
-| `common/data_source/` | 多源连接器参考代码（默认不启用） |
 | `docs/` | parser/RAG 参考文档 |
 
 ## 模型配置
