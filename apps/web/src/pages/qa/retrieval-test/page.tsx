@@ -258,7 +258,7 @@ export function QARetrievalTestPage() {
         <div>
           <h3 className="text-2xl font-semibold text-foreground">QA 检索测试</h3>
           <p className="mt-2 text-sm text-muted-foreground">
-            管理员输入 query 和覆盖参数，创建一次 QA 检索体验测试并查看有序命中。
+            输入 query 和覆盖参数，创建一次 QA 检索体验测试并查看有序命中。
           </p>
         </div>
         <Button

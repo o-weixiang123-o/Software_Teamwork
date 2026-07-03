@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { renderWithProviders } from '@/test/render'
 
-import { QARetrievalTestPage } from './qa-retrieval-test'
+import { QARetrievalTestPage } from './page'
 
 function jsonResponse(body: unknown) {
   return new Response(JSON.stringify(body), {

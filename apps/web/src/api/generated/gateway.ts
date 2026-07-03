@@ -265,7 +265,10 @@ export interface paths {
     };
     "/api/v1/documents/{documentId}": {
         parameters: {
-            query?: never;
+            query: {
+                /** @description Required knowledge base context for runtime-backed document operations. */
+                knowledgeBaseId: components["parameters"]["DocumentKnowledgeBaseId"];
+            };
             header?: never;
             path: {
                 documentId: components["parameters"]["DocumentId"];
@@ -292,7 +295,10 @@ export interface paths {
     };
     "/api/v1/documents/{documentId}/chunks": {
         parameters: {
-            query?: never;
+            query: {
+                /** @description Required knowledge base context for runtime-backed document operations. */
+                knowledgeBaseId: components["parameters"]["DocumentKnowledgeBaseId"];
+            };
             header?: never;
             path: {
                 documentId: components["parameters"]["DocumentId"];
@@ -340,7 +346,7 @@ export interface paths {
         put?: never;
         /**
          * Create knowledge query
-         * @description Run a resource-mode knowledge retrieval query. Query execution is modeled as creating a knowledge-query resource, not as an action-style search path.
+         * @description Run a resource-mode knowledge retrieval query. Query execution is modeled as creating a knowledge-query resource, not as an action-style search path. Standard users have `knowledge:read` by default and may use this retrieval endpoint directly. Empty or uncreated runtime indexes return 201 with an empty results array. Invalid dataset combinations, document filters, or metadata filters return validation_error. Missing or hidden knowledge bases return not_found. Runtime retrieval, model, or index infrastructure failures return dependency_error.
          */
         post: operations["createKnowledgeQuery"];
         delete?: never;
@@ -1422,7 +1428,7 @@ export interface paths {
         put?: never;
         /**
          * Create QA retrieval test run
-         * @description Creates an administrator retrieval experience test for QA settings. Knowledge retrieval remains owned by the knowledge service; QA stores the test run and sanitized result snapshot.
+         * @description Creates a QA retrieval experience test for the authenticated user. Standard users with `qa:use` may run retrieval tests; QA settings, metrics, and model connection tests remain management-only resources. Knowledge retrieval remains owned by the knowledge service; QA stores the test run and sanitized result snapshot.
          */
         post: operations["createQARetrievalTestRun"];
         delete?: never;
@@ -1440,7 +1446,10 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Get QA retrieval test run */
+        /**
+         * Get QA retrieval test run
+         * @description Returns a QA retrieval test run owned by the authenticated user.
+         */
         get: operations["getQARetrievalTestRun"];
         put?: never;
         post?: never;
@@ -1915,6 +1924,7 @@ export interface components {
         };
         KnowledgeQueryRequest: {
             query: string;
+            /** @description Optional QA retrieval narrowing scope. When omitted and the active QA config has no defaultKnowledgeBaseIds, QA uses the project-wide knowledge pool rather than the current user's Knowledge management visibility. */
             knowledgeBaseIds?: string[];
             /** @default 10 */
             topK: number;
@@ -1943,6 +1953,7 @@ export interface components {
         KnowledgeQueryTrace: {
             embeddingProvider: string;
             embeddingModel: string;
+            /** @description Runtime-managed dimension; -1 means unavailable from the vendor runtime. */
             embeddingDimension: number;
             qdrantCollection: string;
             searchTopK: number;
@@ -2984,7 +2995,7 @@ export interface components {
             source?: {
                 available?: boolean;
                 reason?: string;
-                /** @description Gateway document content endpoint when the original source is available. */
+                /** @description Gateway document content endpoint, including the required knowledgeBaseId query, when the original source is available to the current user. */
                 downloadEndpoint?: string;
             };
         };
@@ -3012,6 +3023,7 @@ export interface components {
         QAConfigVersion: {
             id: string;
             versionNo: number;
+            /** @description Optional default QA retrieval allowlist. An empty list means QA does not narrow retrieval and uses the project-wide knowledge pool. */
             defaultKnowledgeBaseIds?: string[];
             knowledgeBases?: components["schemas"]["QAConfigKnowledgeBase"][];
             retrieval?: components["schemas"]["QARetrievalOptions"];
@@ -3042,6 +3054,7 @@ export interface components {
             enabledToolNames?: string[];
         };
         CreateQAConfigVersionRequest: {
+            /** @description Optional default QA retrieval allowlist. An empty list means QA does not narrow retrieval and uses the project-wide knowledge pool. */
             defaultKnowledgeBaseIds?: string[];
             knowledgeBases?: components["schemas"]["QAConfigKnowledgeBase"][];
             retrieval?: components["schemas"]["QARetrievalOptions"];
@@ -3119,6 +3132,7 @@ export interface components {
              * @description Backward-compatible alias for `question`.
              */
             query?: string;
+            /** @description Optional QA retrieval narrowing scope. When omitted and the active QA config has no defaultKnowledgeBaseIds, QA uses the project-wide knowledge pool rather than the current user's Knowledge management visibility. */
             knowledgeBaseIds?: string[];
             retrieval?: components["schemas"]["QARetrievalOptions"];
             /**
@@ -3318,6 +3332,8 @@ export interface components {
     parameters: {
         KnowledgeBaseId: string;
         DocumentId: string;
+        /** @description Required knowledge base context for runtime-backed document operations. */
+        DocumentKnowledgeBaseId: string;
         ReportId: string;
         ReportTemplateId: string;
         MaterialId: string;
@@ -3760,7 +3776,10 @@ export interface operations {
     };
     getDocument: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description Required knowledge base context for runtime-backed document operations. */
+                knowledgeBaseId: components["parameters"]["DocumentKnowledgeBaseId"];
+            };
             header?: never;
             path: {
                 documentId: components["parameters"]["DocumentId"];
@@ -3778,12 +3797,16 @@ export interface operations {
                     "application/json": components["schemas"]["DocumentResponse"];
                 };
             };
+            400: components["responses"]["Error"];
             404: components["responses"]["Error"];
         };
     };
     deleteDocument: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description Required knowledge base context for runtime-backed document operations. */
+                knowledgeBaseId: components["parameters"]["DocumentKnowledgeBaseId"];
+            };
             header?: never;
             path: {
                 documentId: components["parameters"]["DocumentId"];
@@ -3799,12 +3822,16 @@ export interface operations {
                 };
                 content?: never;
             };
+            400: components["responses"]["Error"];
             404: components["responses"]["Error"];
         };
     };
     updateDocument: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description Required knowledge base context for runtime-backed document operations. */
+                knowledgeBaseId: components["parameters"]["DocumentKnowledgeBaseId"];
+            };
             header?: never;
             path: {
                 documentId: components["parameters"]["DocumentId"];
@@ -3826,12 +3853,15 @@ export interface operations {
                     "application/json": components["schemas"]["DocumentResponse"];
                 };
             };
+            400: components["responses"]["Error"];
             404: components["responses"]["Error"];
         };
     };
     listDocumentChunks: {
         parameters: {
-            query?: {
+            query: {
+                /** @description Required knowledge base context for runtime-backed document operations. */
+                knowledgeBaseId: components["parameters"]["DocumentKnowledgeBaseId"];
                 page?: number;
                 pageSize?: number;
             };
@@ -3858,7 +3888,10 @@ export interface operations {
     };
     getDocumentContent: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description Required knowledge base context for runtime-backed document operations. */
+                knowledgeBaseId: components["parameters"]["DocumentKnowledgeBaseId"];
+            };
             header?: never;
             path: {
                 documentId: components["parameters"]["DocumentId"];
@@ -3876,6 +3909,7 @@ export interface operations {
                     "application/octet-stream": string;
                 };
             };
+            400: components["responses"]["Error"];
             404: components["responses"]["Error"];
         };
     };
@@ -3902,7 +3936,10 @@ export interface operations {
                 };
             };
             400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             404: components["responses"]["Error"];
+            502: components["responses"]["Error"];
         };
     };
     listAdminUsers: {

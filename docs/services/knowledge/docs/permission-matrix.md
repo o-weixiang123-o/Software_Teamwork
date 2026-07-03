@@ -23,7 +23,7 @@
 | 删除知识库 | 默认不允许，除非授予 `knowledge:write` 且有资源权限。 | 允许。 | 允许。 | 需要幂等软删除和后续清理。 |
 | 上传/更新/删除文档 | 默认不允许，除非授予 `knowledge:write` 且可访问知识库。 | 允许。 | 允许。 | 需校验知识库状态和 RAGFlow runtime 处理边界。 |
 | 读取文档详情、chunks、content | 允许，需 `knowledge:read` 且可访问文档；`standard` 默认具备该读权限。 | 允许。 | 允许。 | 原文内容必须先做文档访问权限校验；按 document 路径读取必须携带 `knowledgeBaseId`。 |
-| 创建知识查询 | 允许，需 `knowledge:read`；受信任 QA RAG 调用例外，由 QA 使用权限授权。 | 允许。 | 允许。 | 普通 Knowledge 调用必须过滤无权限知识库、未 ready 文档和已删除文档；受信任 QA 调用使用项目级知识库池。项目级 retrieval scope 只适用于查询，不适用于文档详情、chunks 或 content 读取。 |
+| 创建知识查询 | 允许，需 `knowledge:read`；`standard` 默认具备该权限，可直接使用知识检索；受信任 QA RAG 调用例外，由 QA 使用权限授权。 | 允许。 | 允许。 | 普通 Knowledge 调用必须过滤无权限知识库、未 ready 文档和已删除文档；受信任 QA 调用使用项目级知识库池。项目级 retrieval scope 只适用于查询，不适用于文档详情、chunks 或 content 读取。 |
 | 管理 parser configs | 不允许。 | 允许，需 `admin:parser-config:write` 或 `admin` 角色。 | 允许。 | 公开入口为 `/api/v1/admin/parser-configs/**`。 |
 
 ## 服务间调用矩阵

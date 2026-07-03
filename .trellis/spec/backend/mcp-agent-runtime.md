@@ -417,10 +417,10 @@ answer_from_knowledge -> Bridge retrieval -> KNOWLEDGE_AI_GATEWAY_URL chat
 
 ### 1. Scope / Trigger
 
-- Trigger: changing QA long-term RAG scope, QA `defaultKnowledgeBaseIds`,
-  Knowledge MCP search behavior, Knowledge `knowledge-queries`, citation
-  generation, citation source visibility checks, Auth role seeds, or runtime
-  identity configuration.
+- Trigger: changing QA long-term RAG scope, QA retrieval test authorization, QA
+  `defaultKnowledgeBaseIds`, Knowledge MCP search behavior, Knowledge
+  `knowledge-queries`, citation generation, citation source visibility checks,
+  Auth role seeds, or runtime identity configuration.
 - QA owns user-facing permission to ask questions. Knowledge owns persistent
   knowledge bases, documents, parsing, embedding, and retrieval execution.
 - Session attachments are a separate temporary QA context source and must not be
@@ -456,6 +456,17 @@ X-User-Permissions: <gateway/auth permissions, including knowledge:read for stan
 X-Request-Id: <optional request id>
 ```
 
+QA retrieval test runs use the QA resource:
+
+```text
+POST /internal/v1/retrieval-test-runs
+GET  /internal/v1/retrieval-test-runs/{testRunId}
+X-Service-Token: <internal service token>
+X-User-Id: <authenticated QA user>
+X-User-Permissions: <gateway/auth permissions, including qa:use for standard users>
+X-Request-Id: <optional request id>
+```
+
 Knowledge runtime identity configuration:
 
 ```text
@@ -483,7 +494,11 @@ KNOWLEDGE_MCP_USER_ID defaults to knowledge_mcp_service
   retrieve through QA's trusted path.
 - In this project, Auth grants `knowledge:read` to the `standard` role so
   normal users can open cited Knowledge sources through the regular document,
-  chunk, and content APIs.
+  chunk, and content APIs, and so they can use direct
+  `/api/v1/knowledge-queries` retrieval.
+- In this project, Auth grants `qa:use` to the `standard` role so normal users
+  can create and read their own QA retrieval test runs. QA settings, LLM
+  connection tests, and QA metrics remain management-only resources.
 - Knowledge management APIs keep normal `knowledge:read` / `knowledge:write`
   authorization. Only trusted QA retrieval uses
   `X-Knowledge-Retrieval-Scope: project`.
@@ -508,7 +523,11 @@ KNOWLEDGE_MCP_USER_ID defaults to knowledge_mcp_service
 | Condition | Required result |
 | --- | --- |
 | Direct Knowledge caller lacks `knowledge:read` and has no trusted QA project scope header | `403 forbidden`. |
+| Standard user with `knowledge:read` calls direct `knowledge-queries` | Retrieval proceeds through the normal Knowledge read path. |
 | Trusted QA caller has project scope header and user lacks `knowledge:read` | Retrieval proceeds under project runtime identity. |
+| QA user with `qa:use` creates a retrieval test run | QA stores a user-owned retrieval test and calls Knowledge retrieval without exposing settings secrets. |
+| QA retrieval test caller lacks `qa:use` | `403 forbidden`. |
+| Caller reads another user's retrieval test run | `404 not_found` through repository owner filtering. |
 | QA citation source check sends project scope header | Contract violation; source checks must use user-scoped document read. |
 | QA citation source lacks `knowledgeBaseId` or `documentId` | Source availability is false; do not call Knowledge. |
 | Standard user opens cited source and has `knowledge:read` | Knowledge returns document/content through normal read authorization. |
@@ -523,8 +542,10 @@ KNOWLEDGE_MCP_USER_ID defaults to knowledge_mcp_service
   project pool.
 - Good: QA config has `defaultKnowledgeBaseIds=["kb_a"]`; direct and MCP
   retrieval both use only `kb_a` unless the request supplies a subset.
-- Base: Knowledge management UI calls the same `knowledge-queries` endpoint with
-  `knowledge:read`; it keeps user-scoped management authorization.
+- Base: Knowledge search UI calls the same `knowledge-queries` endpoint with
+  `knowledge:read`; it keeps user-scoped read authorization.
+- Base: QA retrieval test UI calls `retrieval-test-runs` with `qa:use`; it does
+  not require `qa:settings:*` and cannot read full QA settings or metrics.
 - Base: QA citation lookup calls Knowledge document detail with
   `knowledgeBaseId` and user permissions; no project scope header is present.
 - Bad: require the end user's `knowledge:read` for QA answers, use the end user's
@@ -548,6 +569,11 @@ KNOWLEDGE_MCP_USER_ID defaults to knowledge_mcp_service
   bypass document read authorization.
 - Auth migration tests or review: `standard` has `knowledge:read` after all
   migrations, including existing databases upgraded by the patch migration.
+- QA HTTP tests: `retrieval-test-runs` accepts `qa:use`, rejects callers without
+  `qa:use`, and reads runs through owner-filtered repository calls.
+- Frontend route tests: direct knowledge search requires `knowledge:read`, QA
+  retrieval test requires `qa:use`, and admin-only settings routes still require
+  settings/admin authorities.
 - Knowledge MCP/QA manager tests: MCP `search_knowledge` can omit IDs for global
   scope and receives injected narrowed IDs when QA scope is non-empty.
 

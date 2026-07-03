@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { apiClient, ApiError } from './client'
 import {
   getDocumentContent,
+  getDocumentContentFromEndpoint,
   listChunks,
   listDocuments,
   listKnowledgeBases,
@@ -163,6 +164,29 @@ describe('knowledge gateway API', () => {
       'http://gateway.test/api/v1/documents/doc-1/content?knowledgeBaseId=kb-1',
     )
     expect(contentRequest.headers.get('Accept')).toContain('application/octet-stream')
+  })
+
+  it('downloads citation sources from QA-provided Gateway endpoints', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response('citation-source', {
+        headers: { 'Content-Type': 'application/octet-stream' },
+        status: 200,
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      (
+        await getDocumentContentFromEndpoint('/api/v1/documents/doc-1/content?knowledgeBaseId=kb-1')
+      ).text(),
+    ).resolves.toBe('citation-source')
+
+    const request = fetchMock.mock.calls[0]?.[0]
+    expect(request).toBeInstanceOf(Request)
+    if (!(request instanceof Request)) throw new Error('expected Request')
+    expect(request.url).toBe(
+      'http://gateway.test/api/v1/documents/doc-1/content?knowledgeBaseId=kb-1',
+    )
   })
 
   it('posts knowledge-queries and preserves Gateway error details on failure', async () => {

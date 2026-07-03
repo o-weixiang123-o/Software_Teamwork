@@ -116,7 +116,7 @@ describe('AppLayout accessibility smoke', () => {
     const helpButton = screen.getByRole('button', { name: '打开帮助' })
     const logoutButton = screen.getByRole('button', { name: '退出登录' })
 
-    expect(navLinks).toHaveLength(3)
+    expect(navLinks).toHaveLength(5)
     navLinks.forEach((link) => {
       expect(link).toHaveAccessibleName(/.+/)
     })
@@ -133,9 +133,17 @@ describe('AppLayout accessibility smoke', () => {
     await keyboard.tab()
     expect(navLinks[1]).toHaveFocus()
     await keyboard.keyboard('{Enter}')
-    expect(routerMocks.navigate).toHaveBeenCalledWith({ to: '/reports' })
+    expect(routerMocks.navigate).toHaveBeenCalledWith({ to: '/qa/retrieval-test' })
     await keyboard.tab()
     expect(navLinks[2]).toHaveFocus()
+    await keyboard.keyboard('{Enter}')
+    expect(routerMocks.navigate).toHaveBeenCalledWith({ to: '/knowledge/search' })
+    await keyboard.tab()
+    expect(navLinks[3]).toHaveFocus()
+    await keyboard.keyboard('{Enter}')
+    expect(routerMocks.navigate).toHaveBeenCalledWith({ to: '/reports' })
+    await keyboard.tab()
+    expect(navLinks[4]).toHaveFocus()
     await keyboard.tab()
     expect(helpButton).toHaveFocus()
     await keyboard.tab()
@@ -161,6 +169,8 @@ describe('AppLayout accessibility smoke', () => {
 
     const nav = screen.getByRole('navigation')
     expect(within(nav).getByRole('link', { name: '问答' })).toBeVisible()
+    expect(within(nav).getByRole('link', { name: '检索测试' })).toBeVisible()
+    expect(within(nav).getByRole('link', { name: '知识' })).toBeVisible()
     expect(within(nav).queryByRole('link', { name: '管理' })).not.toBeInTheDocument()
   })
 

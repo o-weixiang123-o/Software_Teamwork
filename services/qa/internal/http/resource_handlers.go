@@ -215,7 +215,7 @@ func (s *Server) handleProfileConnectionTest(w http.ResponseWriter, r *http.Requ
 	writeData(w, r, http.StatusCreated, value)
 }
 func (s *Server) handleCreateRetrievalTest(w http.ResponseWriter, r *http.Request) {
-	user, ok := s.requireSettingsPermission(w, r, "qa:settings:write")
+	user, ok := s.requirePermission(w, r, "qa:use", "QA retrieval test access is forbidden")
 	if !ok {
 		return
 	}
@@ -232,7 +232,7 @@ func (s *Server) handleCreateRetrievalTest(w http.ResponseWriter, r *http.Reques
 	writeData(w, r, http.StatusCreated, value)
 }
 func (s *Server) handleGetRetrievalTest(w http.ResponseWriter, r *http.Request) {
-	user, ok := s.requireSettingsPermission(w, r, "qa:settings:read")
+	user, ok := s.requirePermission(w, r, "qa:use", "QA retrieval test access is forbidden")
 	if !ok {
 		return
 	}

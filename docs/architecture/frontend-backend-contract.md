@@ -194,13 +194,13 @@ Auth 公开资源族包括：
 
 知识库管理、文档处理状态、切片详情、原始文件内容和知识检索已经进入 gateway OpenAPI。前端只能调用 gateway active paths，不能直接调用 `services/knowledge`。逐项 method/path/schema 以 [`docs/services/gateway/api/public.openapi.yaml`](../services/gateway/api/public.openapi.yaml) 和 [Gateway Active API Owner Map](../services/gateway/docs/active-api-owner-map.md) 为准；本文只规定跨前后端协作规则。
 
-Knowledge 公开资源族包括 `knowledge-bases`、知识库下的 `documents`、独立 `documents` 子资源、`documents/{documentId}/chunks`、`documents/{documentId}/content` 和 `knowledge-queries`。检索使用 `knowledge-queries` 资源，不使用 `/search`、`/retrieval/search` 或其他动作路径。返回字段、分页结构和错误响应以 Gateway OpenAPI 为准。
+Knowledge 公开资源族包括 `knowledge-bases`、知识库下的 `documents`、独立 `documents` 子资源、`documents/{documentId}/chunks`、`documents/{documentId}/content` 和 `knowledge-queries`。检索使用 `knowledge-queries` 资源，不使用 `/search`、`/retrieval/search` 或其他动作路径。`standard` 默认具备 `knowledge:read`，可以直接使用前端知识检索入口；知识库创建、文档管理和 parser config 仍按 Knowledge 管理权限控制。返回字段、分页结构和错误响应以 Gateway OpenAPI 为准。
 
 ## QA 接口
 
 智能问答会话、消息、回答运行、引用、配置、检索体验测试和统计已经进入 gateway OpenAPI。前端只能调用 gateway active paths，不能直接调用 `services/qa` 或 AI Gateway。逐项 method/path/schema 以 Gateway OpenAPI 和 owner map 为准。
 
-QA 公开资源族包括 `qa-sessions`、会话下的 `messages` 和 `events`、`response-runs`、消息引用和引用 lookup、QA/LLM 配置版本、连接测试、检索体验测试和 `qa-metrics`。前端只展示 QA 返回的 `thinking` / `reasoning.step` 安全摘要和 tool-call summary，不展示或缓存完整 prompt、私有 chain-of-thought、MCP 原始参数/结果、内部 URL、provider 原始错误或存储 object key。
+QA 公开资源族包括 `qa-sessions`、会话下的 `messages` 和 `events`、`response-runs`、消息引用和引用 lookup、QA/LLM 配置版本、连接测试、检索体验测试和 `qa-metrics`。检索体验测试是普通 QA 使用能力，`standard` 通过 `qa:use` 可创建和查看自己的测试运行；QA/LLM settings、LLM connection test 和 metrics 仍是管理面。前端只展示 QA 返回的 `thinking` / `reasoning.step` 安全摘要和 tool-call summary，不展示或缓存完整 prompt、私有 chain-of-thought、MCP 原始参数/结果、内部 URL、provider 原始错误或存储 object key。
 
 > **管理员配置例外**：管理员 QA config 端点（`GET/POST /api/v1/qa-config-versions`）是可返回完整 `systemPrompt` 的唯一公开资源，仅限持有 `qa:settings:read`/`qa:settings:write` 权限的管理员客户端访问。普通 QA 会话/消息/SSE/工具摘要/错误/日志/指标仍然禁止返回完整提示词。
 

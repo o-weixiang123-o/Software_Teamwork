@@ -396,6 +396,7 @@ paths:
     post:
       tags: [RetrievalTests]
       summary: Create QA retrieval test run
+      description: Creates a QA retrieval test run owned by the authenticated user. Standard users with `qa:use` may run retrieval tests; settings and metrics remain management-only resources.
       requestBody:
         required: true
         content:
@@ -415,6 +416,7 @@ paths:
     get:
       tags: [RetrievalTests]
       summary: Get QA retrieval test run
+      description: Returns a retrieval test run owned by the authenticated user.
       parameters:
         - $ref: '#/components/parameters/TestRunId'
       responses:

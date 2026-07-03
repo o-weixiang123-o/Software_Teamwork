@@ -21,7 +21,7 @@
 | `admin` | `knowledge:*`、`document:*`、`report:*`、`qa:use` | `admin:model-profile:write`、`admin:parser-config:write`、`qa:settings:read`、`qa:settings:write` | `system:admin`。 |
 | `super_admin` | 与 `admin` 相同。 | 与 `admin` 相同。 | `system:admin`。 |
 
-上表按 `0002` 基础 seed、`0003` QA settings 权限和 `0004` 标准用户报告/文档增量迁移全部应用后的有效默认授权维护；不要只按单个基础 seed 文件判断运行时权限。`*` 表示当前迁移中该领域的 read/write/update/delete/upload 等已列权限集合，不表示通配符权限实现。
+上表按 `0002` 基础 seed、`0003` QA settings 权限、`0004` 标准用户报告/文档增量迁移和 `0006` 标准用户知识读权限补丁迁移全部应用后的有效默认授权维护；不要只按单个基础 seed 文件判断运行时权限。`standard` 默认可直接调用 `knowledge-queries`（`knowledge:read`）并使用 QA/检索测试（`qa:use`），但不能读取 QA settings、metrics 或模型/provider 管理配置。`*` 表示当前迁移中该领域的 read/write/update/delete/upload 等已列权限集合，不表示通配符权限实现。
 
 ## API 权限矩阵
 

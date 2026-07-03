@@ -616,7 +616,9 @@ paths:
       summary: Create knowledge query
       operationId: createKnowledgeQuery
       x-owner-service: knowledge
-      description: Run a resource-mode knowledge retrieval query. Query execution is modeled as creating a knowledge-query resource, not as an action-style search path. Empty or uncreated runtime indexes return 201 with an empty results array. Invalid dataset combinations, document filters, or metadata filters return validation_error. Missing or hidden knowledge bases return not_found. Runtime retrieval, model, or index infrastructure failures return dependency_error.
+      x-required-permissions:
+      - knowledge:read
+      description: Run a resource-mode knowledge retrieval query. Query execution is modeled as creating a knowledge-query resource, not as an action-style search path. Standard users have `knowledge:read` by default and may use this retrieval endpoint directly. Empty or uncreated runtime indexes return 201 with an empty results array. Invalid dataset combinations, document filters, or metadata filters return validation_error. Missing or hidden knowledge bases return not_found. Runtime retrieval, model, or index infrastructure failures return dependency_error.
       requestBody:
         required: true
         content:
@@ -2649,7 +2651,9 @@ paths:
       summary: Create QA retrieval test run
       operationId: createQARetrievalTestRun
       x-owner-service: qa
-      description: Creates an administrator retrieval experience test for QA settings. Knowledge retrieval remains owned by the knowledge service; QA stores the test run and sanitized result snapshot.
+      x-required-permissions:
+      - qa:use
+      description: Creates a QA retrieval experience test for the authenticated user. Standard users with `qa:use` may run retrieval tests; QA settings, metrics, and model connection tests remain management-only resources. Knowledge retrieval remains owned by the knowledge service; QA stores the test run and sanitized result snapshot.
       requestBody:
         required: true
         content:
@@ -2681,6 +2685,9 @@ paths:
       summary: Get QA retrieval test run
       operationId: getQARetrievalTestRun
       x-owner-service: qa
+      x-required-permissions:
+      - qa:use
+      description: Returns a QA retrieval test run owned by the authenticated user.
       responses:
         '200':
           description: QA retrieval test run.

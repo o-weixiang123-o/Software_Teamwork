@@ -16,6 +16,18 @@ describe('shared access requirements', () => {
     expect(canAccess(businessUser, adminShellAccess)).toBe(false)
   })
 
+  it('does not grant the admin shell to ordinary retrieval permissions', () => {
+    expect(
+      canAccess(
+        {
+          ...businessUser,
+          permissions: ['knowledge:read', 'qa:use'],
+        },
+        adminShellAccess,
+      ),
+    ).toBe(false)
+  })
+
   it('grants the admin shell to report authorities used by admin report routes', () => {
     expect(
       canAccess(

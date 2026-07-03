@@ -109,9 +109,9 @@ export function KnowledgeChunksPage({
   // ── Fetch document info and KB name ──
 
   useEffect(() => {
-    if (!documentId) {
+    if (!documentId || !knowledgeBaseId) {
       setDocLoading(false)
-      setDocError('缺少文档 ID 参数')
+      setDocError('缺少文档 ID 或知识库 ID 参数')
       return
     }
     if (!knowledgeBaseId) {

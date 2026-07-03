@@ -409,21 +409,21 @@ Knowledge 长期知识库。长期知识库检索通过内置 `search_knowledge`
 
 **Owner**：`qa`，正式知识检索仍由 `knowledge` 执行。
 **触发入口**：`POST /api/v1/retrieval-test-runs`、`GET /api/v1/retrieval-test-runs/{testRunId}`、`/api/v1/qa-metrics/**`。
-**参与方**：管理员、`gateway`、`qa`、QA PostgreSQL、`knowledge`。
+**参与方**：具备 `qa:use` 的用户、`gateway`、`qa`、QA PostgreSQL、`knowledge`。
 
 **正常路径**
 
-1. 管理员发起检索体验测试。
+1. 用户发起检索体验测试。
 2. QA 使用当前 QA config 或请求参数构造 Knowledge query；retrieval 测试不得暴露完整 `systemPrompt`。
 3. QA 调 Knowledge retrieval client。
 4. QA 保存测试 run 和脱敏结果快照。
-5. 管理员查询 test run 或 QA metrics。
+5. 用户查询自己的 test run；管理员查询 QA metrics。
 
 **条件分支**
 
 | 分类 | 分支 |
 | --- | --- |
-| Permission | QA 配置、检索测试和指标权限见 [QA 权限矩阵](../services/qa/docs/permission-matrix.md)。 |
+| Permission | QA 检索测试需 `qa:use` 并按发起用户 owner 过滤；QA 配置和指标权限见 [QA 权限矩阵](../services/qa/docs/permission-matrix.md)。 |
 | Request | query、knowledgeBaseIds、threshold、topK 合法 vs validation_error。 |
 | Resource | QA config 不存在、知识库不存在、无命中、testRun 不存在。 |
 | Dependency | Knowledge 返回 dependency_error、timeout、validation/forbidden/not_found。 |

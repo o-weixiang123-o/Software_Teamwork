@@ -26,7 +26,7 @@ type TestThinkingStep = QAThinkingStep & {
 }
 
 const lookupCitations = vi.fn<(ids: string[]) => Promise<QACitationDetail[]>>()
-const getDocumentContent = vi.fn<(documentId: string, knowledgeBaseId: string) => Promise<Blob>>()
+const getDocumentContentFromEndpoint = vi.fn<(downloadEndpoint: string) => Promise<Blob>>()
 const downloadFromUrl = vi.fn()
 
 vi.mock('@/api/citations', () => ({
@@ -34,8 +34,8 @@ vi.mock('@/api/citations', () => ({
 }))
 
 vi.mock('@/api/knowledge', () => ({
-  getDocumentContent: (documentId: string, knowledgeBaseId: string) =>
-    getDocumentContent(documentId, knowledgeBaseId),
+  getDocumentContentFromEndpoint: (downloadEndpoint: string) =>
+    getDocumentContentFromEndpoint(downloadEndpoint),
 }))
 
 vi.mock('@/lib/download', () => ({
@@ -495,7 +495,10 @@ describe('ChatMessages citations', () => {
         content: '完整原文内容',
         context: '上下文内容',
         pageNumber: 7,
-        source: { available: true, downloadEndpoint: '/api/v1/documents/doc-1/content' },
+        source: {
+          available: true,
+          downloadEndpoint: '/api/v1/documents/doc-1/content?knowledgeBaseId=kb-1',
+        },
       },
     ])
 
@@ -511,10 +514,13 @@ describe('ChatMessages citations', () => {
       {
         ...citation(),
         content: '完整原文内容',
-        source: { available: true, downloadEndpoint: '/api/v1/documents/doc-1/content' },
+        source: {
+          available: true,
+          downloadEndpoint: '/api/v1/documents/doc-1/content?knowledgeBaseId=kb-1',
+        },
       },
     ])
-    getDocumentContent.mockResolvedValueOnce(new Blob(['source']))
+    getDocumentContentFromEndpoint.mockResolvedValueOnce(new Blob(['source']))
     vi.stubGlobal('URL', {
       createObjectURL: vi.fn(() => 'blob:source'),
       revokeObjectURL: vi.fn(),
@@ -525,7 +531,9 @@ describe('ChatMessages citations', () => {
     fireEvent.click(await screen.findByRole('button', { name: '下载原文' }))
 
     await waitFor(() => {
-      expect(getDocumentContent).toHaveBeenCalledWith('doc-1', 'kb-1')
+      expect(getDocumentContentFromEndpoint).toHaveBeenCalledWith(
+        '/api/v1/documents/doc-1/content?knowledgeBaseId=kb-1',
+      )
       expect(downloadFromUrl).toHaveBeenCalledWith('blob:source', 'Transformer Manual.pdf')
     })
     expect(URL.revokeObjectURL).not.toHaveBeenCalled()

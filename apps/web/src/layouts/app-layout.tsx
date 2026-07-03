@@ -29,6 +29,8 @@ import { usePageTransitionStore } from '@/stores/page-transition-store'
 
 const pathLabels: Record<string, string> = {
   '/chat': '智能问答',
+  '/qa': '智能问答',
+  '/knowledge': '知识检索',
   '/reports': '报告生成',
   '/admin': '系统管理',
   '/profile': '个人资料',
@@ -37,10 +39,12 @@ const pathLabels: Record<string, string> = {
 
 const navItems: Array<{
   label: string
-  to: '/chat' | '/reports' | '/admin'
+  to: '/chat' | '/qa/retrieval-test' | '/knowledge/search' | '/reports' | '/admin'
   requirement?: PermissionRequirement
 }> = [
   { label: '问答', to: '/chat', requirement: { any: ['qa:use'] } },
+  { label: '检索测试', to: '/qa/retrieval-test', requirement: { any: ['qa:use'] } },
+  { label: '知识', to: '/knowledge/search', requirement: { any: ['knowledge:read'] } },
   {
     label: '报告',
     to: '/reports',
@@ -100,9 +104,13 @@ export function AppLayout({ children }: PropsWithChildren) {
   useEffect(() => {
     const id = pathname.startsWith('/chat')
       ? '/chat'
-      : pathname.startsWith('/reports')
-        ? '/reports'
-        : '/admin'
+      : pathname.startsWith('/qa/retrieval-test')
+        ? '/qa/retrieval-test'
+        : pathname.startsWith('/knowledge')
+          ? '/knowledge/search'
+          : pathname.startsWith('/reports')
+            ? '/reports'
+            : '/admin'
     const raf = requestAnimationFrame(() => {
       const el = navRefs.current[id]
       if (el) {

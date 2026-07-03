@@ -60,7 +60,7 @@ export function useDocument(id: string, knowledgeBaseId: string) {
   return useQuery({
     queryKey: documentKeys.detail(id, knowledgeBaseId),
     queryFn: () => getDocument(id, knowledgeBaseId),
-    enabled: id.length > 0 && knowledgeBaseId.length > 0,
+    enabled: Boolean(id && knowledgeBaseId),
   })
 }
 
@@ -70,7 +70,7 @@ export function useChunks(documentId: string, knowledgeBaseId: string, page = 1,
     queryKey: documentKeys.chunkPage(documentId, knowledgeBaseId, page, pageSize),
     queryFn: () => listChunks(documentId, knowledgeBaseId, { page, pageSize }),
     placeholderData: (prev) => prev,
-    enabled: Boolean(documentId) && Boolean(knowledgeBaseId),
+    enabled: Boolean(documentId && knowledgeBaseId),
   })
 }
 
@@ -79,7 +79,7 @@ export function useDocumentContent(documentId: string, knowledgeBaseId: string) 
   return useQuery({
     queryKey: documentKeys.content(documentId, knowledgeBaseId),
     queryFn: () => getDocumentContent(documentId, knowledgeBaseId),
-    enabled: Boolean(documentId) && Boolean(knowledgeBaseId),
+    enabled: Boolean(documentId && knowledgeBaseId),
     staleTime: Infinity,
   })
 }

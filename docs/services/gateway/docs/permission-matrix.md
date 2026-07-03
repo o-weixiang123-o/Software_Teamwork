@@ -25,10 +25,10 @@
 | 当前用户资料 | `/api/v1/users/me/profile` | `bearerAuth` | 校验 session cache，使用 Gateway 专用 Auth token 转发当前用户上下文。 | `auth` 只允许当前用户编辑 `displayName`、`email`、`phone`。 |
 | 当前用户必需改密 | `POST /api/v1/users/me/password-changes` | `bearerAuth` | 只允许已认证用户完成改密所需调用，使用 Gateway 专用 Auth token 转发；成功后刷新当前用户状态。 | `auth` 校验当前临时密码、更新密码哈希并清除 `must_change_password`。 |
 | 管理端用户管理 | `/api/v1/admin/users/**` | `bearerAuth` | 限制为 `admin` / `super_admin` 角色入口，使用 Gateway 专用 Auth admin service token 转发调用方身份和 request id；裸 `system:admin` 权限不提升用户管理层级。 | `auth` 复核 Auth-owned 角色、管理范围、列表过滤、创建、禁用/启用、单角色替换、密码重置和会话刷新。 |
-| Knowledge 资源 | `/api/v1/knowledge-bases/**`、`/api/v1/documents/**`、`/api/v1/knowledge-queries` | `bearerAuth` | 注入用户上下文，统一 envelope。 | `knowledge` 校验知识库、文档、查询范围和可见性。 |
+| Knowledge 资源 | `/api/v1/knowledge-bases/**`、`/api/v1/documents/**`、`/api/v1/knowledge-queries` | `bearerAuth` | 注入用户上下文，统一 envelope；标准用户默认有 `knowledge:read`，可直接使用 `knowledge-queries` 检索。 | `knowledge` 校验知识库、文档、查询范围和可见性。 |
 | 管理端 parser config | `/api/v1/admin/parser-configs/**` | `bearerAuth` | 只允许带认证上下文的管理员入口。 | `knowledge` 校验 `admin` / `super_admin` 或 `admin:parser-config:write`。 |
 | 管理端 model profile | `/api/v1/admin/model-profiles/**` | `bearerAuth` | 只允许带认证上下文的管理员入口，不保存 API key。 | `ai-gateway` 保存配置；Gateway 应要求管理员角色或 `admin:model-profile:write`。 |
-| QA 资源 | `/api/v1/qa-sessions/**`、`/api/v1/response-runs/**`、`/api/v1/citations/**`、QA attachments、QA settings、retrieval tests、metrics | `bearerAuth` | 注入用户上下文，转发 SSE 和普通响应；QA/LLM settings 端点必须具备 `qa:settings:read` / `qa:settings:write` 或等价管理权限，且是唯一可返回完整 `systemPrompt` 的公开面。 | `qa` 校验 owner、管理员配置权限、附件归属和工具权限裁剪；普通 QA 公开资源不得返回完整提示词。 |
+| QA 资源 | `/api/v1/qa-sessions/**`、`/api/v1/response-runs/**`、`/api/v1/citations/**`、QA attachments、retrieval tests、QA settings、metrics | `bearerAuth` | 注入用户上下文，转发 SSE 和普通响应；检索测试随 `qa:use` 对普通用户开放；QA/LLM settings 和 metrics 端点必须具备对应管理权限，且 settings 是唯一可返回完整 `systemPrompt` 的公开面。 | `qa` 校验 owner、检索测试发起人、管理员配置权限、附件归属和工具权限裁剪；普通 QA 公开资源不得返回完整提示词。 |
 | Document 资源 | `/api/v1/report-*`、`/api/v1/reports/**` | `bearerAuth` | 注入用户上下文，统一 envelope。 | `document` 校验 owner、报告权限、管理员 settings 权限。 |
 | 管理概览和指标 | `/api/v1/admin/overview`、`/api/v1/admin/metrics` | `bearerAuth` | 聚合读入口，应限制为 `admin` / `super_admin` 或等价管理权限。 | 各 owner service 仍只暴露自己的安全指标。 |
 

@@ -18,7 +18,6 @@ import { KnowledgeManagement } from '@/pages/admin/knowledge-management'
 import { ModelProfilesPage } from '@/pages/admin/model-profiles'
 import { AdminPage } from '@/pages/admin/page'
 import { ParserConfigsPage } from '@/pages/admin/parser-configs'
-import { QARetrievalTestPage } from '@/pages/admin/qa-retrieval-test'
 import { QASettings } from '@/pages/admin/qa-settings'
 import { QASystemPromptPage } from '@/pages/admin/qa-system-prompt'
 import { StatsOverviewPage } from '@/pages/admin/stats-overview'
@@ -32,6 +31,7 @@ import { LoginPage } from '@/pages/login/page'
 import { PasswordChangeRequiredPage } from '@/pages/password/change-required'
 import { ProfilePage } from '@/pages/profile/page'
 import { ChatPage } from '@/pages/qa/chat/page'
+import { QARetrievalTestPage } from '@/pages/qa/retrieval-test/page'
 import { ReportGeneratePage } from '@/pages/reports/generate/page'
 import { ReportRecordsPage } from '@/pages/reports/records/page'
 import { ReportTemplatesPage } from '@/pages/reports/templates/page'
@@ -101,6 +101,10 @@ async function redirectToAppHome() {
     throw redirect({ to: '/chat' })
   }
 
+  if (canAccess(store.user, knowledgeReadAccess)) {
+    throw redirect({ to: '/knowledge/search' })
+  }
+
   if (canAccess(store.user, reportWriteAccess)) {
     throw redirect({ to: '/reports/generate' })
   }
@@ -168,6 +172,7 @@ const reportAccess: PermissionRequirement = {
   any: ['report:read', 'report:write', 'reports:write'],
 }
 const reportWriteAccess: PermissionRequirement = { any: ['report:write', 'reports:write'] }
+const knowledgeReadAccess: PermissionRequirement = { any: ['knowledge:read'] }
 const knowledgeWriteAccess: PermissionRequirement = { any: ['knowledge:write'] }
 const adminUsersAccess: PermissionRequirement = {
   roles: ['admin', 'super_admin'],
@@ -235,6 +240,19 @@ const chatRoute = createRoute({
   component: ChatPage,
 })
 
+const qaRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: 'qa',
+  beforeLoad: requireAuth(qaAccess),
+  component: Outlet,
+})
+
+const qaRetrievalTestRoute = createRoute({
+  getParentRoute: () => qaRoute,
+  path: 'retrieval-test',
+  component: QARetrievalTestPage,
+})
+
 const reportsRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: 'reports',
@@ -266,6 +284,19 @@ const reportTemplatesRoute = createRoute({
   path: 'templates',
   beforeLoad: requireAuth(reportWriteAccess),
   component: ReportTemplatesPage,
+})
+
+const knowledgeRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: 'knowledge',
+  beforeLoad: requireAuth(knowledgeReadAccess),
+  component: Outlet,
+})
+
+const knowledgeSearchRoute = createRoute({
+  getParentRoute: () => knowledgeRoute,
+  path: 'search',
+  component: KnowledgeSearchPage,
 })
 
 const adminRoute = createRoute({
@@ -457,12 +488,14 @@ const routeTree = rootRoute.addChildren([
     forbiddenRoute,
     profileRoute,
     chatRoute,
+    qaRoute.addChildren([qaRetrievalTestRoute]),
     reportsRoute.addChildren([
       reportsIndexRoute,
       reportGenerateRoute,
       reportRecordsRoute,
       reportTemplatesRoute,
     ]),
+    knowledgeRoute.addChildren([knowledgeSearchRoute]),
     adminRoute.addChildren([
       adminIndexRoute,
       adminKnowledgeRoute,
