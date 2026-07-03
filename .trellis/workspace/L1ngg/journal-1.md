@@ -546,3 +546,37 @@ Resolved PR #440 Codex review findings, rebased onto latest upstream/develop, ve
 ### Next Steps
 
 - None - task complete
+
+
+## Session 17: Fix Knowledge compatibility debt
+
+**Date**: 2026-07-03
+**Task**: Fix Knowledge compatibility debt
+**Branch**: `L1nggTeam/feat/ragflow-runtime-vendor`
+
+### Summary
+
+Removed Knowledge runtime compatibility debt: explicit document dataset context, stricter chunkStrategy validation, stable vendor error mapping, runtime auth and tenant provisioning guardrails, contained dataset-scope task IDs, skipped empty embedding chunks, bounded metadata fallback, and updated API/docs/spec tests.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6e9138df` | (see git log) |
+| `a18ee9f3` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
