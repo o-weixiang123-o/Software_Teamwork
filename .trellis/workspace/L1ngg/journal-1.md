@@ -747,3 +747,37 @@ Implemented File service production hardening: streaming upload with checksum, n
 ### Next Steps
 
 - None - task complete
+
+
+## Session 22: Archive AI Gateway runtime tasks
+
+**Date**: 2026-07-04
+**Task**: Archive AI Gateway runtime tasks
+**Branch**: `L1nggTeam/feat/ragflow-runtime-vendor`
+
+### Summary
+
+Archived the completed Knowledge runtime AI Gateway integration task and AI Gateway profile authority cleanup task after confirming their work commits and leaving the local uv.lock mirror rewrite uncommitted.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9dc4d945` | (see git log) |
+| `24c35efa` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
