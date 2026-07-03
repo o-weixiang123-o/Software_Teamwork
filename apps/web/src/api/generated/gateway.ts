@@ -2853,7 +2853,7 @@ export interface components {
             requestId: string;
         };
         /** @enum {string} */
-        QASseEventType: "message.created" | "agent.iteration.started" | "reasoning.step" | "tool.started" | "tool.completed" | "tool.failed" | "answer.delta" | "citation.delta" | "answer.completed" | "error" | "heartbeat";
+        QASseEventType: "message.created" | "agent.iteration.started" | "reasoning.step" | "reasoning.delta" | "tool.started" | "tool.completed" | "tool.failed" | "answer.delta" | "citation.delta" | "answer.completed" | "error" | "heartbeat";
         QASseEvent: {
             eventSeq: number;
             eventType: components["schemas"]["QASseEventType"];

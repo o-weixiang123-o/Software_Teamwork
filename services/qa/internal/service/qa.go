@@ -573,7 +573,9 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 				reasoningBuf.confirmSafe(isReasoningSafe)
 				delta := reasoningBuf.delta()
 				if delta != "" {
-					sanitizedDelta := sanitizeReasoningContent(delta)
+					sanitizedEmitted := sanitizeReasoningContent(string(reasoningBuf.buffer[:reasoningBuf.emittedLength]))
+					sanitizedConfirmed := sanitizeReasoningContent(string(reasoningBuf.buffer[:reasoningBuf.confirmedLength]))
+					sanitizedDelta := sanitizedConfirmed[len(sanitizedEmitted):]
 					if sanitizedDelta != "" {
 						emit("reasoning.delta", map[string]any{"messageId": assistantMessage.ID, "text": sanitizedDelta})
 					}
@@ -726,11 +728,13 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 		finalCitations = revalidateCitationSources(ctx, userID, s.sourceChecker, finalCitations)
 	}
 	assistantMessage.Citations = finalCitations
-	if lastContent != assistantMessage.Content {
+	if len(assistantMessage.Content) >= len(lastContent) && assistantMessage.Content[:len(lastContent)] == lastContent {
 		contentDelta := assistantMessage.Content[len(lastContent):]
 		if contentDelta != "" {
 			emit("answer.delta", map[string]any{"messageId": assistantMessage.ID, "text": contentDelta, "index": 0})
 		}
+	} else if lastContent != assistantMessage.Content {
+		emit("answer.delta", map[string]any{"messageId": assistantMessage.ID, "text": assistantMessage.Content, "index": 0})
 	}
 	emit("answer.completed", map[string]any{
 		"responseRunId": run.ID,
