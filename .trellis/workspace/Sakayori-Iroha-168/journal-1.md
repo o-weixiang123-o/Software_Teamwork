@@ -385,3 +385,36 @@ Updated non-architecture docs and related architecture references after syncing 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 11: Fix PR 536 Docker policy
+
+**Date**: 2026-07-03
+**Task**: Fix PR 536 Docker policy
+**Branch**: `pr-536`
+
+### Summary
+
+Replaced the optional Elasticsearch root Compose build path with a pinned image profile, gated AI Gateway local provider seed behind AI_GATEWAY_LOCAL_SEED_ENABLED, updated Docker policy/docs/tests, and verified PR policy-check passes.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a5b4402a` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
