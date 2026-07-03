@@ -26,12 +26,13 @@ type Message struct {
 
 func (m *Message) UnmarshalJSON(data []byte) error {
 	var decoded struct {
-		Role            string          `json:"role"`
-		Content         *string         `json:"content"`
+		Role             string          `json:"role"`
+		Content          *string         `json:"content"`
 		ReasoningContent json.RawMessage `json:"reasoning"`
-		ToolCalls       []ToolCall      `json:"tool_calls"`
-		ToolCallID      string          `json:"tool_call_id"`
-		Name            string          `json:"name"`
+		ReasoningContentAlt json.RawMessage `json:"reasoning_content"`
+		ToolCalls        []ToolCall      `json:"tool_calls"`
+		ToolCallID       string          `json:"tool_call_id"`
+		Name             string          `json:"name"`
 	}
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		return err
@@ -45,6 +46,11 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 	if len(decoded.ReasoningContent) > 0 {
 		var reasoningStr string
 		if err := json.Unmarshal(decoded.ReasoningContent, &reasoningStr); err == nil {
+			m.ReasoningContent = reasoningStr
+		}
+	} else if len(decoded.ReasoningContentAlt) > 0 {
+		var reasoningStr string
+		if err := json.Unmarshal(decoded.ReasoningContentAlt, &reasoningStr); err == nil {
 			m.ReasoningContent = reasoningStr
 		}
 	} else {

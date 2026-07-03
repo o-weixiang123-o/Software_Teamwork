@@ -570,16 +570,21 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 				newContent := currentReasoning[len(lastReasoning):]
 				lastReasoning = currentReasoning
 				reasoningBuf.append(newContent)
-				reasoningBuf.confirmSafe(isReasoningSafe)
-				delta := reasoningBuf.delta()
-				if delta != "" {
-					fullSanitized := sanitizeReasoningContent(string(reasoningBuf.buffer))
-					emittedSanitized := sanitizeReasoningContent(string(reasoningBuf.buffer[:reasoningBuf.emittedLength]))
-					sanitizedDelta := fullSanitized[len(emittedSanitized):]
+				fullRaw := string(reasoningBuf.buffer)
+				fullSanitized := sanitizeReasoningContent(fullRaw)
+				maxSafeEnd := 0
+				for i := min(len(fullRaw), len(fullSanitized)); i > 0; i-- {
+					if fullRaw[:i] == fullSanitized[:i] {
+						maxSafeEnd = i
+						break
+					}
+				}
+				if maxSafeEnd > reasoningBuf.emittedLength {
+					sanitizedDelta := fullSanitized[reasoningBuf.emittedLength:maxSafeEnd]
 					if sanitizedDelta != "" {
 						emit("reasoning.delta", map[string]any{"messageId": assistantMessage.ID, "text": sanitizedDelta})
 					}
-					reasoningBuf.markEmitted(len([]rune(delta)))
+					reasoningBuf.emittedLength = maxSafeEnd
 				}
 			} else {
 				lastReasoning = currentReasoning

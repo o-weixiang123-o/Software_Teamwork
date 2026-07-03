@@ -752,6 +752,11 @@ func sanitizeChatCompletionMessage(rawMessage json.RawMessage) (json.RawMessage,
 			sanitized["reasoning"] = reasoning
 		}
 	}
+	if reasoningContent, ok := message["reasoning_content"]; ok {
+		if _, exists := message["reasoning"]; !exists && isJSONStringOrNull(reasoningContent) {
+			sanitized["reasoning"] = reasoningContent
+		}
+	}
 	if toolCalls, ok := message["tool_calls"]; ok {
 		sanitizedToolCalls, valid := sanitizeStreamToolCalls(toolCalls)
 		if !valid {
@@ -825,6 +830,11 @@ func sanitizeStreamDelta(rawDelta json.RawMessage) (json.RawMessage, bool) {
 	if reasoning, ok := delta["reasoning"]; ok {
 		if isJSONStringOrNull(reasoning) {
 			sanitizedDelta["reasoning"] = reasoning
+		}
+	}
+	if reasoningContent, ok := delta["reasoning_content"]; ok {
+		if _, exists := delta["reasoning"]; !exists && isJSONStringOrNull(reasoningContent) {
+			sanitizedDelta["reasoning"] = reasoningContent
 		}
 	}
 	if functionCall, ok := delta["function_call"]; ok {
