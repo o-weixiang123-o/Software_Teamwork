@@ -8,7 +8,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
+	"mime"
+	"net/http"
 	"path"
 	"strings"
 	"time"
@@ -17,6 +20,8 @@ import (
 const (
 	checksumSHA256HexLength = 64
 	storageBackendMemory    = "memory"
+	defaultContentType      = "application/octet-stream"
+	contentSniffBytes       = 512
 )
 
 type FileRepository interface {
@@ -35,11 +40,12 @@ type ObjectStore interface {
 }
 
 type Service struct {
-	repo           FileRepository
-	store          ObjectStore
-	storageBackend string
-	now            func() time.Time
-	newID          func(prefix string) (string, error)
+	repo                FileRepository
+	store               ObjectStore
+	storageBackend      string
+	allowedContentTypes map[string]struct{}
+	now                 func() time.Time
+	newID               func(prefix string) (string, error)
 }
 
 type Option func(*Service)
@@ -83,6 +89,12 @@ func WithIDGenerator(newID func(prefix string) (string, error)) Option {
 	}
 }
 
+func WithAllowedContentTypes(contentTypes []string) Option {
+	return func(s *Service) {
+		s.allowedContentTypes = normalizedContentTypeSet(contentTypes)
+	}
+}
+
 func (s *Service) CreateFile(ctx context.Context, reqCtx RequestContext, input CreateFileInput) (FileObject, error) {
 	if err := validateInternalCaller(reqCtx); err != nil {
 		return FileObject{}, err
@@ -106,24 +118,16 @@ func (s *Service) CreateFile(ctx context.Context, reqCtx RequestContext, input C
 		return FileObject{}, ValidationError("request validation failed", fields)
 	}
 
-	data, err := io.ReadAll(input.Content)
+	prefix, err := readSniffPrefix(input.Content)
 	if err != nil {
 		return FileObject{}, DependencyError("file content read failed", err)
 	}
-	if len(data) == 0 {
+	if len(prefix) == 0 {
 		return FileObject{}, ValidationError("request validation failed", map[string]string{"file": "must not be empty"})
 	}
-	if input.SizeBytes > 0 && int64(len(data)) != input.SizeBytes {
-		return FileObject{}, ValidationError("request validation failed", map[string]string{"file": "size does not match multipart metadata"})
-	}
-
-	computed := sha256.Sum256(data)
-	computedChecksum := hex.EncodeToString(computed[:])
-	if checksum != "" && checksum != computedChecksum {
-		return FileObject{}, ValidationError("request validation failed", map[string]string{"checksumSha256": "does not match file content"})
-	}
-	if checksum == "" {
-		checksum = computedChecksum
+	contentType := effectiveContentType(input.ContentType, prefix)
+	if err := s.validateAllowedContentType(contentType); err != nil {
+		return FileObject{}, err
 	}
 
 	fileID, err := s.newID("file")
@@ -131,14 +135,32 @@ func (s *Service) CreateFile(ctx context.Context, reqCtx RequestContext, input C
 		return FileObject{}, DependencyError("file id generation failed", err)
 	}
 
-	contentType := strings.TrimSpace(input.ContentType)
-	if contentType == "" {
-		contentType = "application/octet-stream"
-	}
-
 	objectKey := "files/" + fileID
-	if err := s.store.Put(ctx, objectKey, bytes.NewReader(data), contentType, int64(len(data))); err != nil {
+	stream := io.MultiReader(bytes.NewReader(prefix), input.Content)
+	tracked := newHashingReader(stream)
+	if err := s.store.Put(ctx, objectKey, tracked, contentType, input.SizeBytes); err != nil {
+		_ = s.store.Delete(ctx, objectKey)
+		if errors.Is(err, ErrConflict) {
+			return FileObject{}, ValidationError("request validation failed", map[string]string{"file": "size does not match multipart metadata"})
+		}
 		return FileObject{}, DependencyError("object storage write failed", err)
+	}
+	sizeBytes := tracked.BytesRead()
+	if sizeBytes == 0 {
+		_ = s.store.Delete(ctx, objectKey)
+		return FileObject{}, ValidationError("request validation failed", map[string]string{"file": "must not be empty"})
+	}
+	if input.SizeBytes > 0 && sizeBytes != input.SizeBytes {
+		_ = s.store.Delete(ctx, objectKey)
+		return FileObject{}, ValidationError("request validation failed", map[string]string{"file": "size does not match multipart metadata"})
+	}
+	computedChecksum := tracked.ChecksumSHA256()
+	if checksum != "" && checksum != computedChecksum {
+		_ = s.store.Delete(ctx, objectKey)
+		return FileObject{}, ValidationError("request validation failed", map[string]string{"checksumSha256": "does not match file content"})
+	}
+	if checksum == "" {
+		checksum = computedChecksum
 	}
 
 	now := s.now()
@@ -146,7 +168,7 @@ func (s *Service) CreateFile(ctx context.Context, reqCtx RequestContext, input C
 		ID:               fileID,
 		Filename:         name,
 		ContentType:      contentType,
-		SizeBytes:        int64(len(data)),
+		SizeBytes:        sizeBytes,
 		ChecksumSHA256:   checksum,
 		StorageBackend:   s.storageBackend,
 		StorageObjectKey: objectKey,
@@ -247,7 +269,7 @@ func (s *Service) GetFileContent(ctx context.Context, reqCtx RequestContext, fil
 		contentType = file.ContentType
 	}
 	if contentType == "" {
-		contentType = "application/octet-stream"
+		contentType = defaultContentType
 	}
 	sizeBytes := object.SizeBytes
 	if sizeBytes < 0 {
@@ -287,6 +309,117 @@ func normalizeSHA256(value string) (string, error) {
 		return "", fmt.Errorf("must be a 64-character hexadecimal SHA-256 value")
 	}
 	return trimmed, nil
+}
+
+func readSniffPrefix(reader io.Reader) ([]byte, error) {
+	buf := make([]byte, contentSniffBytes)
+	n, err := io.ReadFull(reader, buf)
+	if err == nil {
+		return buf, nil
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return buf[:n], nil
+	}
+	return nil, err
+}
+
+func effectiveContentType(declared string, prefix []byte) string {
+	sniffed := normalizeContentType(http.DetectContentType(prefix))
+	if sniffed == "" {
+		sniffed = defaultContentType
+	}
+	declared = normalizeContentType(declared)
+	if declared == "" || declared == defaultContentType {
+		return sniffed
+	}
+	if declared == sniffed {
+		return sniffed
+	}
+	if sniffed == defaultContentType {
+		return defaultContentType
+	}
+	if sniffed == "text/plain" && isDeclaredTextCompatible(declared) {
+		return declared
+	}
+	return sniffed
+}
+
+func normalizeContentType(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return ""
+	}
+	mediaType, _, err := mime.ParseMediaType(trimmed)
+	if err == nil {
+		return strings.ToLower(strings.TrimSpace(mediaType))
+	}
+	mediaType = strings.TrimSpace(strings.SplitN(trimmed, ";", 2)[0])
+	return strings.ToLower(mediaType)
+}
+
+func isDeclaredTextCompatible(contentType string) bool {
+	if strings.HasPrefix(contentType, "text/") {
+		return true
+	}
+	return contentType == "application/json" ||
+		contentType == "application/xml" ||
+		contentType == "application/javascript" ||
+		strings.HasSuffix(contentType, "+json") ||
+		strings.HasSuffix(contentType, "+xml")
+}
+
+func (s *Service) validateAllowedContentType(contentType string) error {
+	if len(s.allowedContentTypes) == 0 {
+		return nil
+	}
+	if _, ok := s.allowedContentTypes[contentType]; ok {
+		return nil
+	}
+	return ValidationError("request validation failed", map[string]string{"contentType": "is not allowed"})
+}
+
+func normalizedContentTypeSet(values []string) map[string]struct{} {
+	if len(values) == 0 {
+		return nil
+	}
+	result := map[string]struct{}{}
+	for _, value := range values {
+		normalized := normalizeContentType(value)
+		if normalized != "" {
+			result[normalized] = struct{}{}
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+type hashingReader struct {
+	reader io.Reader
+	hash   hash.Hash
+	n      int64
+}
+
+func newHashingReader(reader io.Reader) *hashingReader {
+	return &hashingReader{reader: reader, hash: sha256.New()}
+}
+
+func (r *hashingReader) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	if n > 0 {
+		_, _ = r.hash.Write(p[:n])
+		r.n += int64(n)
+	}
+	return n, err
+}
+
+func (r *hashingReader) BytesRead() int64 {
+	return r.n
+}
+
+func (r *hashingReader) ChecksumSHA256() string {
+	return hex.EncodeToString(r.hash.Sum(nil))
 }
 
 func callerService(reqCtx RequestContext) string {
