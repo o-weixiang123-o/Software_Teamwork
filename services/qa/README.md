@@ -323,8 +323,8 @@ Stop the REPL with `exit` or `q`, then press `Ctrl+C` in terminal A.
 
 QA stores state in PostgreSQL and uses Redis for coordination. The canonical
 local start path is the root infra baseline from `deploy/`, which brings up
-`postgres`, `redis`, `qdrant`, `minio`, and `minio-init`. QA itself then runs on
-the host with the pinned `goose@v3.27.1` migration command.
+`postgres`, `redis`, `qdrant`, `minio`, `minio-init`, and `elasticsearch`. QA
+itself then runs on the host with the pinned `goose@v3.27.1` migration command.
 
 Start root infra and apply local migrations/seed from the repository root:
 

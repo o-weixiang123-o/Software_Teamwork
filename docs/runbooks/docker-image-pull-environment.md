@@ -140,7 +140,8 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env.example confi
 
 策略要求：
 
-- 根 Compose 只包含五个基础设施服务。
+- 根 Compose 只包含六个基础设施服务：`postgres`、`redis`、`qdrant`、
+  `minio`、`minio-init`、`elasticsearch`。
 - 根 Compose 不包含 `build:`。
 - 默认镜像不能是 `latest`。
 - `deploy/.env.example` 不能默认启用第三方基础设施镜像 rewrite；大陆网络使用
