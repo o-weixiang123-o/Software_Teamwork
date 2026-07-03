@@ -205,6 +205,15 @@ Gateway OpenAPI 定义 browser-facing schema；本文只记录字段来源和边
 | `error` | 任何环节失败 | 展示错误并决定是否终止流。 | `response_runs.error`、`messages.error_code`。 |
 | `heartbeat` | 空闲保活 | 防止代理超时。 | 可不持久化。 |
 
+当 AI Gateway/provider 路径返回 OpenAI-compatible streaming content chunks 时，QA 会将最终回答的
+`delta.content` 投影为多个有序 `answer.delta` 事件；这些事件拼接后应与最终 assistant answer 一致。
+QA 会先按模型轮次缓存正文增量，确认该轮没有 `tool_calls` 后再释放。包含 `tool_calls` 的模型轮如果也返回
+streamed `delta.content`，这部分内容必须丢弃，不能作为公开 `answer.delta` 发送或持久化；如果模型在没有暴露工具时仍返回
+`tool_calls`，QA 会将其视为无效模型响应。
+如果已经发送的 `answer.delta` 与最终 assistant answer 不一致，QA 必须失败而不是让前端流和落库内容分叉。
+非流式响应或 provider 未返回正文增量时，QA 保留兼容 fallback：在完成前发送一个包含最终回答的
+`answer.delta`。
+
 历史事件名 `intent`、`step`、`token`、`citation`、`done` 可以作为迁移前兼容别名，但新 Agent 契约应优先使用上表事件。`heartbeat` 是传输层事件，不要求持久化。
 
 SSE 不得返回完整工具参数、完整 MCP tool result、内部 URL、原始文档全文、系统/开发者提示词、API key、provider 原始错误或私有 chain-of-thought。`reasoning.step` 仅表示可展示流程/工具步骤摘要；`reasoning.delta` 仅用于 provider 明确暴露且经安全过滤的 reasoning text，两者不得混用语义。

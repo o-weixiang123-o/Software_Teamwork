@@ -177,6 +177,26 @@ func (r cancelAfterCompletedRunner) RunWithToolResultCallback(ctx context.Contex
 	return r.RunWithObserver(ctx, input, observer)
 }
 
+type cancelAfterCompletedCitationRunner struct{ cancel context.CancelFunc }
+
+func (r cancelAfterCompletedCitationRunner) RunWithObserver(_ context.Context, input []agent.Message, observer agent.Observer) (agent.Result, error) {
+	observer(agent.Event{Type: agent.EventModelStarted, Iteration: 1})
+	observer(agent.Event{Type: agent.EventModelCompleted, Iteration: 1, Usage: agent.TokenUsage{PromptTokens: 7, CompletionTokens: 3, TotalTokens: 10}})
+	r.cancel()
+	tool := agent.Message{
+		Role:    agent.RoleTool,
+		Name:    "search_knowledge",
+		Content: `{"results":[{"documentId":"doc-1","documentName":"Doc","chunkId":"chunk-1","text":"quoted"}]}`,
+	}
+	final := agent.Message{Role: agent.RoleAssistant, Content: "answer with citation"}
+	messages := append(append([]agent.Message(nil), input...), tool, final)
+	return agent.Result{Final: final, Messages: messages, Iterations: 1}, nil
+}
+
+func (r cancelAfterCompletedCitationRunner) RunWithToolResultCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver) (agent.Result, error) {
+	return r.RunWithObserver(ctx, input, observer)
+}
+
 type cancelBeforeCompletedObserverRunner struct{ cancel context.CancelFunc }
 
 func (r cancelBeforeCompletedObserverRunner) RunWithObserver(_ context.Context, input []agent.Message, observer agent.Observer) (agent.Result, error) {
@@ -412,6 +432,61 @@ type reasoningDeltaRunner struct {
 	deltas []string
 }
 
+type answerDeltaRunner struct {
+	deltas []string
+	final  string
+}
+
+type streamingToolThenAnswerModel struct {
+	calls int
+}
+
+func (m *streamingToolThenAnswerModel) Complete(ctx context.Context, _ []agent.Message, _ []agent.ToolDefinition) (agent.Completion, error) {
+	m.calls++
+	if observer := agent.AnswerDeltaObserverFromContext(ctx); observer != nil {
+		if m.calls == 1 {
+			observer("checking ")
+		} else {
+			observer("final ")
+			observer("answer")
+		}
+	}
+	if m.calls == 1 {
+		return agent.Completion{Message: agent.Message{Role: agent.RoleAssistant, Content: "checking ", ToolCalls: []agent.ToolCall{{
+			ID: "call-1", Type: "function", Function: agent.FunctionCall{Name: "search_knowledge", Arguments: `{"query":"x"}`},
+		}}}, FinishReason: "tool_calls"}, nil
+	}
+	return agent.Completion{Message: agent.Message{Role: agent.RoleAssistant, Content: "final answer"}, FinishReason: "stop"}, nil
+}
+
+type streamingToolClient struct{}
+
+func (streamingToolClient) ListTools(context.Context) ([]agent.ToolDefinition, error) {
+	return []agent.ToolDefinition{{Type: "function", Function: agent.FunctionTool{
+		Name:        "search_knowledge",
+		Description: "search knowledge",
+		Parameters:  map[string]any{"type": "object"},
+	}}}, nil
+}
+
+func (streamingToolClient) CallTool(context.Context, string, json.RawMessage) (agent.ToolResult, error) {
+	return agent.ToolResult{Content: `{"results":[]}`}, nil
+}
+
+func (r answerDeltaRunner) RunWithObserver(_ context.Context, input []agent.Message, observer agent.Observer) (agent.Result, error) {
+	observer(agent.Event{Type: agent.EventModelStarted, Iteration: 1})
+	for _, delta := range r.deltas {
+		observer(agent.Event{Type: agent.EventAnswerDelta, Iteration: 1, AnswerContent: delta})
+	}
+	observer(agent.Event{Type: agent.EventModelCompleted, Iteration: 1, Usage: agent.TokenUsage{PromptTokens: 2, CompletionTokens: 3, TotalTokens: 5}})
+	final := agent.Message{Role: agent.RoleAssistant, Content: r.final}
+	return agent.Result{Final: final, Messages: append(input, final), Iterations: 1}, nil
+}
+
+func (r answerDeltaRunner) RunWithToolResultCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver) (agent.Result, error) {
+	return r.RunWithObserver(ctx, input, observer)
+}
+
 func (r reasoningDeltaRunner) RunWithObserver(_ context.Context, input []agent.Message, observer agent.Observer) (agent.Result, error) {
 	observer(agent.Event{Type: agent.EventModelStarted, Iteration: 1})
 	for _, delta := range r.deltas {
@@ -484,14 +559,20 @@ func (p fakeRuntimeProvider) Acquire() (RuntimeSnapshot, func(), error) {
 }
 
 type fakeCitationSourceChecker struct {
-	availability map[string]bool
-	userID       string
-	documentIDs  []string
+	availability               map[string]bool
+	failWhenContextIsCancelled bool
+	userID                     string
+	documentIDs                []string
 }
 
-func (c *fakeCitationSourceChecker) CheckCitationSources(_ context.Context, userID string, documentIDs []string) (map[string]bool, error) {
+func (c *fakeCitationSourceChecker) CheckCitationSources(ctx context.Context, userID string, documentIDs []string) (map[string]bool, error) {
 	c.userID = userID
 	c.documentIDs = append([]string(nil), documentIDs...)
+	if c.failWhenContextIsCancelled {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+	}
 	return c.availability, nil
 }
 
@@ -780,6 +861,41 @@ func TestAskFinalizesSuccessfulRunAfterRequestContextCancelled(t *testing.T) {
 	}
 }
 
+func TestAskRevalidatesFinalCitationsAfterRequestContextCancelled(t *testing.T) {
+	now := time.Date(2026, 6, 29, 10, 0, 0, 0, time.UTC)
+	repository := &fakeRepository{
+		conversation:             Conversation{ID: "conversation-id", OwnerUserID: "user-id", Status: "active", CreatedAt: now, UpdatedAt: now},
+		failOnCanceledFinalizing: true,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	qa, err := NewQAService(repository, fakeRuntimeProvider{runner: cancelAfterCompletedCitationRunner{cancel: cancel}, prompt: "system"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	qa.now = func() time.Time { return now }
+	checker := &fakeCitationSourceChecker{
+		availability:               map[string]bool{"doc-1": true},
+		failWhenContextIsCancelled: true,
+	}
+	qa.SetCitationSourceChecker(checker)
+	result, err := qa.Ask(ctx, "user-id", "conversation-id", AskInput{Message: "disconnect after model with citation"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ResponseRun.Status != "completed" || repository.finalization.Status != "completed" {
+		t.Fatalf("result=%+v finalization=%+v", result.ResponseRun, repository.finalization)
+	}
+	if len(repository.finalization.Citations) != 1 {
+		t.Fatalf("citations=%+v", repository.finalization.Citations)
+	}
+	if !repository.finalization.Citations[0].IsSourceAvailable {
+		t.Fatalf("citation source availability was lost after request cancellation: %+v", repository.finalization.Citations[0])
+	}
+	if checker.userID != "user-id" || len(checker.documentIDs) != 1 || checker.documentIDs[0] != "doc-1" {
+		t.Fatalf("checker user=%q documents=%v", checker.userID, checker.documentIDs)
+	}
+}
+
 func TestAskPersistsCompletedInvocationAfterRequestContextCancelled(t *testing.T) {
 	now := time.Date(2026, 6, 29, 10, 0, 0, 0, time.UTC)
 	repository := &fakeRepository{
@@ -804,10 +920,12 @@ func TestAskPersistsCompletedInvocationAfterRequestContextCancelled(t *testing.T
 	}
 }
 
-func TestAskDoesNotCancelModelRunWhenRequestContextIsCancelled(t *testing.T) {
+func TestAskCancelsModelRunWhenRequestContextIsCancelled(t *testing.T) {
 	now := time.Date(2026, 6, 29, 10, 0, 0, 0, time.UTC)
 	repository := &fakeRepository{
-		conversation: Conversation{ID: "conversation-id", OwnerUserID: "user-id", Status: "active", CreatedAt: now, UpdatedAt: now},
+		conversation:             Conversation{ID: "conversation-id", OwnerUserID: "user-id", Status: "active", CreatedAt: now, UpdatedAt: now},
+		failOnCanceledFinalizing: true,
+		failOnCanceledInvocation: true,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	runner := &cancelRequestDuringModelRunner{cancel: cancel}
@@ -818,17 +936,21 @@ func TestAskDoesNotCancelModelRunWhenRequestContextIsCancelled(t *testing.T) {
 	qa.now = func() time.Time { return now }
 
 	result, err := qa.Ask(ctx, "user-id", "conversation-id", AskInput{Message: "disconnect during model"}, nil)
-	if err != nil {
-		t.Fatal(err)
+	appErr, ok := Classify(err)
+	if !ok || appErr.Code != CodeDependency || appErr.Message != "answer generation cancelled" {
+		t.Fatalf("error=%v, want cancellation dependency_error", err)
 	}
-	if runner.sawCanceled {
-		t.Fatal("model runner observed request cancellation")
+	if !runner.sawCanceled {
+		t.Fatal("model runner did not observe request cancellation")
 	}
-	if result.ResponseRun.Status != "completed" || result.AssistantMessage.Status != "completed" {
+	if result.ResponseRun.Status != "cancelled" || result.AssistantMessage.Status != "cancelled" {
 		t.Fatalf("result=%+v assistant=%+v", result.ResponseRun, result.AssistantMessage)
 	}
-	if repository.finalization.Status != "completed" || repository.finalization.TerminationReason != "completed" {
+	if repository.finalization.Status != "cancelled" || repository.finalization.TerminationReason != "cancelled" {
 		t.Fatalf("finalization=%+v", repository.finalization)
+	}
+	if len(repository.invocations) != 1 || repository.invocations[0].Status != "cancelled" {
+		t.Fatalf("invocations=%+v", repository.invocations)
 	}
 }
 
@@ -1278,6 +1400,128 @@ func TestAskEmitsReasoningDeltaBeforeAnswerDelta(t *testing.T) {
 		t.Fatalf("reasoning sequence=%d answer sequence=%d events=%+v", reasoningSeq, answerSeq, repository.savedEvents)
 	}
 	assertProgressPayloadsDoNotLeakSensitiveData(t, observed)
+	assertStreamPayloadsDoNotLeakSensitiveData(t, repository.savedEvents)
+}
+
+func TestAskStreamsAnswerDeltasFromAgentEvents(t *testing.T) {
+	repository := &fakeRepository{conversation: Conversation{ID: "conversation-id", OwnerUserID: "user-id", Status: "active"}}
+	qa, err := NewQAService(repository, fakeRuntimeProvider{
+		runner: answerDeltaRunner{deltas: []string{"first ", "second"}, final: "first second"},
+		prompt: "system",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var observed []ProgressEvent
+	result, err := qa.Ask(context.Background(), "user-id", "conversation-id", AskInput{Message: "stream answer"}, func(event ProgressEvent) {
+		observed = append(observed, event)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.AssistantMessage.Content != "first second" || repository.finalization.AssistantMessage.Content != "first second" {
+		t.Fatalf("result=%+v finalization=%+v", result.AssistantMessage, repository.finalization.AssistantMessage)
+	}
+	var answerTexts []string
+	var answerIndexes []int
+	answerSeq, completedSeq := 0, 0
+	for _, event := range repository.savedEvents {
+		switch event.EventType {
+		case "answer.delta":
+			answerSeq = event.EventSeq
+			answerTexts = append(answerTexts, fmt.Sprint(event.Payload["text"]))
+			index, ok := event.Payload["index"].(int)
+			if !ok {
+				t.Fatalf("answer.delta index payload=%#v", event.Payload["index"])
+			}
+			answerIndexes = append(answerIndexes, index)
+		case "answer.completed":
+			completedSeq = event.EventSeq
+		}
+	}
+	if len(answerTexts) != 2 || strings.Join(answerTexts, "") != "first second" {
+		t.Fatalf("answer texts=%q events=%+v", answerTexts, repository.savedEvents)
+	}
+	if answerIndexes[0] != 0 || answerIndexes[1] != 1 {
+		t.Fatalf("answer indexes=%v events=%+v", answerIndexes, repository.savedEvents)
+	}
+	if answerSeq == 0 || completedSeq == 0 || answerSeq > completedSeq {
+		t.Fatalf("answer seq=%d completed seq=%d events=%+v", answerSeq, completedSeq, repository.savedEvents)
+	}
+	assertSSEEventTypesSeen(t, observed, "answer.delta", "answer.completed")
+	assertProgressPayloadsDoNotLeakSensitiveData(t, observed)
+	assertStreamPayloadsDoNotLeakSensitiveData(t, repository.savedEvents)
+}
+
+func TestAskFailsMismatchedAnswerDeltas(t *testing.T) {
+	repository := &fakeRepository{conversation: Conversation{ID: "conversation-id", OwnerUserID: "user-id", Status: "active"}}
+	qa, err := NewQAService(repository, fakeRuntimeProvider{
+		runner: answerDeltaRunner{deltas: []string{"intermediate"}, final: "final answer"},
+		prompt: "system",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := qa.Ask(context.Background(), "user-id", "conversation-id", AskInput{Message: "stream mismatched answer"}, nil)
+	appErr, ok := Classify(err)
+	if !ok || appErr.Code != CodeDependency || appErr.Message != "answer stream did not match final answer" {
+		t.Fatalf("error=%v, want answer stream mismatch dependency error", err)
+	}
+	if result.ResponseRun.Status != "failed" || repository.finalization.Status != "failed" {
+		t.Fatalf("result=%+v finalization=%+v", result.ResponseRun, repository.finalization)
+	}
+	for _, event := range repository.savedEvents {
+		if event.EventType == "answer.completed" {
+			t.Fatalf("answer.completed emitted after answer stream mismatch: %+v", repository.savedEvents)
+		}
+	}
+	assertStreamPayloadsDoNotLeakSensitiveData(t, repository.savedEvents)
+}
+
+func TestAskDoesNotReplayToolTurnAnswerDeltas(t *testing.T) {
+	repository := &fakeRepository{conversation: Conversation{ID: "conversation-id", OwnerUserID: "user-id", Status: "active"}}
+	runner, err := agent.NewRunner(&streamingToolThenAnswerModel{}, streamingToolClient{}, agent.Config{
+		MaxIterations:      3,
+		ToolTimeout:        time.Second,
+		MaxToolResultBytes: 1024,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	qa, err := NewQAService(repository, fakeRuntimeProvider{
+		runner: runner,
+		prompt: "system",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := qa.Ask(context.Background(), "user-id", "conversation-id", AskInput{Message: "stream answer with tool"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.AssistantMessage.Content != "final answer" || repository.finalization.AssistantMessage.Content != "final answer" {
+		t.Fatalf("result=%+v finalization=%+v", result.AssistantMessage, repository.finalization.AssistantMessage)
+	}
+	var answerTexts []string
+	var sawCompleted bool
+	for _, event := range repository.savedEvents {
+		switch event.EventType {
+		case "answer.delta":
+			answerTexts = append(answerTexts, fmt.Sprint(event.Payload["text"]))
+		case "answer.completed":
+			sawCompleted = true
+		}
+	}
+	joined := strings.Join(answerTexts, "")
+	if joined != "final answer" {
+		t.Fatalf("answer texts=%q events=%+v", answerTexts, repository.savedEvents)
+	}
+	if !sawCompleted {
+		t.Fatalf("missing answer.completed after final answer: %+v", repository.savedEvents)
+	}
+	if strings.Contains(joined, "checking") {
+		t.Fatalf("tool-call turn content leaked into answer deltas: %q", answerTexts)
+	}
 	assertStreamPayloadsDoNotLeakSensitiveData(t, repository.savedEvents)
 }
 

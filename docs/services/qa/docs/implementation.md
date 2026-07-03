@@ -139,6 +139,7 @@
 
 | 日期 | 检查人/工具 | 代码基准 | 结论 |
 | --- | --- | --- | --- |
+| 2026-07-04 | Codex #604/#605 TDD | `JerryTeam/fix/qa-sse-stream-cancel` | QA SSE answer deltas now project provider streaming `delta.content` chunks through modelclient -> agent runner -> service events, with a final single-delta fallback for non-streaming providers. Request-context cancellation now reaches the agent/model/tool execution context; bounded cleanup still persists response runs as `cancelled`. |
 | 2026-07-03 | Codex docs watch | `develop@ce0b4774` | 复核 #527/#440/#529/#531：QA 的 Document MCP report tools env-gated smoke 可连接 Document Streamable HTTP `/mcp` endpoint；Gateway -> Knowledge -> QA RAG 依赖当前 Knowledge RAGFlow runtime，而不是旧独立 Parser 服务；Knowledge MCP server 已存在但默认 QA 接入仍未从内置 `search_knowledge` 收敛到四个 `knowledge__*` 目标工具。完整前端/#125/真实 provider E2E 仍未证明。 |
 | 2026-07-01 | Codex QA knowledge RAG TDD | working tree on `develop@9640bee` | 修复 QA active 配置发布不 reload、显式 `scoreThreshold: 0` 被默认化、模型工具参数把阈值调高导致 local hashing 检索无命中的问题；新增 repository/service/tool/client 单元回归，并完成本地 Gateway 用户层 SSE smoke。 |
 | 2026-07-01 | Codex #337 security pass | PR #359 | Code Scanning 修复收紧模型出站边界：QA runtime/settings/modelclient 只接受受信 AI Gateway `/internal/v1/chat/completions` endpoint，存量 `direct` 配置不再可作为任意 provider URL 出口；provider base URL 和密钥继续由 AI Gateway profile 承载。 |

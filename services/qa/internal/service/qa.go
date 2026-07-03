@@ -449,7 +449,7 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 	if err != nil {
 		return AskResult{}, err
 	}
-	baseCtx := WithUserID(context.WithoutCancel(ctx), userID)
+	baseCtx := WithUserID(ctx, userID)
 	baseCtx = contextutil.WithKnowledgeBaseIDs(baseCtx, input.KnowledgeBaseIDs)
 	baseCtx = contextutil.WithDefaultKnowledgeBaseIDs(baseCtx, runtime.DefaultKnowledgeBaseIDs)
 	baseCtx = contextutil.WithRetrievalSettings(baseCtx, retrievalSettingsForAsk(runtime.RetrievalSettings, input.Retrieval))
@@ -503,6 +503,8 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 	steps := make([]ReasoningStep, 0, 4)
 	citations := make([]Citation, 0, 8)
 	reasoningDeltaIndex := 0
+	answerDeltaIndex := 0
+	var streamedAnswer strings.Builder
 	iterationStartedAt := map[int]time.Time{}
 	completedIterations := map[int]struct{}{}
 	modelInvocationIDs := map[int]string{}
@@ -521,6 +523,14 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 	emitReasoningDelta := func(text string) {
 		emit("reasoning.delta", map[string]any{"messageId": assistantMessage.ID, "text": text, "index": reasoningDeltaIndex})
 		reasoningDeltaIndex++
+	}
+	emitAnswerDelta := func(text string) {
+		if text == "" {
+			return
+		}
+		emit("answer.delta", map[string]any{"messageId": assistantMessage.ID, "text": text, "index": answerDeltaIndex})
+		answerDeltaIndex++
+		streamedAnswer.WriteString(text)
 	}
 	bufferReasoningDelta := func(iteration int, raw string) {
 		if raw == "" {
@@ -632,6 +642,9 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 		case agent.EventReasoningDelta:
 			bufferReasoningDelta(event.Iteration, event.ReasoningContent)
 			return
+		case agent.EventAnswerDelta:
+			emitAnswerDelta(event.AnswerContent)
+			return
 		}
 		step, ok := stepFromAgentEvent(assistantMessage.ID, event, s.now().UTC())
 		if !ok {
@@ -688,27 +701,49 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 	}
 	assistantMessage.Content = result.Final.Content
 	assistantMessage.Status = "completed"
+	finalizeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
 	finalCitations := citations
 	if len(finalCitations) == 0 {
 		finalCitations = citationsFromAgentMessages(assistantMessage.ID, run.ID, result.Messages)
-		finalCitations = revalidateCitationSources(ctx, userID, s.sourceChecker, finalCitations)
+		finalCitations = revalidateCitationSources(finalizeCtx, userID, s.sourceChecker, finalCitations)
 		for _, citation := range finalCitations {
 			emit("citation.delta", map[string]any{"citation": citation})
 		}
 	} else {
-		finalCitations = revalidateCitationSources(ctx, userID, s.sourceChecker, finalCitations)
+		finalCitations = revalidateCitationSources(finalizeCtx, userID, s.sourceChecker, finalCitations)
 	}
 	assistantMessage.Citations = finalCitations
-	emit("answer.delta", map[string]any{"messageId": assistantMessage.ID, "text": assistantMessage.Content, "index": 0})
+	streamedAnswerText := streamedAnswer.String()
+	if streamedAnswerText == "" {
+		emitAnswerDelta(assistantMessage.Content)
+	} else if strings.HasPrefix(assistantMessage.Content, streamedAnswerText) && len(streamedAnswerText) < len(assistantMessage.Content) {
+		emitAnswerDelta(assistantMessage.Content[len(streamedAnswerText):])
+	} else if streamedAnswerText != assistantMessage.Content {
+		publicMessage := "answer stream did not match final answer"
+		assistantMessage.Status = "failed"
+		emit("error", map[string]any{"responseRunId": run.ID, "code": string(CodeDependency), "message": publicMessage})
+		finalized, finalizeErr := s.repository.FinalizeResponseRun(finalizeCtx, userID, ResponseRunFinalization{
+			RunID: run.ID, AssistantMessage: assistantMessage, ReasoningSteps: steps, StreamEvents: events,
+			Citations: finalCitations,
+			Status:    "failed", TerminationReason: "answer_stream_mismatch", CurrentIteration: result.Iterations,
+			PromptTokens: usage.PromptTokens, CompletionTokens: usage.CompletionTokens,
+			ReasoningTokens: usage.ReasoningTokens, TotalTokens: usage.TotalTokens,
+			CompletedAt: s.now().UTC(),
+		})
+		if finalizeErr != nil {
+			return AskResult{}, NewError(CodeDependency, "answer state persistence failed", fmt.Errorf("finalize mismatched answer stream: %w", finalizeErr))
+		}
+		run = finalized
+		return AskResult{UserMessage: userMessage, AssistantMessage: assistantMessage, ResponseRun: run, Citations: finalCitations, ReasoningSteps: steps}, NewError(CodeDependency, publicMessage, errors.New("streamed answer deltas do not match final answer"))
+	}
 	emit("answer.completed", map[string]any{
 		"responseRunId": run.ID,
 		"messageId":     assistantMessage.ID,
 		"totalTokens":   usage.TotalTokens,
 		"latencyMs":     int(s.now().Sub(startedAt).Milliseconds()),
 	})
-	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-	defer cancel()
-	run, err = s.repository.FinalizeResponseRun(cleanupCtx, userID, ResponseRunFinalization{
+	run, err = s.repository.FinalizeResponseRun(finalizeCtx, userID, ResponseRunFinalization{
 		RunID: run.ID, AssistantMessage: assistantMessage, ReasoningSteps: steps, StreamEvents: events,
 		Citations: finalCitations,
 		Status:    "completed", TerminationReason: "completed", CurrentIteration: result.Iterations,

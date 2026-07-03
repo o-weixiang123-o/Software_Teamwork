@@ -20,6 +20,7 @@ const (
 	EventModelStarted   EventType = "model.started"
 	EventModelCompleted EventType = "model.completed"
 	EventReasoningDelta EventType = "reasoning.delta"
+	EventAnswerDelta    EventType = "answer.delta"
 	EventToolStarted    EventType = "tool.started"
 	EventToolCompleted  EventType = "tool.completed"
 	EventToolFailed     EventType = "tool.failed"
@@ -37,6 +38,7 @@ type Event struct {
 	ToolName         string
 	FinishReason     string
 	ReasoningContent string
+	AnswerContent    string
 	Usage            TokenUsage
 	Err              error
 }
@@ -149,6 +151,7 @@ func (r *Runner) run(ctx context.Context, input []Message, observer Observer, to
 	messages := append([]Message(nil), input...)
 	for iteration := 1; iteration <= r.cfg.MaxIterations; iteration++ {
 		emit(observer, Event{Type: EventModelStarted, Iteration: iteration})
+		var answerDeltas []string
 		var reasoningFilter ReasoningFilter
 		if r.cfg.ReasoningFilterFactory != nil {
 			reasoningFilter = r.cfg.ReasoningFilterFactory()
@@ -166,6 +169,11 @@ func (r *Runner) run(ctx context.Context, input []Message, observer Observer, to
 		modelCtx := WithReasoningDeltaObserver(ctx, func(delta string) {
 			emitReasoningDelta(delta, false)
 		})
+		modelCtx = WithAnswerDeltaObserver(modelCtx, func(delta string) {
+			if delta != "" {
+				answerDeltas = append(answerDeltas, delta)
+			}
+		})
 		completion, err := r.model.Complete(modelCtx, messages, toolDefs)
 		if err != nil {
 			return Result{}, fmt.Errorf("complete model iteration %d: %w", iteration, err)
@@ -176,6 +184,9 @@ func (r *Runner) run(ctx context.Context, input []Message, observer Observer, to
 		}
 		if assistant.Role != RoleAssistant {
 			return Result{}, fmt.Errorf("%w: expected assistant role, got %q", ErrInvalidResponse, assistant.Role)
+		}
+		if len(toolDefs) == 0 && len(assistant.ToolCalls) > 0 {
+			return Result{}, fmt.Errorf("%w: model returned tool calls when no tools were available", ErrInvalidResponse)
 		}
 		messages = append(messages, assistant)
 		if strings.TrimSpace(completion.ReasoningContent) != "" && !completion.ReasoningContentStreamed {
@@ -188,6 +199,9 @@ func (r *Runner) run(ctx context.Context, input []Message, observer Observer, to
 		if len(assistant.ToolCalls) == 0 {
 			if strings.TrimSpace(assistant.Content) == "" {
 				return Result{}, fmt.Errorf("%w: empty final assistant message", ErrInvalidResponse)
+			}
+			for _, delta := range answerDeltas {
+				emit(observer, Event{Type: EventAnswerDelta, Iteration: iteration, AnswerContent: delta})
 			}
 			emit(observer, Event{Type: EventAgentCompleted, Iteration: iteration, FinishReason: completion.FinishReason})
 			return Result{Messages: messages, Final: assistant, Iterations: iteration}, nil

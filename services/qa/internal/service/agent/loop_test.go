@@ -25,6 +25,49 @@ func (f *fakeModel) Complete(_ context.Context, messages []Message, _ []ToolDefi
 	return response, nil
 }
 
+type answerStreamingModel struct{}
+
+func (answerStreamingModel) Complete(ctx context.Context, messages []Message, _ []ToolDefinition) (Completion, error) {
+	if observer := AnswerDeltaObserverFromContext(ctx); observer != nil {
+		observer("first ")
+		observer("second")
+	}
+	return Completion{Message: Message{Role: RoleAssistant, Content: "first second"}, FinishReason: "stop"}, nil
+}
+
+type toolThenAnswerStreamingModel struct {
+	calls int
+}
+
+func (m *toolThenAnswerStreamingModel) Complete(ctx context.Context, messages []Message, _ []ToolDefinition) (Completion, error) {
+	m.calls++
+	if observer := AnswerDeltaObserverFromContext(ctx); observer != nil {
+		if m.calls == 1 {
+			observer("checking ")
+		} else {
+			observer("final ")
+			observer("answer")
+		}
+	}
+	if m.calls == 1 {
+		return Completion{Message: Message{Role: RoleAssistant, Content: "checking ", ToolCalls: []ToolCall{{
+			ID: "call-1", Type: "function", Function: FunctionCall{Name: "add", Arguments: `{"a":1}`},
+		}}}, FinishReason: "tool_calls"}, nil
+	}
+	return Completion{Message: Message{Role: RoleAssistant, Content: "final answer"}, FinishReason: "stop"}, nil
+}
+
+type unexpectedToolCallStreamingModel struct{}
+
+func (unexpectedToolCallStreamingModel) Complete(ctx context.Context, messages []Message, _ []ToolDefinition) (Completion, error) {
+	if observer := AnswerDeltaObserverFromContext(ctx); observer != nil {
+		observer("checking ")
+	}
+	return Completion{Message: Message{Role: RoleAssistant, Content: "checking ", ToolCalls: []ToolCall{{
+		ID: "call-1", Type: "function", Function: FunctionCall{Name: "ghost_tool", Arguments: `{}`},
+	}}}, FinishReason: "tool_calls"}, nil
+}
+
 type fakeTools struct {
 	definitions []ToolDefinition
 	result      ToolResult
@@ -167,6 +210,73 @@ func TestRunnerEmitsReasoningDeltaSeparatelyFromAnswer(t *testing.T) {
 		}
 	}
 	t.Fatalf("missing reasoning delta event: %+v", events)
+}
+
+func TestRunnerEmitsAnswerDeltaFromModelStreamObserver(t *testing.T) {
+	runner := testRunner(t, answerStreamingModel{}, &fakeTools{}, 2)
+	var events []Event
+	result, err := runner.RunWithObserver(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, func(event Event) {
+		events = append(events, event)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Final.Content != "first second" {
+		t.Fatalf("final = %+v", result.Final)
+	}
+	var deltas []string
+	for _, event := range events {
+		if event.Type == EventAnswerDelta {
+			deltas = append(deltas, event.AnswerContent)
+		}
+	}
+	if strings.Join(deltas, "") != result.Final.Content {
+		t.Fatalf("answer deltas=%q events=%+v", deltas, events)
+	}
+}
+
+func TestRunnerSuppressesAnswerDeltasFromToolCallTurns(t *testing.T) {
+	tools := &fakeTools{definitions: []ToolDefinition{addToolDefinition()}, result: ToolResult{Content: `{"sum":1}`}}
+	runner := testRunner(t, &toolThenAnswerStreamingModel{}, tools, 3)
+	var events []Event
+	result, err := runner.RunWithObserver(context.Background(), []Message{{Role: RoleUser, Content: "calculate"}}, func(event Event) {
+		events = append(events, event)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Final.Content != "final answer" {
+		t.Fatalf("final = %+v", result.Final)
+	}
+	var deltas []string
+	for _, event := range events {
+		if event.Type == EventAnswerDelta {
+			deltas = append(deltas, event.AnswerContent)
+		}
+	}
+	joined := strings.Join(deltas, "")
+	if joined != result.Final.Content {
+		t.Fatalf("answer deltas=%q events=%+v", deltas, events)
+	}
+	if strings.Contains(joined, "checking") {
+		t.Fatalf("tool-call turn content leaked into answer deltas: %q", deltas)
+	}
+}
+
+func TestRunnerRejectsUnexpectedToolCallsWithoutToolsWithoutAnswerDeltas(t *testing.T) {
+	runner := testRunner(t, unexpectedToolCallStreamingModel{}, &fakeTools{}, 2)
+	var events []Event
+	_, err := runner.RunWithObserver(context.Background(), []Message{{Role: RoleUser, Content: "calculate"}}, func(event Event) {
+		events = append(events, event)
+	})
+	if !errors.Is(err, ErrInvalidResponse) {
+		t.Fatalf("error=%v, want invalid response", err)
+	}
+	for _, event := range events {
+		if event.Type == EventAnswerDelta || event.Type == EventToolStarted || event.Type == EventAgentCompleted {
+			t.Fatalf("unexpected public event after invalid no-tool tool call: %+v", events)
+		}
+	}
 }
 
 func TestRunnerDoesNotEmitReasoningDeltaWithoutFilter(t *testing.T) {

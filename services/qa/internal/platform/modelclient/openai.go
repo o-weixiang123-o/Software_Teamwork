@@ -303,6 +303,11 @@ func decodeStreamCompletion(ctx context.Context, body io.Reader) (agent.Completi
 				message.Role = delta.Role
 			}
 			message.Content += delta.Content
+			if delta.Content != "" {
+				if observer := agent.AnswerDeltaObserverFromContext(ctx); observer != nil {
+					observer(delta.Content)
+				}
+			}
 			accumulator.apply(delta.ToolCalls)
 			if choice.Delta.ReasoningContent != "" {
 				reasoningContent.WriteString(choice.Delta.ReasoningContent)

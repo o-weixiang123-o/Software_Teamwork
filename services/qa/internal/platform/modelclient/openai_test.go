@@ -349,6 +349,43 @@ data: [DONE]
 	}
 }
 
+func TestCompleteEmitsStreamedAnswerDeltas(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request completionRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		if !request.Stream {
+			t.Fatal("stream = false, want true")
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(`data: {"choices":[{"index":0,"delta":{"role":"assistant","content":"first "},"finish_reason":null}]}
+data: {"choices":[{"index":0,"delta":{"content":"second"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":3,"total_tokens":5}}
+data: [DONE]
+`))
+	}))
+	defer server.Close()
+
+	client, err := New(Config{Endpoint: "http://localhost:8086/internal/v1/chat/completions", TokenHeader: "X-Service-Token", Model: "test", MaxTokens: 100, Timeout: time.Second, Stream: true, transport: newTestTransport(t, server.URL)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var deltas []string
+	ctx := agent.WithAnswerDeltaObserver(context.Background(), func(delta string) {
+		deltas = append(deltas, delta)
+	})
+	completion, err := client.Complete(ctx, []agent.Message{{Role: agent.RoleUser, Content: "hi"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completion.Message.Content != "first second" {
+		t.Fatalf("content = %q", completion.Message.Content)
+	}
+	if strings.Join(deltas, "") != completion.Message.Content {
+		t.Fatalf("answer deltas = %v, final content = %q", deltas, completion.Message.Content)
+	}
+}
+
 func TestCompleteIgnoresNonStringStreamedReasoningDeltas(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request completionRequest

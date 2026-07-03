@@ -96,8 +96,10 @@ type ModelClient interface {
 }
 
 type reasoningDeltaObserverKey struct{}
+type answerDeltaObserverKey struct{}
 
 type ReasoningDeltaObserver func(string)
+type AnswerDeltaObserver func(string)
 
 func WithReasoningDeltaObserver(ctx context.Context, observer ReasoningDeltaObserver) context.Context {
 	if observer == nil {
@@ -106,8 +108,20 @@ func WithReasoningDeltaObserver(ctx context.Context, observer ReasoningDeltaObse
 	return context.WithValue(ctx, reasoningDeltaObserverKey{}, observer)
 }
 
+func WithAnswerDeltaObserver(ctx context.Context, observer AnswerDeltaObserver) context.Context {
+	if observer == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, answerDeltaObserverKey{}, observer)
+}
+
 func ReasoningDeltaObserverFromContext(ctx context.Context) ReasoningDeltaObserver {
 	observer, _ := ctx.Value(reasoningDeltaObserverKey{}).(ReasoningDeltaObserver)
+	return observer
+}
+
+func AnswerDeltaObserverFromContext(ctx context.Context) AnswerDeltaObserver {
+	observer, _ := ctx.Value(answerDeltaObserverKey{}).(AnswerDeltaObserver)
 	return observer
 }
 
