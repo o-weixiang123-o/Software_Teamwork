@@ -1013,8 +1013,8 @@ export function ChatPage() {
                 const lastIdx = msgs.length - 1
                 const mock = createMockAssistantMessage(uid)
                 const lastItem = lastIdx >= 0 ? msgs[lastIdx] : undefined
-                if (lastItem?.role === 'assistant') {
-                  msgs[lastIdx] = { ...mock, id: lastItem!.id }
+                if (lastItem && lastItem.role === 'assistant') {
+                  msgs[lastIdx] = { ...mock, id: lastItem.id }
                 } else {
                   msgs.push(mock)
                 }
