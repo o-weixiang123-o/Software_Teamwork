@@ -425,6 +425,7 @@ type fakeRuntimeProvider struct {
 	maxIterations  int
 	overallTimeout time.Duration
 	retrieval      RetrievalSettings
+	stream         bool
 }
 
 func (p fakeRuntimeProvider) Acquire() (RuntimeSnapshot, func(), error) {
@@ -437,6 +438,7 @@ func (p fakeRuntimeProvider) Acquire() (RuntimeSnapshot, func(), error) {
 		QAConfigVersionID: "qa-config-id", LLMConfigVersionID: "llm-config-id",
 		MaxIterations: maxIterations, OverallTimeout: p.overallTimeout,
 		RetrievalSettings: p.retrieval,
+		Stream:            p.stream,
 	}, func() {}, nil
 }
 

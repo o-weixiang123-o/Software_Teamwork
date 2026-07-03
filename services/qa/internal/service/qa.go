@@ -279,6 +279,7 @@ type RuntimeSnapshot struct {
 	OverallTimeout          time.Duration
 	DefaultKnowledgeBaseIDs []string
 	RetrievalSettings       RetrievalSettings
+	Stream                  bool
 }
 
 type RuntimeProvider interface {
@@ -548,30 +549,34 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 	var lastContent string
 	var lastReasoningLength int
 	reasoningBuf := newReasoningBuffer(4096)
-	streamCallback := func(completion agent.Completion) {
-		if completion.Message.Content != lastContent {
-			contentDelta := completion.Message.Content[len(lastContent):]
-			if contentDelta != "" {
-				emit("answer.delta", map[string]any{"messageId": assistantMessage.ID, "text": contentDelta, "index": 0})
+	var streamCallback func(agent.Completion)
+	if runtime.Stream {
+		streamCallback = func(completion agent.Completion) {
+			if completion.Message.Content != lastContent {
+				contentDelta := completion.Message.Content[len(lastContent):]
+				if contentDelta != "" {
+					emit("answer.delta", map[string]any{"messageId": assistantMessage.ID, "text": contentDelta, "index": 0})
+				}
+				lastContent = completion.Message.Content
 			}
-			lastContent = completion.Message.Content
-		}
-		currentReasoning := completion.Message.ReasoningContent
-		if len(currentReasoning) > lastReasoningLength {
-			newContent := currentReasoning[lastReasoningLength:]
-			lastReasoningLength = len(currentReasoning)
-			reasoningBuf.append(newContent)
-			delta := reasoningBuf.delta()
-			if delta != "" {
-				sanitizedDelta := sanitizeReasoningContent(delta)
-				if sanitizedDelta != "" {
-					emit("reasoning.delta", map[string]any{"messageId": assistantMessage.ID, "text": sanitizedDelta})
-					reasoningBuf.markEmitted(len([]rune(sanitizedDelta)))
+			currentReasoning := completion.Message.ReasoningContent
+			if len(currentReasoning) > lastReasoningLength {
+				newContent := currentReasoning[lastReasoningLength:]
+				lastReasoningLength = len(currentReasoning)
+				reasoningBuf.append(newContent)
+				delta := reasoningBuf.delta()
+				if delta != "" {
+					sanitizedDelta := sanitizeReasoningContent(delta)
+					if sanitizedDelta != "" {
+						emit("reasoning.delta", map[string]any{"messageId": assistantMessage.ID, "text": sanitizedDelta})
+					}
+					reasoningBuf.markEmitted(len([]rune(delta)))
 				}
 			}
 		}
 	}
-	result, runErr := runtime.Runner.RunWithStreamCallback(runCtx, messages, func(event agent.Event) {
+
+	observer := func(event agent.Event) {
 		switch event.Type {
 		case agent.EventModelStarted:
 			iterationStartedAt[event.Iteration] = s.now().UTC()
@@ -627,7 +632,15 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 		if event.Type == agent.EventToolCompleted {
 			emitSearchCitations(toolObservations[event.ToolCallID])
 		}
-	}, onToolObservation, streamCallback)
+	}
+
+	var result agent.Result
+	var runErr error
+	if runtime.Stream && streamCallback != nil {
+		result, runErr = runtime.Runner.RunWithStreamCallback(runCtx, messages, observer, onToolObservation, streamCallback)
+	} else {
+		result, runErr = runtime.Runner.RunWithToolResultCallback(runCtx, messages, observer, onToolObservation)
+	}
 	if runErr == nil && invocationErr != nil {
 		runErr = fmt.Errorf("save model invocation: %w", invocationErr)
 	}
@@ -673,6 +686,14 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 	}
 	assistantMessage.Content = result.Final.Content
 	assistantMessage.Status = "completed"
+	if !runtime.Stream {
+		if result.Final.ReasoningContent != "" {
+			sanitizedReasoning := sanitizeReasoningContent(result.Final.ReasoningContent)
+			if sanitizedReasoning != "" {
+				emit("reasoning.delta", map[string]any{"messageId": assistantMessage.ID, "text": sanitizedReasoning})
+			}
+		}
+	}
 	finalCitations := citations
 	if len(finalCitations) == 0 {
 		finalCitations = citationsFromAgentMessages(assistantMessage.ID, run.ID, result.Messages)
@@ -684,7 +705,12 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 		finalCitations = revalidateCitationSources(ctx, userID, s.sourceChecker, finalCitations)
 	}
 	assistantMessage.Citations = finalCitations
-	emit("answer.delta", map[string]any{"messageId": assistantMessage.ID, "text": assistantMessage.Content, "index": 0})
+	if lastContent != assistantMessage.Content {
+		contentDelta := assistantMessage.Content[len(lastContent):]
+		if contentDelta != "" {
+			emit("answer.delta", map[string]any{"messageId": assistantMessage.ID, "text": contentDelta, "index": 0})
+		}
+	}
 	emit("answer.completed", map[string]any{
 		"responseRunId": run.ID,
 		"messageId":     assistantMessage.ID,
@@ -1074,7 +1100,9 @@ func sanitizeReasoningContent(content string) string {
 	if content == "" {
 		return ""
 	}
-	return redactInternalURLs(content)
+	content = redactInternalURLs(content)
+	content = redactSensitiveSecrets(content)
+	return content
 }
 
 var internalURLPatterns = []*regexp.Regexp{
@@ -1124,6 +1152,22 @@ func redactInternalURLs(content string) string {
 	return result
 }
 
+var sensitiveSecretPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)(api[_-]?key|api[_-]?secret|api[_-]?token)\s*[:=]\s*["']?[a-zA-Z0-9_\-]{16,}["']?`),
+	regexp.MustCompile(`(?i)(bearer|authorization)\s*[:=]\s*["']?[a-zA-Z0-9_\-]{20,}["']?`),
+	regexp.MustCompile(`(?i)(password)\s*[:=]\s*["']?[a-zA-Z0-9_\-@#$%^&*]{8,}["']?`),
+	regexp.MustCompile(`(?i)(secret|token|access[_-]?token)\s*[:=]\s*["']?[a-zA-Z0-9_\-]{16,}["']?`),
+	regexp.MustCompile(`(?i)(secret|token|access[_-]?token)\s*[:=]\s*["']?eyJ[A-Za-z0-9_-]{10,}[A-Za-z0-9_-][AQgw]==["']?`),
+}
+
+func redactSensitiveSecrets(content string) string {
+	result := content
+	for _, pattern := range sensitiveSecretPatterns {
+		result = pattern.ReplaceAllString(result, "$1=[REDACTED]")
+	}
+	return result
+}
+
 type reasoningBuffer struct {
 	buffer        []rune
 	emittedLength int
@@ -1148,8 +1192,8 @@ func (rb *reasoningBuffer) append(content string) {
 		if keep <= 0 {
 			keep = 1
 		}
+		rb.emittedLength = max(rb.emittedLength-keep, 0)
 		rb.buffer = rb.buffer[keep:]
-		rb.emittedLength = max(rb.emittedLength-int(len(rb.buffer))+keep, 0)
 	}
 }
 

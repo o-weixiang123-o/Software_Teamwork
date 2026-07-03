@@ -44,6 +44,7 @@ type runtimeState struct {
 	clients                 []*mcpclient.Client
 	defaultKnowledgeBaseIDs []string
 	retrievalSettings       service.RetrievalSettings
+	stream                  bool
 }
 
 type Manager struct {
@@ -83,6 +84,7 @@ func (m *Manager) Acquire() (service.RuntimeSnapshot, func(), error) {
 		MaxIterations: m.state.maxIterations, OverallTimeout: m.state.overallTimeout,
 		DefaultKnowledgeBaseIDs: m.state.defaultKnowledgeBaseIDs,
 		RetrievalSettings:       m.state.retrievalSettings,
+		Stream:                  m.state.stream,
 	}, m.stateMu.RUnlock, nil
 }
 
@@ -363,6 +365,7 @@ func (m *Manager) buildState(ctx context.Context, runtimeConfig service.RuntimeC
 		maxIterations: maxIterations, overallTimeout: overallTimeout,
 		defaultKnowledgeBaseIDs: runtimeConfig.DefaultKnowledgeBaseIDs,
 		retrievalSettings:       runtimeConfig.RetrievalSettings,
+		stream:                  runtimeConfig.LLM.Stream,
 	}, nil
 }
 
