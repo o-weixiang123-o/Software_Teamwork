@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 19
+- **Total Sessions**: 20
 - **Last Active**: 2026-07-04
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~682 | Active |
+| `journal-1.md` | ~715 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 20 | 2026-07-04 | Config profile layer implementation | `3e4ff3c9` | `L1nggTeam/feat/ragflow-runtime-vendor` |
 | 19 | 2026-07-04 | Knowledge runtime on-demand worker | `922a771b` | `L1nggTeam/fix/bugfix` |
 | 18 | 2026-07-03 | Fix Knowledge runtime review edge cases | `84394519` | `L1nggTeam/feat/ragflow-runtime-vendor` |
 | 17 | 2026-07-03 | Fix Knowledge compatibility debt | `6e9138df`, `a18ee9f3` | `L1nggTeam/feat/ragflow-runtime-vendor` |

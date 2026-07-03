@@ -680,3 +680,36 @@ Split Knowledge runtime API and worker dependency profiles; made document parsin
 ### Next Steps
 
 - None - task complete
+
+
+## Session 20: Config profile layer implementation
+
+**Date**: 2026-07-04
+**Task**: Config profile layer implementation
+**Branch**: `L1nggTeam/feat/ragflow-runtime-vendor`
+
+### Summary
+
+Implemented the repository-level config profile layer under config/, moved local startup to config/ctl rendering, updated docs/specs/policy checks, and validated the rendered dev Compose env.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3e4ff3c9` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
