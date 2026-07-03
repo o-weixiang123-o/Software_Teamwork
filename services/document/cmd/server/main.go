@@ -49,7 +49,7 @@ func main() {
 		logger.Error("ai gateway client initialization failed", "service", "document", "dependency", "ai-gateway", "error", err)
 		os.Exit(1)
 	}
-	chatClient, err := aigateway.NewChatClient(cfg.AIGatewayURL, cfg.AIGatewayServiceToken, cfg.AIGatewayProfileID, "", nil)
+	chatClient, err := aigateway.NewChatClient(cfg.AIGatewayURL, cfg.AIGatewayServiceToken, cfg.AIGatewayProfileID, cfg.AIGatewayModel, nil)
 	if err != nil {
 		logger.Error("ai gateway chat client initialization failed", "service", "document", "dependency", "ai-gateway", "error", err)
 		os.Exit(1)

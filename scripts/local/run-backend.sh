@@ -112,8 +112,8 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 
-if ! command -v setsid >/dev/null 2>&1; then
-  log_error "setsid is required to manage host-run service process groups"
+if ! command -v setsid >/dev/null 2>&1 && ! command -v python3 >/dev/null 2>&1; then
+  log_error "setsid or python3 is required to manage host-run service process groups"
   exit 1
 fi
 
@@ -142,6 +142,14 @@ else
   fi
 fi
 
+if [[ -n "${AI_GATEWAY_LOCAL_CHAT_MODEL:-}" && ( -z "${MODEL_ID:-}" || "${MODEL_ID:-}" == "local-placeholder-chat" ) ]]; then
+  export MODEL_ID="$AI_GATEWAY_LOCAL_CHAT_MODEL"
+  log_info "deploy/.env kept MODEL_ID=local-placeholder-chat; using AI_GATEWAY_LOCAL_CHAT_MODEL for host-run QA: $MODEL_ID"
+fi
+if [[ -n "${AI_GATEWAY_LOCAL_CHAT_MODEL:-}" && ( -z "${DOCUMENT_AI_GATEWAY_MODEL:-}" || "${DOCUMENT_AI_GATEWAY_MODEL:-}" == "local-placeholder-chat" ) ]]; then
+  export DOCUMENT_AI_GATEWAY_MODEL="$AI_GATEWAY_LOCAL_CHAT_MODEL"
+  log_info "deploy/.env kept DOCUMENT_AI_GATEWAY_MODEL=local-placeholder-chat; using AI_GATEWAY_LOCAL_CHAT_MODEL for host-run Document: $DOCUMENT_AI_GATEWAY_MODEL"
+fi
 mkdir -p "$RUN_DIR" "$LOG_DIR"
 
 configure_app_version_current_sha() {
@@ -255,15 +263,38 @@ run_go_mod_download() {
   (cd "$dir" && go mod download)
 }
 
+launch_process_group() {
+  local dir="$1"
+  shift
+  cd "$dir"
+  if command -v setsid >/dev/null 2>&1; then
+    exec setsid "$@"
+  fi
+  exec python3 -c 'import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' "$@"
+}
+
+service_group_alive() {
+  local pid_file="$1"
+  [[ -f "$pid_file" ]] || return 1
+  local pid
+  pid="$(cat "$pid_file")"
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+  kill -0 -- "-$pid" 2>/dev/null
+}
+
 start() {
   name="$1"
   dir="$2"
   shift 2
   CURRENT_STEP="starting $name"
 
+  if [[ "$name" == "knowledge" ]] && service_group_alive "$RUN_DIR/knowledge-adapter.pid"; then
+    echo "knowledge adapter already running from run-knowledge-parse-stack.sh; reusing it"
+    return
+  fi
+
   if [[ -f "$RUN_DIR/$name.pid" ]]; then
-    pid="$(cat "$RUN_DIR/$name.pid")"
-    if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 -- "-$pid" 2>/dev/null; then
+    if service_group_alive "$RUN_DIR/$name.pid"; then
       log_success "$name already running"
       return
     fi
@@ -271,7 +302,7 @@ start() {
   rm -f "$RUN_DIR/$name.pid"
 
   log_info "starting $name"
-  (cd "$dir" && exec setsid "$@") >"$LOG_DIR/$name.log" 2>&1 &
+  launch_process_group "$dir" "$@" >"$LOG_DIR/$name.log" 2>&1 &
   echo "$!" >"$RUN_DIR/$name.pid"
   STARTED_SERVICES+=("$name")
 }

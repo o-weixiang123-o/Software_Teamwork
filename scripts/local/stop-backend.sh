@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 RUN_DIR="$ROOT_DIR/.local/run"
 CURRENT_STEP="initializing"
 STOPPED_COUNT=0
+STOPPED_CONTAINER_COUNT=0
 
 COLOR_RESET=""
 COLOR_BLUE=""
@@ -44,7 +45,7 @@ log_hint() {
 on_exit() {
   status=$?
   if (( status == 0 )); then
-    log_success "completed successfully; processed ${STOPPED_COUNT} pid file(s)"
+    log_success "completed successfully; processed ${STOPPED_COUNT} pid file(s), ${STOPPED_CONTAINER_COUNT} container marker(s)"
   else
     log_error "failed during ${CURRENT_STEP} (exit ${status})"
     log_hint "Check .local/run/*.pid and running service processes manually."
@@ -61,9 +62,10 @@ fi
 
 shopt -s nullglob
 pid_files=("$RUN_DIR"/*.pid)
+container_files=("$RUN_DIR"/*.container)
 
-if (( ${#pid_files[@]} == 0 )); then
-  log_info "no pid files found; nothing to stop"
+if (( ${#pid_files[@]} == 0 && ${#container_files[@]} == 0 )); then
+  log_info "no pid or container marker files found; nothing to stop"
   exit 0
 fi
 
@@ -93,4 +95,25 @@ for pid_file in "${pid_files[@]}"; do
     log_info "$name was not running"
   fi
   rm -f "$pid_file"
+done
+
+for container_file in "${container_files[@]}"; do
+  container="$(cat "$container_file")"
+  name="$(basename "$container_file" .container)"
+  CURRENT_STEP="stopping container $name"
+  STOPPED_CONTAINER_COUNT=$((STOPPED_CONTAINER_COUNT + 1))
+
+  if [[ -z "${container// }" ]]; then
+    echo "removing empty container marker for $name"
+    rm -f "$container_file"
+    continue
+  fi
+
+  echo "stopping container $container"
+  if command -v docker >/dev/null 2>&1; then
+    docker rm -f "$container" >/dev/null 2>&1 || true
+  else
+    echo "docker is not available; leaving $container running"
+  fi
+  rm -f "$container_file"
 done

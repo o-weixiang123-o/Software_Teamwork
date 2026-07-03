@@ -7,9 +7,13 @@ RUN_DIR="$ROOT_DIR/.local/run"
 LOG_DIR="$ROOT_DIR/.local/logs"
 RUNTIME_DIR="$ROOT_DIR/services/knowledge-runtime"
 ADAPTER_DIR="$ROOT_DIR/services/knowledge"
+LOCAL_RUNTIME_DIR="$ROOT_DIR/.local/knowledge-runtime"
+LOCAL_ES_CONTAINER_FILE="$RUN_DIR/knowledge-runtime-elasticsearch.container"
 CURRENT_STEP="initializing"
 STARTED_SERVICES=()
+STARTED_CONTAINERS=()
 RUNTIME_MODE="host"
+RAGFLOW_CONF_EXPLICIT=0
 
 on_exit() {
   status=$?
@@ -87,6 +91,38 @@ normalize_http_url() {
   printf '%s\n' "${value%/}"
 }
 
+to_lower() {
+  printf '%s\n' "$1" | tr '[:upper:]' '[:lower:]'
+}
+
+url_port() {
+  local url="$1"
+  local scheme rest host_port port
+  if [[ "$url" == *"://"* ]]; then
+    scheme="${url%%://*}"
+    rest="${url#*://}"
+  else
+    scheme="http"
+    rest="$url"
+  fi
+  host_port="${rest%%/*}"
+  if [[ "$host_port" == \[*\]* ]]; then
+    port="${host_port##*]:}"
+    [[ "$port" != "$host_port" ]] || port=""
+  elif [[ "$host_port" == *:* ]]; then
+    port="${host_port##*:}"
+  else
+    port=""
+  fi
+  if [[ -z "$port" ]]; then
+    case "$scheme" in
+      https) port="443" ;;
+      *) port="80" ;;
+    esac
+  fi
+  printf '%s\n' "$port"
+}
+
 print_required_env_hint() {
   cat >&2 <<EOF
 Required local Knowledge parse stack settings are missing.
@@ -97,11 +133,24 @@ Start from the tracked defaults, then add private provider credentials:
 Required for this script:
   INTERNAL_SERVICE_TOKEN or KNOWLEDGE_SERVICE_TOKEN
   VENDOR_RUNTIME_SERVICE_TOKEN or KNOWLEDGE_RUNTIME_SERVICE_TOKEN
-  DOC_ENGINE=elasticsearch with a reachable Elasticsearch at conf/service_conf.yaml es.hosts
+  DOC_ENGINE=elasticsearch
+  KNOWLEDGE_RUNTIME_ES_URL=http://127.0.0.1:9200
   KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY
   KNOWLEDGE_RUNTIME_EMBEDDING_MODEL
   KNOWLEDGE_RUNTIME_EMBEDDING_BASE_URL
   KNOWLEDGE_RUNTIME_MODEL_API_KEY, unless using a trusted local keyless provider
+
+For SiliconFlow local parsing, deploy/.env commonly contains:
+  KNOWLEDGE_RUNTIME_MODEL_API_KEY=<your SiliconFlow key>
+  KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY=SILICONFLOW
+  KNOWLEDGE_RUNTIME_EMBEDDING_MODEL=BAAI/bge-m3
+  KNOWLEDGE_RUNTIME_EMBEDDING_BASE_URL=https://api.siliconflow.cn/v1
+  KNOWLEDGE_RUNTIME_RERANK_FACTORY=SILICONFLOW
+  KNOWLEDGE_RUNTIME_RERANK_MODEL=BAAI/bge-reranker-v2-m3
+  KNOWLEDGE_RUNTIME_RERANK_BASE_URL=https://api.siliconflow.cn/v1
+  KNOWLEDGE_VENDOR_EMBEDDING_ID=BAAI/bge-m3@default@SILICONFLOW
+  KNOWLEDGE_VENDOR_RERANK_ID=BAAI/bge-reranker-v2-m3@default@SILICONFLOW
+  KNOWLEDGE_AUTO_START_INGESTION=true
 EOF
 }
 
@@ -164,11 +213,21 @@ require_env() {
   esac
   export KNOWLEDGE_PARSE_RUNTIME_MODE="$RUNTIME_MODE"
 
+  export DOC_ENGINE="${DOC_ENGINE:-elasticsearch}"
+  if [[ "$(to_lower "$DOC_ENGINE")" == "elasticsearch" ]]; then
+    export KNOWLEDGE_RUNTIME_ES_URL
+    KNOWLEDGE_RUNTIME_ES_URL="$(normalize_http_url "${KNOWLEDGE_RUNTIME_ES_URL:-http://127.0.0.1:${KNOWLEDGE_RUNTIME_ELASTICSEARCH_PORT:-9200}}")"
+  fi
   export KNOWLEDGE_HTTP_ADDR="${KNOWLEDGE_PARSE_ADAPTER_ADDR:-${KNOWLEDGE_HTTP_ADDR:-:8083}}"
   export KNOWLEDGE_AUTO_START_INGESTION="${KNOWLEDGE_PARSE_AUTO_START_INGESTION:-true}"
+  if [[ -n "${RAGFLOW_CONF:-}" ]]; then
+    RAGFLOW_CONF_EXPLICIT=1
+  fi
   export RAGFLOW_CONF="${RAGFLOW_CONF:-$RUNTIME_DIR/conf/service_conf.yaml}"
   export PYTHONPATH="."
   export LITELLM_LOCAL_MODEL_COST_MAP="${LITELLM_LOCAL_MODEL_COST_MAP:-True}"
+  # Local mainland default equivalent: HF_ENDPOINT=https://hf-mirror.com
+  export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
 
   append_no_proxy "127.0.0.1"
   append_no_proxy "localhost"
@@ -177,6 +236,105 @@ require_env() {
   if [[ -n "${KNOWLEDGE_RUNTIME_ES_URL:-}" ]]; then
     append_no_proxy_for_url "$KNOWLEDGE_RUNTIME_ES_URL"
   fi
+}
+
+should_start_local_elasticsearch() {
+  [[ "$RUNTIME_MODE" == "host" ]] || return 1
+  [[ "$(to_lower "${DOC_ENGINE:-elasticsearch}")" == "elasticsearch" ]] || return 1
+  case "$(to_lower "${KNOWLEDGE_RUNTIME_START_ELASTICSEARCH:-auto}")" in
+    0|false|no|off|external)
+      return 1
+      ;;
+  esac
+  if [[ -n "${KNOWLEDGE_RUNTIME_ES_URL:-}" ]] && ! is_loopback_host "$(url_host "$KNOWLEDGE_RUNTIME_ES_URL")"; then
+    return 1
+  fi
+  return 0
+}
+
+prepare_runtime_config() {
+  [[ "$RUNTIME_MODE" == "host" ]] || return 0
+  [[ "$(to_lower "${DOC_ENGINE:-elasticsearch}")" == "elasticsearch" ]] || return 0
+  [[ -n "${KNOWLEDGE_RUNTIME_ES_URL:-}" ]] || return 0
+  if [[ "$RAGFLOW_CONF_EXPLICIT" == "1" && "${KNOWLEDGE_RUNTIME_GENERATE_LOCAL_CONF:-0}" != "1" ]]; then
+    echo "using explicit RAGFLOW_CONF=$RAGFLOW_CONF; ensure its es.hosts matches $KNOWLEDGE_RUNTIME_ES_URL"
+    return 0
+  fi
+
+  CURRENT_STEP="preparing knowledge-runtime config"
+  local config_file="$LOCAL_RUNTIME_DIR/service_conf.yaml"
+  mkdir -p "$LOCAL_RUNTIME_DIR"
+  awk -v es_url="$KNOWLEDGE_RUNTIME_ES_URL" '
+    BEGIN { in_es = 0; replaced = 0 }
+    /^es:[[:space:]]*$/ { in_es = 1; print; next }
+    /^[^[:space:]][^:]*:/ {
+      if (in_es && !replaced) {
+        print "  hosts: " es_url
+        replaced = 1
+      }
+      in_es = 0
+    }
+    in_es && /^[[:space:]]+hosts:[[:space:]]*/ {
+      print "  hosts: " es_url
+      replaced = 1
+      next
+    }
+    { print }
+    END {
+      if (in_es && !replaced) {
+        print "  hosts: " es_url
+      }
+    }
+  ' "$RUNTIME_DIR/conf/service_conf.yaml" >"$config_file"
+  export RAGFLOW_CONF="$config_file"
+  echo "knowledge-runtime config generated: $RAGFLOW_CONF"
+}
+
+container_running() {
+  local name="$1"
+  [[ "$(docker inspect -f '{{.State.Running}}' "$name" 2>/dev/null || true)" == "true" ]]
+}
+
+start_local_elasticsearch() {
+  should_start_local_elasticsearch || return 0
+  CURRENT_STEP="starting local Elasticsearch"
+
+  local es_url="$KNOWLEDGE_RUNTIME_ES_URL"
+  local es_port
+  local container_name="${KNOWLEDGE_RUNTIME_ELASTICSEARCH_CONTAINER:-software-teamwork-knowledge-elasticsearch}"
+  local volume_name="${KNOWLEDGE_RUNTIME_ELASTICSEARCH_VOLUME:-software-teamwork-knowledge-elasticsearch-data}"
+  local local_image="${KNOWLEDGE_RUNTIME_ELASTICSEARCH_LOCAL_IMAGE:-software-teamwork/knowledge-runtime-elasticsearch:8.15.3-local}"
+  local upstream_image="${KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE:-docker.elastic.co/elasticsearch/elasticsearch:8.15.3}"
+  local image_prefix="${KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE_REGISTRY_PREFIX:-${IMAGE_REGISTRY_PREFIX:-}}"
+  es_port="$(url_port "$es_url")"
+
+  if container_running "$container_name"; then
+    echo "local Elasticsearch already running: $container_name"
+    printf '%s\n' "$container_name" >"$LOCAL_ES_CONTAINER_FILE"
+    return 0
+  fi
+
+  echo "building local Elasticsearch image $local_image from deploy/Dockerfile.elasticsearch-local"
+  docker build \
+    -f "$ROOT_DIR/deploy/Dockerfile.elasticsearch-local" \
+    --build-arg "IMAGE_REGISTRY_PREFIX=$image_prefix" \
+    --build-arg "ELASTICSEARCH_IMAGE=$upstream_image" \
+    -t "$local_image" \
+    "$ROOT_DIR/deploy"
+
+  docker rm -f "$container_name" >/dev/null 2>&1 || true
+  docker volume create "$volume_name" >/dev/null
+  echo "starting local Elasticsearch container $container_name on $es_url"
+  docker run -d \
+    --name "$container_name" \
+    -p "$es_port:9200" \
+    -e "discovery.type=single-node" \
+    -e "xpack.security.enabled=false" \
+    -e "ES_JAVA_OPTS=${KNOWLEDGE_RUNTIME_ELASTICSEARCH_JAVA_OPTS:--Xms512m -Xmx512m}" \
+    -v "$volume_name:/usr/share/elasticsearch/data" \
+    "$local_image" >/dev/null
+  printf '%s\n' "$container_name" >"$LOCAL_ES_CONTAINER_FILE"
+  STARTED_CONTAINERS+=("$container_name")
 }
 
 ensure_runtime_venv() {
@@ -207,6 +365,16 @@ run_adapter_preflight() {
   (cd "$ADAPTER_DIR" && env -u GOROOT go mod download)
 }
 
+launch_process_group() {
+  local dir="$1"
+  shift
+  cd "$dir"
+  if command -v setsid >/dev/null 2>&1; then
+    exec setsid "$@"
+  fi
+  exec python3 -c 'import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' "$@"
+}
+
 service_group_alive() {
   local pid_file="$1"
   [[ -f "$pid_file" ]] || return 1
@@ -231,7 +399,7 @@ start_service() {
 
   rm -f "$pid_file"
   echo "starting $name"
-  (cd "$dir" && exec setsid "$@") >"$log_file" 2>&1 &
+  launch_process_group "$dir" "$@" >"$log_file" 2>&1 &
   echo "$!" >"$pid_file"
   STARTED_SERVICES+=("$name")
 }
@@ -287,6 +455,21 @@ wait_for_http_ok() {
     sleep 2
   done
 
+  local process_name
+  for process_name in "knowledge-runtime-worker" "knowledge-runtime-api"; do
+    if [[ -f "$RUN_DIR/$process_name.pid" ]] && ! service_group_alive "$RUN_DIR/$process_name.pid"; then
+      echo "$process_name exited before $name became ready" >&2
+      echo "----- $LOG_DIR/$process_name.log (tail) -----" >&2
+      if [[ -f "$LOG_DIR/$process_name.log" ]]; then
+        tail -n 80 "$LOG_DIR/$process_name.log" >&2
+      else
+        echo "log file missing" >&2
+      fi
+      rm -f "$response_file"
+      return 1
+    fi
+  done
+
   echo "$name did not become ready at $url" >&2
   if [[ -s "$response_file" ]]; then
     echo "last response:" >&2
@@ -320,15 +503,26 @@ set -a
 set +a
 
 require_env
-require_command setsid
+if ! command -v setsid >/dev/null 2>&1 && ! command -v python3 >/dev/null 2>&1; then
+  echo "setsid or python3 is required to manage host-run process groups" >&2
+  exit 1
+fi
 require_command go
 require_command curl
 if [[ "$RUNTIME_MODE" == "host" ]]; then
   require_command uv
+  if should_start_local_elasticsearch; then
+    require_command docker
+  fi
 fi
 mkdir -p "$RUN_DIR" "$LOG_DIR"
 
 if [[ "$RUNTIME_MODE" == "host" ]]; then
+  start_local_elasticsearch
+  prepare_runtime_config
+  if [[ "$(to_lower "${DOC_ENGINE:-elasticsearch}")" == "elasticsearch" && -n "${KNOWLEDGE_RUNTIME_ES_URL:-}" ]]; then
+    wait_for_http_ok "Elasticsearch" "$KNOWLEDGE_RUNTIME_ES_URL/_cluster/health" "${KNOWLEDGE_RUNTIME_ELASTICSEARCH_READY_TIMEOUT_SECONDS:-120}"
+  fi
   ensure_runtime_venv
   run_runtime_preflight
 else
@@ -344,17 +538,21 @@ start_service "knowledge-adapter" "$ADAPTER_DIR" env -u GOROOT go run ./cmd/adap
 
 check_started_services
 wait_for_http_ok "knowledge-runtime API" "$VENDOR_RUNTIME_URL/api/v1/system/ping" "${KNOWLEDGE_RUNTIME_API_READY_TIMEOUT_SECONDS:-90}"
-wait_for_http_ok "Knowledge adapter" "$(knowledge_base_url)/readyz" "${KNOWLEDGE_ADAPTER_READY_TIMEOUT_SECONDS:-120}"
+wait_for_http_ok "Knowledge adapter" "$(knowledge_base_url)/readyz" "${KNOWLEDGE_ADAPTER_READY_TIMEOUT_SECONDS:-300}"
 
 cat <<EOF
 knowledge parse stack is running
   mode:        $RUNTIME_MODE
   runtime API: $VENDOR_RUNTIME_URL
   adapter:     $(knowledge_base_url)
+  doc engine:  ${DOC_ENGINE:-elasticsearch}
+  es URL:      ${KNOWLEDGE_RUNTIME_ES_URL:-}
   NO_PROXY:    ${NO_PROXY:-}
   logs:        .local/logs/knowledge-runtime-api.log
                .local/logs/knowledge-runtime-worker.log
                .local/logs/knowledge-adapter.log
+  config:      ${RAGFLOW_CONF:-}
+               .local/knowledge-runtime/service_conf.yaml when generated by this script
 
 Run the PDF E2E smoke:
   python3 scripts/local/knowledge-pdf-e2e.py DL_T_673-1999.pdf

@@ -30,6 +30,7 @@ func TestLoadValidatesDocumentDependencies(t *testing.T) {
 	t.Setenv("DOCUMENT_FILE_SERVICE_URL", "http://localhost:8082")
 	t.Setenv("DOCUMENT_AI_GATEWAY_URL", "http://localhost:8086")
 	t.Setenv("DOCUMENT_AI_GATEWAY_PROFILE_ID", "default-chat")
+	t.Setenv("DOCUMENT_AI_GATEWAY_MODEL", "deepseek-chat")
 	t.Setenv("DOCUMENT_MCP_SERVICE_TOKEN", "mcp-token")
 	t.Setenv("DOCUMENT_PANDOC_PATH", "pandoc")
 	t.Setenv("DOCUMENT_LIBREOFFICE_PATH", "soffice")
@@ -47,6 +48,9 @@ func TestLoadValidatesDocumentDependencies(t *testing.T) {
 	}
 	if cfg.AIGatewayProfileID != "default-chat" {
 		t.Fatalf("AIGatewayProfileID = %q", cfg.AIGatewayProfileID)
+	}
+	if cfg.AIGatewayModel != "deepseek-chat" {
+		t.Fatalf("AIGatewayModel = %q, want deepseek-chat", cfg.AIGatewayModel)
 	}
 	if cfg.MCPPath != DefaultMCPPath || cfg.MCPTokenHeader != DefaultMCPTokenHeader {
 		t.Fatalf("unexpected MCP defaults: %+v", cfg)
@@ -227,6 +231,7 @@ func clearEnv(t *testing.T) {
 		"DOCUMENT_FILE_SERVICE_TOKEN",
 		"DOCUMENT_AI_GATEWAY_URL",
 		"DOCUMENT_AI_GATEWAY_PROFILE_ID",
+		"DOCUMENT_AI_GATEWAY_MODEL",
 		"DOCUMENT_AI_GATEWAY_SERVICE_TOKEN",
 		"DOCUMENT_KNOWLEDGE_SERVICE_URL",
 		"DOCUMENT_KNOWLEDGE_SERVICE_TOKEN",

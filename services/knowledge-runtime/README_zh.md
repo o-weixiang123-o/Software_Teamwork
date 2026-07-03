@@ -44,10 +44,45 @@
 | `KNOWLEDGE_RUNTIME_RERANK_FACTORY` | rerank provider factory |
 | `KNOWLEDGE_RUNTIME_RERANK_MODEL` | rerank model id |
 | `KNOWLEDGE_RUNTIME_RERANK_BASE_URL` | rerank provider base URL |
+| `KNOWLEDGE_RUNTIME_ES_URL` | Elasticsearch 地址，默认 `http://127.0.0.1:9200` |
+| `KNOWLEDGE_RUNTIME_START_ELASTICSEARCH` | `run-knowledge-parse-stack.sh` 是否自动启动本地 Elasticsearch，默认 `auto` |
+| `HF_ENDPOINT` | deepdoc 首次加载 OCR/vision 模型时使用的 HuggingFace endpoint，大陆本地默认 `https://hf-mirror.com` |
 
 `deploy/api/run-local.sh` 和 `deploy/worker/run-local.sh` 会在启动前检查 doc
-engine 与 embedding provider。根级 Compose 不启动 Elasticsearch，也不启动本地
-embedding 服务；启用真实 ingestion 前需要先配置宿主机或外部依赖。
+engine 与 embedding provider。推荐用仓库根目录的
+`./scripts/local/run-knowledge-parse-stack.sh` 启动真实解析栈；它会用
+`deploy/Dockerfile.elasticsearch-local` 构建并启动本地 Elasticsearch 容器，并生成
+`.local/knowledge-runtime/service_conf.yaml` 指向 `KNOWLEDGE_RUNTIME_ES_URL`。
+如果使用已有 Elasticsearch，设置 `KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=0` 并修改
+`KNOWLEDGE_RUNTIME_ES_URL`。
+
+runtime worker 第一次导入 deepdoc OCR/vision 模块时会按需下载
+`InfiniFlow/deepdoc` 等模型。大陆网络下保留 `HF_ENDPOINT=https://hf-mirror.com`；
+如果 worker 日志出现 `LocalEntryNotFoundError`、`ConnectTimeout` 或
+`InfiniFlow/deepdoc` 下载失败，先恢复该变量或改成可达的内部 HuggingFace 镜像。
+
+第一次启用真实解析前，先复制默认环境文件并在 `deploy/.env` 填写 provider：
+
+```bash
+cp deploy/.env.example deploy/.env
+```
+
+SiliconFlow 示例：
+
+```text
+KNOWLEDGE_RUNTIME_MODEL_API_KEY=<your SiliconFlow key>
+KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY=SILICONFLOW
+KNOWLEDGE_RUNTIME_EMBEDDING_MODEL=BAAI/bge-m3
+KNOWLEDGE_RUNTIME_EMBEDDING_BASE_URL=https://api.siliconflow.cn/v1
+KNOWLEDGE_RUNTIME_RERANK_FACTORY=SILICONFLOW
+KNOWLEDGE_RUNTIME_RERANK_MODEL=BAAI/bge-reranker-v2-m3
+KNOWLEDGE_RUNTIME_RERANK_BASE_URL=https://api.siliconflow.cn/v1
+KNOWLEDGE_VENDOR_EMBEDDING_ID=BAAI/bge-m3@default@SILICONFLOW
+KNOWLEDGE_VENDOR_RERANK_ID=BAAI/bge-reranker-v2-m3@default@SILICONFLOW
+KNOWLEDGE_AUTO_START_INGESTION=true
+DOC_ENGINE=elasticsearch
+KNOWLEDGE_RUNTIME_ES_URL=http://127.0.0.1:9200
+```
 
 默认依赖和 artifact 下载使用官方 URL。中国大陆网络显式使用镜像模式：
 

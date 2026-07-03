@@ -27,6 +27,7 @@ type Config struct {
 	FileServiceToken      string
 	AIGatewayURL          string
 	AIGatewayProfileID    string
+	AIGatewayModel        string
 	AIGatewayServiceToken string
 	KnowledgeServiceURL   string
 	KnowledgeServiceToken string
@@ -47,6 +48,7 @@ func Load() (Config, error) {
 		FileServiceToken:      firstEnv("DOCUMENT_FILE_SERVICE_TOKEN", "INTERNAL_SERVICE_TOKEN"),
 		AIGatewayURL:          strings.TrimSpace(os.Getenv("DOCUMENT_AI_GATEWAY_URL")),
 		AIGatewayProfileID:    strings.TrimSpace(os.Getenv("DOCUMENT_AI_GATEWAY_PROFILE_ID")),
+		AIGatewayModel:        strings.TrimSpace(os.Getenv("DOCUMENT_AI_GATEWAY_MODEL")),
 		AIGatewayServiceToken: firstEnv("DOCUMENT_AI_GATEWAY_SERVICE_TOKEN", "INTERNAL_SERVICE_TOKEN"),
 		KnowledgeServiceURL:   strings.TrimSpace(os.Getenv("DOCUMENT_KNOWLEDGE_SERVICE_URL")),
 		KnowledgeServiceToken: firstEnv("DOCUMENT_KNOWLEDGE_SERVICE_TOKEN", "INTERNAL_SERVICE_TOKEN"),

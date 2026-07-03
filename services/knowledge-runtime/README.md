@@ -18,24 +18,55 @@ of this runtime; the project-owned Knowledge MCP bridge lives in
 
 ## Local development
 
-Requires Python 3.13 + [uv](https://github.com/astral-sh/uv):
+The root helper is the preferred local path. It starts the runtime API, runtime
+worker, Knowledge adapter, and a local Elasticsearch container for
+`DOC_ENGINE=elasticsearch`:
+
+```bash
+cp deploy/.env.example deploy/.env
+# Edit deploy/.env with the provider and ingestion variables below.
+./scripts/local/run-knowledge-parse-stack.sh
+```
+
+For SiliconFlow local parsing, set these values in `deploy/.env` before running
+the helper:
+
+```text
+KNOWLEDGE_RUNTIME_MODEL_API_KEY=<your SiliconFlow key>
+KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY=SILICONFLOW
+KNOWLEDGE_RUNTIME_EMBEDDING_MODEL=BAAI/bge-m3
+KNOWLEDGE_RUNTIME_EMBEDDING_BASE_URL=https://api.siliconflow.cn/v1
+KNOWLEDGE_RUNTIME_RERANK_FACTORY=SILICONFLOW
+KNOWLEDGE_RUNTIME_RERANK_MODEL=BAAI/bge-reranker-v2-m3
+KNOWLEDGE_RUNTIME_RERANK_BASE_URL=https://api.siliconflow.cn/v1
+KNOWLEDGE_VENDOR_EMBEDDING_ID=BAAI/bge-m3@default@SILICONFLOW
+KNOWLEDGE_VENDOR_RERANK_ID=BAAI/bge-reranker-v2-m3@default@SILICONFLOW
+KNOWLEDGE_AUTO_START_INGESTION=true
+DOC_ENGINE=elasticsearch
+KNOWLEDGE_RUNTIME_ES_URL=http://127.0.0.1:9200
+```
+
+The helper builds `deploy/Dockerfile.elasticsearch-local` and starts the
+`software-teamwork-knowledge-elasticsearch` container by default. It writes a
+runtime config overlay to `.local/knowledge-runtime/service_conf.yaml` so the
+runtime API and worker use the configured Elasticsearch URL. To use an existing
+Elasticsearch instead, set `KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=0` and point
+`KNOWLEDGE_RUNTIME_ES_URL` at that instance.
+
+The runtime worker lazily downloads deepdoc OCR/vision model artifacts from
+HuggingFace the first time those modules are imported. Mainland China local
+defaults set `HF_ENDPOINT=https://hf-mirror.com`; keep that value or set an
+internal HuggingFace mirror before starting the worker.
+
+Manual process startup is still supported when debugging the runtime directly:
 
 ```bash
 cd services/knowledge-runtime
 uv sync --python 3.13 --frozen
 export PYTHONPATH=.
 set -a && . ../../deploy/.env && set +a
-# Edit conf/service_conf.yaml hosts for localhost (postgres, redis, minio, es).
-# Start a host/external Elasticsearch for DOC_ENGINE=elasticsearch.
-# Set KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY/MODEL/BASE_URL and
-# KNOWLEDGE_RUNTIME_MODEL_API_KEY before enabling ingestion.
-
-# Terminal 1 — API
 ./deploy/api/run-local.sh
-
-# Terminal 2 — worker
 ./deploy/worker/run-local.sh
-```
 
 Official package and artifact URLs are the committed default. For mainland
 China networks, prepare dependencies and runtime artifacts with explicit mirror
@@ -77,6 +108,10 @@ go run ./cmd/adapter
   unbounded metadata set into memory.
 - Object storage: root `minio-init` creates both `software-teamwork-local`
   (File service) and `software-teamwork-knowledge` (Knowledge runtime).
+- HuggingFace model downloads: `HF_ENDPOINT` defaults to
+  `https://hf-mirror.com` in local scripts. If the worker exits with
+  `InfiniFlow/deepdoc`, `LocalEntryNotFoundError`, or `ConnectTimeout`, restore
+  this variable or point it at a reachable internal mirror.
 - Model credentials: set `KNOWLEDGE_RUNTIME_MODEL_API_KEY` in your local shell or
   untracked env file. Use `KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY`,
   `KNOWLEDGE_RUNTIME_EMBEDDING_MODEL`, `KNOWLEDGE_RUNTIME_EMBEDDING_BASE_URL`,

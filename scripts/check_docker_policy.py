@@ -203,7 +203,9 @@ def collect_arg_defaults(content: str) -> dict[str, str]:
 def parse_full_image_arg(image: str) -> str | None:
     match = re.match(r"^\$\{([A-Z0-9_]+)\}$", image)
     if not match:
-        return None
+        match = re.match(r"^\$\{IMAGE_REGISTRY_PREFIX\}\$\{([A-Z0-9_]+)\}$", image)
+        if not match:
+            return None
     return match.group(1)
 
 

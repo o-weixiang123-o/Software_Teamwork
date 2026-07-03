@@ -21,6 +21,7 @@ GITIGNORE = Path(".gitignore")
 AUTH_MIGRATIONS_DIR = Path("services/auth/migrations")
 DEV_UP_SCRIPT = Path("scripts/local/dev-up.sh")
 RUN_BACKEND_SCRIPT = Path("scripts/local/run-backend.sh")
+RUN_KNOWLEDGE_PARSE_STACK_SCRIPT = Path("scripts/local/run-knowledge-parse-stack.sh")
 STOP_BACKEND_SCRIPT = Path("scripts/local/stop-backend.sh")
 
 REQUIRED_SEED_001_TOKENS = {
@@ -183,6 +184,11 @@ REQUIRED_DEV_UP_TOKENS = [
     "DOCUMENT_DATABASE_URL",
     "AI_GATEWAY_DATABASE_URL",
     "POSTGRES_ADMIN_URL",
+    "cmd/local-seed",
+    "applying AI Gateway local provider seed",
+    "AI_GATEWAY_LOCAL_PROVIDER_BASE_URL",
+    "AI_GATEWAY_LOCAL_PROVIDER_API_KEY",
+    "AI_GATEWAY_LOCAL_CHAT_MODEL",
 ]
 
 REQUIRED_RUN_BACKEND_TOKENS = [
@@ -195,10 +201,14 @@ REQUIRED_RUN_BACKEND_TOKENS = [
     "failed during",
     "Check service logs under .local/logs/",
     "setsid",
+    "python3",
+    "os.setsid()",
     "go mod download",
     "checking Go modules",
     "--china",
     "using selected default for this run",
+    "AI_GATEWAY_LOCAL_CHAT_MODEL",
+    "DOCUMENT_AI_GATEWAY_MODEL",
     "LOCAL_GO_MOD_DOWNLOAD_TIMEOUT_SECONDS",
     "go mod download timed out",
     "Go module download failed before backend startup completed.",
@@ -219,6 +229,24 @@ REQUIRED_RUN_BACKEND_TOKENS = [
     "gateway",
 ]
 
+REQUIRED_RUN_KNOWLEDGE_PARSE_STACK_TOKENS = [
+    "knowledge parse stack startup: starting Knowledge parse stack",
+    "setsid or python3 is required",
+    "os.setsid()",
+    "deploy/Dockerfile.elasticsearch-local",
+    "KNOWLEDGE_RUNTIME_ES_URL",
+    "KNOWLEDGE_RUNTIME_START_ELASTICSEARCH",
+    "KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE",
+    "HF_ENDPOINT=https://hf-mirror.com",
+    "docker build",
+    "docker run -d",
+    "software-teamwork-knowledge-elasticsearch",
+    ".local/knowledge-runtime/service_conf.yaml",
+    "KNOWLEDGE_RUNTIME_MODEL_API_KEY=<your SiliconFlow key>",
+    "KNOWLEDGE_VENDOR_EMBEDDING_ID=BAAI/bge-m3@default@SILICONFLOW",
+    "KNOWLEDGE_AUTO_START_INGESTION=true",
+]
+
 REQUIRED_STOP_BACKEND_TOKENS = [
     "[stop]",
     "[ok]",
@@ -231,10 +259,13 @@ REQUIRED_STOP_BACKEND_TOKENS = [
     'kill -0 -- "-$pid"',
     'kill -TERM -- "-$pid"',
     'kill -KILL -- "-$pid"',
+    "*.container",
+    "docker rm -f",
 ]
 
 REQUIRED_ENV_TOKENS = [
     "UV_DEFAULT_INDEX=https://pypi.org/simple",
+    "HF_ENDPOINT=https://hf-mirror.com",
     "GOPROXY=https://proxy.golang.org,direct",
     "GOSUMDB=sum.golang.org",
     "# POSTGRES_IMAGE=docker.m.daocloud.io/library/postgres:16-alpine",
@@ -253,6 +284,16 @@ REQUIRED_ENV_TOKENS = [
     "KNOWLEDGE_RUNTIME_SERVICE_TOKEN=",
     "KNOWLEDGE_AUTO_START_INGESTION=false",
     "# DOC_ENGINE=elasticsearch",
+    "KNOWLEDGE_RUNTIME_ES_URL=http://127.0.0.1:9200",
+    "KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=auto",
+    "KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE=docker.elastic.co/elasticsearch/elasticsearch:8.15.3",
+    "AI_GATEWAY_LOCAL_PROVIDER_BASE_URL=https://api.siliconflow.cn/v1",
+    "AI_GATEWAY_LOCAL_PROVIDER_API_KEY=",
+    "AI_GATEWAY_LOCAL_CHAT_MODEL=deepseek-ai/DeepSeek-V3",
+    "AI_GATEWAY_LOCAL_EMBEDDING_MODEL=BAAI/bge-m3",
+    "AI_GATEWAY_LOCAL_RERANK_MODEL=BAAI/bge-reranker-v2-m3",
+    "DOCUMENT_AI_GATEWAY_MODEL=local-placeholder-chat",
+    "KNOWLEDGE_VENDOR_EMBEDDING_ID=BAAI/bge-m3@default@SILICONFLOW",
 ]
 
 FORBIDDEN_STARTUP_DOC_TOKENS = [
@@ -292,6 +333,7 @@ def verify_local_seed_contract(root: Path) -> list[str]:
     env_example = read_required(root, ENV_EXAMPLE, issues)
     dev_up_script = read_required(root, DEV_UP_SCRIPT, issues)
     run_backend_script = read_required(root, RUN_BACKEND_SCRIPT, issues)
+    run_knowledge_parse_stack_script = read_required(root, RUN_KNOWLEDGE_PARSE_STACK_SCRIPT, issues)
     stop_backend_script = read_required(root, STOP_BACKEND_SCRIPT, issues)
     gitignore = read_required(root, GITIGNORE, issues)
 
@@ -308,6 +350,7 @@ def verify_local_seed_contract(root: Path) -> list[str]:
             env_example,
             dev_up_script,
             run_backend_script,
+            run_knowledge_parse_stack_script,
             stop_backend_script,
         )
     )
@@ -451,6 +494,7 @@ def validate_docs(
     env_example: str,
     dev_up_script: str,
     run_backend_script: str,
+    run_knowledge_parse_stack_script: str,
     stop_backend_script: str,
 ) -> list[str]:
     issues: list[str] = []
@@ -470,6 +514,9 @@ def validate_docs(
     for token in REQUIRED_RUN_BACKEND_TOKENS:
         if token not in run_backend_script:
             issues.append(f"{RUN_BACKEND_SCRIPT} missing backend startup token `{token}`")
+    for token in REQUIRED_RUN_KNOWLEDGE_PARSE_STACK_TOKENS:
+        if token not in run_knowledge_parse_stack_script:
+            issues.append(f"{RUN_KNOWLEDGE_PARSE_STACK_SCRIPT} missing Knowledge parse stack token `{token}`")
     for token in REQUIRED_STOP_BACKEND_TOKENS:
         if token not in stop_backend_script:
             issues.append(f"{STOP_BACKEND_SCRIPT} missing backend stop token `{token}`")

@@ -11,6 +11,7 @@ fi
 
 export PYTHONPATH=.
 export RAGFLOW_CONF="${RAGFLOW_CONF:-$ROOT/conf/service_conf.yaml}"
+export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
 WORKER_ID="${KNOWLEDGE_RUNTIME_WORKER_ID:-0}"
 
 if [[ ! -f "$RAGFLOW_CONF" ]]; then

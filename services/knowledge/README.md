@@ -132,7 +132,11 @@ as documented in
 
 For the real host-run Knowledge parsing stack, use the root helper script. It
 starts `services/knowledge-runtime` API, runtime worker, and the Knowledge
-adapter, and forces adapter auto-ingestion on for upload-to-parse diagnostics:
+adapter, starts a local Elasticsearch container by default for
+`DOC_ENGINE=elasticsearch`, and forces adapter auto-ingestion on for
+upload-to-parse diagnostics. First copy `deploy/.env.example` to `deploy/.env`
+and fill the runtime model provider variables documented in
+`../knowledge-runtime/README.md`.
 
 ```bash
 ./scripts/local/run-knowledge-parse-stack.sh
@@ -147,6 +151,12 @@ The helper normalizes local wiring that is easy to get wrong by hand:
   intercept adapter calls to localhost or Docker bridge IPs.
 - Old local `.env` files that lack the runtime service token use the tracked
   local development token defaults for `scripts/local` only.
+- For `DOC_ENGINE=elasticsearch`, the script starts
+  `software-teamwork-knowledge-elasticsearch` from
+  `deploy/Dockerfile.elasticsearch-local` unless
+  `KNOWLEDGE_RUNTIME_START_ELASTICSEARCH=0`.
+- The script generates `.local/knowledge-runtime/service_conf.yaml` so runtime
+  API and worker use `KNOWLEDGE_RUNTIME_ES_URL`.
 - To reuse an already running runtime API, set
   `KNOWLEDGE_PARSE_VENDOR_RUNTIME_URL=http://<runtime-host>:9380`; non-loopback
   URLs automatically switch the script to external-runtime mode and start only
