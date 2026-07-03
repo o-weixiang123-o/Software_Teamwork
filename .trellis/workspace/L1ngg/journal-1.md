@@ -546,3 +546,37 @@ Resolved PR #440 Codex review findings, rebased onto latest upstream/develop, ve
 ### Next Steps
 
 - None - task complete
+
+
+## Session 17: Harden File service production baseline
+
+**Date**: 2026-07-04
+**Task**: Harden File service production baseline
+**Branch**: `L1nggTeam/feat/file-service-production-hardening`
+
+### Summary
+
+Implemented File service production hardening: streaming upload with checksum, non-local backend guards, MIME allowlist, caller operation allowlists, docs, tests, and backend spec updates.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7f61ca1e` | (see git log) |
+| `c8f4ca1f` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
