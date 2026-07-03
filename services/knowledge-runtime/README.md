@@ -69,6 +69,12 @@ go run ./cmd/adapter
 - Runtime auth: tenant-scoped API routes require `X-Service-Token` matching
   `KNOWLEDGE_RUNTIME_SERVICE_TOKEN`; the Go adapter sends
   `VENDOR_RUNTIME_SERVICE_TOKEN`.
+- Gateway tenant bridge: `KNOWLEDGE_RUNTIME_AUTO_PROVISION_TENANTS` defaults to
+  `true` for local compatibility. Set it to `false` to reject missing runtime
+  tenants instead of creating Gateway-derived user/tenant rows during auth.
+- Metadata filtering: `METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT` defaults to
+  `10000`; push-down failures above this cap fail clearly instead of loading an
+  unbounded metadata set into memory.
 - Object storage: root `minio-init` creates both `software-teamwork-local`
   (File service) and `software-teamwork-knowledge` (Knowledge runtime).
 - Model credentials: set `KNOWLEDGE_RUNTIME_MODEL_API_KEY` in your local shell or

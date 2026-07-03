@@ -47,7 +47,8 @@ class EmbeddingUtils:
 
     DEFAULT_TITLE_WEIGHT = 0.1
     DEFAULT_TITLE_PLACEHOLDER = "Title"
-    CONTENT_PLACEHOLDER_FOR_WHITESPACE = "None"
+    NON_INDEXABLE_CONTENT = None
+    CONTENT_PLACEHOLDER_FOR_WHITESPACE = NON_INDEXABLE_CONTENT
 
     @classmethod
     def prepare_texts_for_embedding(
@@ -72,14 +73,30 @@ class EmbeddingUtils:
         contents = []
         for d in docs:
             title = d.get("docnm_kwd", cls.DEFAULT_TITLE_PLACEHOLDER)
-            titles.append(title)
-
             content = cls._extract_content(d, use_question_kwd=use_question_kwd)
             content = cls._normalize_table_html(content)
             content = cls._handle_whitespace(content)
+            if content is None:
+                continue
 
+            titles.append(title)
             contents.append(content)
         return titles, contents
+
+    @classmethod
+    def filter_indexable_docs(
+        cls,
+        docs: List[Dict[str, Any]],
+        use_question_kwd: bool = True,
+    ) -> List[Dict[str, Any]]:
+        """Return only chunks with non-empty content after normalization."""
+        indexable = []
+        for doc in docs:
+            content = cls._extract_content(doc, use_question_kwd=use_question_kwd)
+            content = cls._normalize_table_html(content)
+            if cls._handle_whitespace(content) is not None:
+                indexable.append(doc)
+        return indexable
 
     @classmethod
     def truncate_texts(cls, texts: List[str], max_length: int) -> List[str]:
@@ -190,11 +207,11 @@ class EmbeddingUtils:
         return re.sub(r"</?(table|td|caption|tr|th)( [^<>]{0,12})?>", " ", text)
 
     @classmethod
-    def _handle_whitespace(cls, text: str) -> str:
-        """Replace whitespace-only content with a placeholder.
+    def _handle_whitespace(cls, text: str) -> str | None:
+        """Return None for whitespace-only content so callers skip indexing it.
 
         Prevents embedding models from receiving empty or meaningless input.
         """
         if not text.strip():
-            return cls.CONTENT_PLACEHOLDER_FOR_WHITESPACE
+            return cls.NON_INDEXABLE_CONTENT
         return text

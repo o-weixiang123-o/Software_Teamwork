@@ -18,7 +18,7 @@ Unit tests for constants module.
 """
 
 import pytest
-from rag.svr.task_executor_refactor.constants import GRAPH_RAPTOR_FAKE_DOC_ID
+from rag.svr.task_executor_refactor.constants import DATASET_SCOPE_TASK_DOC_ID, GRAPH_RAPTOR_FAKE_DOC_ID, is_dataset_scope_task_doc_id
 
 
 class TestConstants:
@@ -41,3 +41,8 @@ class TestConstants:
     def test_graph_raptor_fake_doc_id_not_empty(self):
         """Test that GRAPH_RAPTOR_FAKE_DOC_ID is not empty."""
         assert len(GRAPH_RAPTOR_FAKE_DOC_ID) > 0
+
+    def test_dataset_scope_task_doc_id_aliases_legacy_constant(self):
+        assert DATASET_SCOPE_TASK_DOC_ID == GRAPH_RAPTOR_FAKE_DOC_ID
+        assert is_dataset_scope_task_doc_id(DATASET_SCOPE_TASK_DOC_ID)
+        assert not is_dataset_scope_task_doc_id("doc-real")

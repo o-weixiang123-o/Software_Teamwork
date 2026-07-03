@@ -285,6 +285,11 @@ func TestCreateKnowledgeQueryMapsRetrieval(t *testing.T) {
 	var payload struct {
 		Data struct {
 			Results []map[string]any `json:"results"`
+			Trace   struct {
+				EmbeddingModel     string `json:"embeddingModel"`
+				EmbeddingDimension int    `json:"embeddingDimension"`
+				QdrantCollection   string `json:"qdrantCollection"`
+			} `json:"trace"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
@@ -295,6 +300,9 @@ func TestCreateKnowledgeQueryMapsRetrieval(t *testing.T) {
 	}
 	if payload.Data.Results[0]["chunkId"] != "chunk_1" {
 		t.Fatalf("chunk=%v", payload.Data.Results[0])
+	}
+	if payload.Data.Trace.EmbeddingModel == "vendor-default" || payload.Data.Trace.EmbeddingDimension == 0 || payload.Data.Trace.QdrantCollection == "elasticsearch" {
+		t.Fatalf("trace should not contain fake runtime facts: %+v", payload.Data.Trace)
 	}
 }
 

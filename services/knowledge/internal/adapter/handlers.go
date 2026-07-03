@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/service"
-	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/vendorclient"
 )
 
 func (s *Server) handleListKnowledgeBases(w http.ResponseWriter, r *http.Request) {
@@ -227,14 +226,12 @@ func (s *Server) handleGetDocument(w http.ResponseWriter, r *http.Request) {
 		writeAppError(w, r, err)
 		return
 	}
-	kbID := strings.TrimSpace(r.URL.Query().Get("knowledgeBaseId"))
-	var doc map[string]interface{}
-	var err error
-	if kbID != "" {
-		doc, err = s.vendor.GetDatasetDocument(r.Context(), reqCtx.UserID, kbID, r.PathValue("documentId"))
-	} else {
-		doc, err = s.findDocumentByID(r.Context(), reqCtx.UserID, r.PathValue("documentId"))
+	kbID, err := requiredDocumentKnowledgeBaseID(r)
+	if err != nil {
+		writeAppError(w, r, err)
+		return
 	}
+	doc, err := s.vendor.GetDatasetDocument(r.Context(), reqCtx.UserID, kbID, r.PathValue("documentId"))
 	if err != nil {
 		writeAppError(w, r, mapVendorError(err))
 		return
@@ -259,12 +256,16 @@ func (s *Server) handleUpdateDocument(w http.ResponseWriter, r *http.Request) {
 		writeAppError(w, r, service.ValidationError("request validation failed", map[string]string{"body": "must include at least one supported field"}))
 		return
 	}
-	doc, err := s.findDocumentByID(r.Context(), reqCtx.UserID, r.PathValue("documentId"))
+	kbID, err := requiredDocumentKnowledgeBaseID(r)
+	if err != nil {
+		writeAppError(w, r, err)
+		return
+	}
+	_, err = s.vendor.GetDatasetDocument(r.Context(), reqCtx.UserID, kbID, r.PathValue("documentId"))
 	if err != nil {
 		writeAppError(w, r, mapVendorError(err))
 		return
 	}
-	kbID := stringField(doc, "kb_id", "dataset_id")
 	payload, err := buildUpdateDocumentBody(*body.Tags)
 	if err != nil {
 		writeAppError(w, r, err)
@@ -278,32 +279,12 @@ func (s *Server) handleUpdateDocument(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, documentFromVendor(updated), reqCtx.RequestID)
 }
 
-func (s *Server) findDocumentByID(ctx context.Context, userID, documentID string) (map[string]interface{}, error) {
-	const pageSize = 100
-	for page := 1; ; page++ {
-		datasets, total, err := s.vendor.ListDatasets(ctx, userID, page, pageSize)
-		if err != nil {
-			return nil, err
-		}
-		for _, dataset := range datasets {
-			kbID := stringField(dataset, "id")
-			if kbID == "" {
-				continue
-			}
-			doc, err := s.vendor.GetDatasetDocument(ctx, userID, kbID, documentID)
-			if err == nil {
-				return doc, nil
-			}
-			if apiErr, ok := err.(*vendorclient.APIError); ok && apiErr.Code == 404 {
-				continue
-			}
-			return nil, err
-		}
-		if len(datasets) == 0 || int64(page*pageSize) >= total {
-			break
-		}
+func requiredDocumentKnowledgeBaseID(r *http.Request) (string, error) {
+	kbID := strings.TrimSpace(r.URL.Query().Get("knowledgeBaseId"))
+	if kbID == "" {
+		return "", service.ValidationError("request validation failed", map[string]string{"knowledgeBaseId": "is required"})
 	}
-	return nil, &vendorclient.APIError{Code: 404, Message: "document not found"}
+	return kbID, nil
 }
 
 func (s *Server) handleDeleteDocument(w http.ResponseWriter, r *http.Request) {
@@ -316,14 +297,9 @@ func (s *Server) handleDeleteDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	documentID := r.PathValue("documentId")
-	doc, err := s.findDocumentByID(r.Context(), reqCtx.UserID, documentID)
+	kbID, err := requiredDocumentKnowledgeBaseID(r)
 	if err != nil {
-		writeAppError(w, r, mapVendorError(err))
-		return
-	}
-	kbID := stringField(doc, "kb_id", "dataset_id")
-	if kbID == "" {
-		writeAppError(w, r, service.DependencyError("vendor document is missing dataset id", errors.New("missing dataset id")))
+		writeAppError(w, r, err)
 		return
 	}
 	if err := s.vendor.DeleteDocument(r.Context(), reqCtx.UserID, kbID, documentID); err != nil {
@@ -347,12 +323,16 @@ func (s *Server) handleListDocumentChunks(w http.ResponseWriter, r *http.Request
 		writeAppError(w, r, err)
 		return
 	}
-	doc, err := s.findDocumentByID(r.Context(), reqCtx.UserID, r.PathValue("documentId"))
+	kbID, err := requiredDocumentKnowledgeBaseID(r)
+	if err != nil {
+		writeAppError(w, r, err)
+		return
+	}
+	_, err = s.vendor.GetDatasetDocument(r.Context(), reqCtx.UserID, kbID, r.PathValue("documentId"))
 	if err != nil {
 		writeAppError(w, r, mapVendorError(err))
 		return
 	}
-	kbID := stringField(doc, "kb_id", "dataset_id")
 	chunks, total, err := s.vendor.ListChunks(r.Context(), reqCtx.UserID, kbID, r.PathValue("documentId"), page.Page, page.PageSize)
 	if err != nil {
 		writeAppError(w, r, mapVendorError(err))
@@ -374,12 +354,16 @@ func (s *Server) handleGetDocumentContent(w http.ResponseWriter, r *http.Request
 		writeAppError(w, r, err)
 		return
 	}
-	doc, err := s.findDocumentByID(r.Context(), reqCtx.UserID, r.PathValue("documentId"))
+	kbID, err := requiredDocumentKnowledgeBaseID(r)
+	if err != nil {
+		writeAppError(w, r, err)
+		return
+	}
+	_, err = s.vendor.GetDatasetDocument(r.Context(), reqCtx.UserID, kbID, r.PathValue("documentId"))
 	if err != nil {
 		writeAppError(w, r, mapVendorError(err))
 		return
 	}
-	kbID := stringField(doc, "kb_id", "dataset_id")
 	contentType, body, err := s.vendor.DownloadDocument(r.Context(), reqCtx.UserID, kbID, r.PathValue("documentId"))
 	if err != nil {
 		writeAppError(w, r, mapVendorError(err))
@@ -426,7 +410,9 @@ func (s *Server) handleCreateKnowledgeQuery(w http.ResponseWriter, r *http.Reque
 	if body.ScoreThreshold != nil {
 		scoreThreshold = *body.ScoreThreshold
 	}
-	writeJSON(w, http.StatusCreated, knowledgeQueryFromVendor(newQueryID(), strings.TrimSpace(body.Query), data, topK, scoreThreshold, body.Rerank, body.RerankTopN), reqCtx.RequestID)
+	writeJSON(w, http.StatusCreated, knowledgeQueryFromVendor(newQueryID(), strings.TrimSpace(body.Query), data, topK, scoreThreshold, body.Rerank, body.RerankTopN, knowledgeQueryTraceOptions{
+		VendorEmbeddingID: s.cfg.VendorEmbeddingID,
+	}), reqCtx.RequestID)
 }
 
 func (s *Server) handleKnowledgeStatistics(w http.ResponseWriter, r *http.Request) {

@@ -1058,13 +1058,20 @@ class DocumentService(CommonService):
         queue_tasks(doc, bucket, name, 0)
 
 
-def queue_raptor_o_graphrag_tasks(sample_doc, ty, priority, fake_doc_id="", doc_ids=None):
+def queue_raptor_o_graphrag_tasks(sample_doc, ty, priority, task_scope_doc_id="", doc_ids=None):
     """
-    You can provide a fake_doc_id to bypass the restriction of tasks at the knowledgebase level.
-    Optionally, specify a list of doc_ids to determine which documents participate in the task.
+    Queue a dataset-level graph/RAPTOR/mindmap task.
+
+    ``task_scope_doc_id`` is the explicit Task.doc_id sentinel used when a task
+    belongs to a knowledge base rather than one real source document.
     """
     if doc_ids is None:
         doc_ids = []
+    from api.db.services.task_service import DATASET_SCOPE_TASK_DOC_ID, is_dataset_scope_task_doc_id
+
+    task_scope_doc_id = task_scope_doc_id or DATASET_SCOPE_TASK_DOC_ID
+    if any(is_dataset_scope_task_doc_id(doc_id) for doc_id in doc_ids):
+        raise ValueError("dataset-scope task doc id must not be used as a real source document id")
     assert ty in ["graphrag", "raptor", "mindmap"], "type should be graphrag, raptor or mindmap"
 
     chunking_config = DocumentService.get_chunking_config(sample_doc["id"])
@@ -1075,7 +1082,7 @@ def queue_raptor_o_graphrag_tasks(sample_doc, ty, priority, fake_doc_id="", doc_
     def new_task():
         return {
             "id": get_uuid(),
-            "doc_id": fake_doc_id,
+            "doc_id": task_scope_doc_id,
             "from_page": MAXIMUM_TASK_PAGE_NUMBER,
             "to_page": MAXIMUM_TASK_PAGE_NUMBER,
             "task_type": ty,

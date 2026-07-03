@@ -2,7 +2,9 @@ package adapter
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -20,8 +22,10 @@ const (
 	ragflowLayoutOpenDataLoader = "OpenDataLoader"
 	ragflowLayoutPlainText      = "Plain Text"
 
-	parserConfigTraceKey       = "software_teamwork_parser_config"
-	parserConfigCredentialsKey = "software_teamwork_parser_config_credentials"
+	parserConfigTraceKey             = "software_teamwork_parser_config"
+	parserConfigCredentialsKey       = "software_teamwork_parser_config_credentials"
+	runtimeManagedTraceValue         = "runtime-managed"
+	runtimeManagedEmbeddingDimension = -1
 )
 
 type knowledgeBaseSummary struct {
@@ -76,6 +80,10 @@ type retrievalBuildOptions struct {
 }
 
 type createDatasetOptions struct {
+	VendorEmbeddingID string
+}
+
+type knowledgeQueryTraceOptions struct {
 	VendorEmbeddingID string
 }
 
@@ -151,22 +159,25 @@ func mapVendorError(err error) error {
 	if err == nil {
 		return nil
 	}
-	if apiErr, ok := err.(*vendorclient.APIError); ok {
-		switch apiErr.Code {
-		case 401:
+	var apiErr *vendorclient.APIError
+	if errors.As(err, &apiErr) {
+		switch {
+		case apiErr.MatchesHTTPStatus(http.StatusUnauthorized):
 			return service.UnauthorizedError()
-		case 403:
+		case apiErr.MatchesHTTPStatus(http.StatusForbidden):
 			return service.ForbiddenError(apiErr.Message)
-		default:
+		case apiErr.MatchesHTTPStatus(http.StatusNotFound):
 			msg := strings.TrimSpace(apiErr.Message)
-			if strings.Contains(strings.ToLower(msg), "not found") || strings.Contains(strings.ToLower(msg), "invalid dataset") {
-				return service.NotFoundError(msg)
-			}
 			if msg == "" {
-				msg = "vendor runtime request failed"
+				msg = "resource not found"
 			}
-			return service.DependencyError(msg, err)
+			return service.NotFoundError(msg)
 		}
+		msg := strings.TrimSpace(apiErr.Message)
+		if msg == "" {
+			msg = "vendor runtime request failed"
+		}
+		return service.DependencyError(msg, err)
 	}
 	return service.DependencyError("vendor runtime request failed", err)
 }
@@ -294,7 +305,7 @@ func documentChunksFromVendor(items []map[string]interface{}, kbID, documentID s
 	return out
 }
 
-func knowledgeQueryFromVendor(queryID, query string, data *vendorclient.RetrievalData, topK int, scoreThreshold float64, rerank bool, rerankTopN *int) knowledgeQuerySummary {
+func knowledgeQueryFromVendor(queryID, query string, data *vendorclient.RetrievalData, topK int, scoreThreshold float64, rerank bool, rerankTopN *int, opts knowledgeQueryTraceOptions) knowledgeQuerySummary {
 	results := make([]knowledgeQueryResult, 0)
 	if data != nil {
 		for _, chunk := range data.Chunks {
@@ -310,10 +321,10 @@ func knowledgeQueryFromVendor(queryID, query string, data *vendorclient.Retrieva
 		Query:   query,
 		Results: results,
 		Trace: knowledgeQueryTrace{
-			EmbeddingProvider:  "vendor",
-			EmbeddingModel:     "vendor-default",
-			EmbeddingDimension: 0,
-			QdrantCollection:   "elasticsearch",
+			EmbeddingProvider:  "runtime",
+			EmbeddingModel:     firstNonEmpty(strings.TrimSpace(opts.VendorEmbeddingID), runtimeManagedTraceValue),
+			EmbeddingDimension: runtimeManagedEmbeddingDimension,
+			QdrantCollection:   runtimeManagedTraceValue,
 			SearchTopK:         topK,
 			ScoreThreshold:     scoreThreshold,
 			HitCount:           hitCount,
@@ -363,9 +374,10 @@ func buildCreateDatasetBody(req createKnowledgeBaseRequest, defaultParserConfig 
 	}
 	if req.ChunkStrategy != nil {
 		var cfg map[string]any
-		if err := json.Unmarshal(*req.ChunkStrategy, &cfg); err == nil {
-			payload["parser_config"] = cfg
+		if err := json.Unmarshal(*req.ChunkStrategy, &cfg); err != nil || cfg == nil {
+			return nil, service.ValidationError("request validation failed", map[string]string{"chunkStrategy": "must be a valid JSON object"})
 		}
+		payload["parser_config"] = cfg
 	} else if len(defaultParserConfig) > 0 {
 		payload["parser_config"] = vendorParserConfig(defaultParserConfig)
 		if credentials := parserConfigCredentials(defaultParserConfig); len(credentials) > 0 {
@@ -413,9 +425,10 @@ func buildUpdateDatasetBody(req updateKnowledgeBaseRequest) ([]byte, error) {
 	}
 	if req.ChunkStrategy != nil {
 		var cfg map[string]any
-		if err := json.Unmarshal(*req.ChunkStrategy, &cfg); err == nil {
-			payload["parser_config"] = cfg
+		if err := json.Unmarshal(*req.ChunkStrategy, &cfg); err != nil || cfg == nil {
+			return nil, service.ValidationError("request validation failed", map[string]string{"chunkStrategy": "must be a valid JSON object"})
 		}
+		payload["parser_config"] = cfg
 	}
 	if len(payload) == 0 {
 		return nil, service.ValidationError("request validation failed", map[string]string{"body": "must include at least one supported field"})

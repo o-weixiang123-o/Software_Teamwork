@@ -1110,17 +1110,37 @@ POST /internal/v1/knowledge-queries
 GET|POST|PATCH|DELETE /internal/v1/parser-configs[/**]  # Phase 3b
 ```
 
+The document singleton routes are dataset-scoped even though the path only
+contains `documentId`. These routes must require `knowledgeBaseId` as a query
+parameter:
+
+```text
+GET /internal/v1/documents/{documentId}?knowledgeBaseId={knowledgeBaseId}
+PATCH /internal/v1/documents/{documentId}?knowledgeBaseId={knowledgeBaseId}
+DELETE /internal/v1/documents/{documentId}?knowledgeBaseId={knowledgeBaseId}
+GET /internal/v1/documents/{documentId}/chunks?knowledgeBaseId={knowledgeBaseId}
+GET /internal/v1/documents/{documentId}/content?knowledgeBaseId={knowledgeBaseId}
+```
+
 Vendor runtime mapping (adapter → RAGFlow):
 
 ```text
 knowledge-bases -> /api/v1/datasets
 documents upload  -> /api/v1/datasets/{id}/documents?type=local
 documents parse   -> /api/v1/datasets/{id}/documents/parse  # auto after upload when KNOWLEDGE_AUTO_START_INGESTION=true
-documents CRUD    -> /api/v1/documents/{id}
-document metadata -> /api/v1/datasets/{kb}/documents?page=&page_size=&id={doc}
+document metadata/lookup -> /api/v1/datasets/{kb}/documents?page=&page_size=&id={doc}
+document update  -> /api/v1/datasets/{kb}/documents/{doc}
+document delete  -> DELETE /api/v1/datasets/{kb}/documents with ids[]
 chunks            -> /api/v1/datasets/{kb}/documents/{doc}/chunks
 content           -> /api/v1/datasets/{kb}/documents/{doc} (binary)
 knowledge-queries -> /api/v1/datasets/search
+```
+
+Runtime guardrail environment keys:
+
+```text
+KNOWLEDGE_RUNTIME_AUTO_PROVISION_TENANTS=true|false
+METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT=10000
 ```
 
 ### 3. Contracts
@@ -1130,10 +1150,15 @@ knowledge-queries -> /api/v1/datasets/search
 - Adapter forwards tenant identity with `X-Tenant-Id` and `X-User-Id` set to
   Gateway `X-User-Id`; RBAC checks stay in adapter using
   `knowledge:read` / `knowledge:write` and admin permissions.
+- Document singleton, chunk, and content routes must use the caller-provided
+  `knowledgeBaseId` to access dataset-scoped runtime routes. Do not scan every
+  knowledge base to infer document ownership.
 - Parser-config routes delegate to legacy goose PostgreSQL tables when
   `DATABASE_URL` is configured; without it they return `502 dependency_error`.
 - Document `PATCH` with `tags` maps to vendor dataset-document metadata updates;
   other fields remain validation errors until explicitly supported.
+- Invalid or non-object `chunkStrategy` JSON must return `400 validation_error`;
+  silently dropping the field is not allowed.
 - After upload, adapter mode queues vendor deepdoc ingestion via
   `POST /api/v1/datasets/{id}/documents/parse` when
   `KNOWLEDGE_AUTO_START_INGESTION` is true (default). Adapter mode does not call
@@ -1156,6 +1181,26 @@ knowledge-queries -> /api/v1/datasets/search
   composite `<model>@<tenant>@<provider>` shape, for example
   `BAAI/bge-reranker-v2-m3@default@SILICONFLOW`; a bare model name can resolve
   to an empty provider and fail at runtime.
+- Retrieval trace must not invent runtime facts. Use configured runtime values
+  when available; use `runtime-managed` and `embeddingDimension: -1` when the
+  vendor runtime owns the value but does not expose it.
+- Vendor runtime error mapping must classify by stable HTTP status/code carried
+  by `vendorclient.APIError`; do not match free-form messages such as
+  "not found" or "invalid dataset".
+- Runtime route auth declarations must include `GATEWAY`. A valid
+  `X-Service-Token` is not sufficient for routes decorated only with legacy
+  `JWT`/`API`/`BETA` auth types.
+- Gateway tenant auto-provisioning is controlled by
+  `KNOWLEDGE_RUNTIME_AUTO_PROVISION_TENANTS`. When disabled, auth must return a
+  clear tenant/provisioning failure and must not synthesize user or tenant rows.
+- Dataset-level RAPTOR/GraphRAG tasks use the explicit
+  `DATASET_SCOPE_TASK_DOC_ID` sentinel. Real source document IDs must not equal
+  the dataset-scope sentinel.
+- Empty or whitespace-only embedding chunks are non-indexable. Do not embed the
+  literal placeholder `"None"` as document content.
+- Metadata filter pushdown failures may fall back to in-memory filtering only
+  when the candidate document count is at or below
+  `METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT`; over-cap cases must fail clearly.
 - Adapter-owned parser config trace fields such as
   `software_teamwork_parser_config` must not be forwarded into strict vendor
   runtime request bodies unless the vendor schema explicitly allows them.
@@ -1185,6 +1230,14 @@ knowledge-queries -> /api/v1/datasets/search
 | Parser-config without `DATABASE_URL` in adapter mode | `502 dependency_error` |
 | Vendor runtime unreachable | `502 dependency_error` |
 | Runtime route module is outside the allowlist | It must not be registered or documented as active. |
+| Document singleton route omits `knowledgeBaseId` | `400 validation_error` with a `knowledgeBaseId` field error. |
+| Adapter scans all datasets to find one document | Treat as an adapter bug; require explicit dataset context or a bounded direct mapping. |
+| `chunkStrategy` is invalid JSON or not a JSON object | `400 validation_error`; do not silently omit `parser_config`. |
+| Vendor returns HTTP 401/403/404 with arbitrary text | Map by HTTP status to `unauthorized`/`forbidden`/`not_found`; do not inspect message substrings. |
+| Runtime route declares only legacy auth types | Reject as `unauthorized` even when `X-Service-Token` is valid. |
+| Missing runtime tenant while auto-provisioning is disabled | Reject auth clearly and perform no provisioning writes. |
+| Empty chunk reaches embedding/indexing | Skip it or return a validation error; never index a vector for `"None"`. |
+| Metadata fallback candidate set exceeds cap | Return a clear too-large/degraded error; do not load the full set into memory. |
 | Dataset creation lacks `KNOWLEDGE_VENDOR_EMBEDDING_ID` in vendor mode | Startup/config error or documented fallback; do not claim external embedding E2E coverage. |
 | Rerank ID is not `<model>@<tenant>@<provider>` | Retrieval may return a sanitized `502 dependency_error`; fix env wiring instead of stripping rerank. |
 | Metadata lookup calls the binary content route and decodes JSON | Treat as an adapter bug; use dataset document-list metadata lookup. |
@@ -1206,10 +1259,17 @@ knowledge-queries -> /api/v1/datasets/search
 ### 6. Tests Required
 
 - Runtime Python tests assert the route allowlist registers only supported
-  modules and that config logging redacts nested secret/token/API-key values.
+  modules, route auth rejects legacy-only declarations, tenant provisioning is
+  env-controlled, and config logging redacts nested secret/token/API-key values.
 - Adapter Go contract tests assert dataset creation uses `embedding_model`,
   retrieval sends the configured `rerank_id`, parser trace fields are filtered,
-  and document metadata is loaded through the dataset document-list endpoint.
+  document routes require `knowledgeBaseId` without all-KB scans, invalid
+  `chunkStrategy` returns `validation_error`, stable vendor status drives error
+  classification, and document metadata is loaded through the dataset
+  document-list endpoint.
+- Runtime guardrail tests assert dataset-scope task IDs are explicit,
+  whitespace chunks are skipped or rejected before embedding, and metadata
+  fallback caps fail before unbounded in-memory scans.
 - Docker/Compose checks must include:
   `python3 scripts/check_docker_policy.py`,
   `docker compose --env-file deploy/.env.example config --quiet`.
@@ -1223,6 +1283,10 @@ knowledge-queries -> /api/v1/datasets/search
 
 ```text
 Compose env: KNOWLEDGE_VENDOR_RERANK_ID=BAAI/bge-reranker-v2-m3
+Adapter: DELETE /internal/v1/documents/{doc} -> scan every dataset to find kb
+Trace: embeddingModel=vendor-default, embeddingDimension=0, qdrantCollection=elasticsearch
+Runtime auth: @login_required(auth_types=[AUTH_JWT, AUTH_API]) accepts service token
+Embedding: whitespace chunk -> encode("None") -> index vector
 Adapter: GET /api/v1/datasets/{kb}/documents/{doc} -> decode JSON metadata
 Runtime: auto-import every restful_apis module, including mcp_api and file_api
 Entrypoint: #!/usr/bin/env bash in an Alpine image without bash
@@ -1232,6 +1296,10 @@ Entrypoint: #!/usr/bin/env bash in an Alpine image without bash
 
 ```text
 Compose env: KNOWLEDGE_VENDOR_RERANK_ID=BAAI/bge-reranker-v2-m3@default@SILICONFLOW
+Adapter: DELETE /internal/v1/documents/{doc}?knowledgeBaseId={kb} -> dataset-scoped delete
+Trace: embeddingModel from config or runtime-managed, embeddingDimension=-1 when unavailable
+Runtime auth: route declaration must include GATEWAY before token is trusted
+Embedding: skip whitespace chunks before vector indexing
 Adapter: GET /api/v1/datasets/{kb}/documents?id={doc} -> read metadata
 Runtime: register only the project-required allowlisted route modules
 Entrypoint: #!/bin/sh with command args passed through Compose

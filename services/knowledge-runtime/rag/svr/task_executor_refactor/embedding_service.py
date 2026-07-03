@@ -74,6 +74,14 @@ class EmbeddingService:
         if parser_config is None:
             parser_config = {}
 
+        indexable_docs = EmbeddingUtils.filter_indexable_docs(docs)
+        skipped_empty_chunks = len(docs) - len(indexable_docs)
+        if skipped_empty_chunks and self._task_context.progress_cb:
+            self._task_context.progress_cb(msg=f"[WARN] Skipped {skipped_empty_chunks} empty chunks before embedding.")
+        docs[:] = indexable_docs
+        if not docs:
+            return 0, 0
+
         # Prepare text for embedding using EmbeddingUtils
         titles, contents = EmbeddingUtils.prepare_texts_for_embedding(docs)
 

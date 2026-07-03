@@ -1,9 +1,10 @@
 from contextlib import nullcontext
+from pathlib import Path
 from types import SimpleNamespace
 
-from api.utils.gateway_auth import SERVICE_TOKEN_HEADER, service_token_is_valid
+from api.utils.gateway_auth import SERVICE_TOKEN_HEADER, route_allows_gateway_auth, service_token_is_valid
 from api.utils.gateway_identity import normalize_gateway_principal_id
-from api.utils.gateway_tenant_provisioning import ensure_gateway_tenant_with_store
+from api.utils.gateway_tenant_provisioning import gateway_tenant_auto_provision_enabled, provision_gateway_tenant_if_enabled, ensure_gateway_tenant_with_store
 
 
 def test_service_token_validation_fails_closed_when_env_unset(monkeypatch):
@@ -32,6 +33,46 @@ def test_gateway_principal_id_normalization_hashes_long_gateway_ids():
     assert normalized.startswith("gw_")
     assert normalize_gateway_principal_id(gateway_id) == normalized
     assert normalized != gateway_id
+
+
+def test_runtime_route_auth_types_must_include_gateway():
+    assert route_allows_gateway_auth(None)
+    assert route_allows_gateway_auth(["JWT", "GATEWAY"])
+    assert not route_allows_gateway_auth(["JWT", "API", "BETA"])
+    assert not route_allows_gateway_auth([])
+
+
+def test_legacy_document_route_auth_declaration_rejected_even_with_valid_service_token(monkeypatch):
+    monkeypatch.setenv("KNOWLEDGE_RUNTIME_SERVICE_TOKEN", "runtime-secret")
+    assert service_token_is_valid({SERVICE_TOKEN_HEADER: "runtime-secret"})
+
+    route_source = Path(__file__).parents[2] / "api" / "apps" / "restful_apis" / "document_api.py"
+    assert "@login_required(auth_types=[AUTH_JWT, AUTH_API, AUTH_BETA])" in route_source.read_text(encoding="utf-8")
+    assert not route_allows_gateway_auth(["JWT", "API", "BETA"])
+
+
+def test_gateway_tenant_auto_provision_defaults_enabled(monkeypatch):
+    monkeypatch.delenv("KNOWLEDGE_RUNTIME_AUTO_PROVISION_TENANTS", raising=False)
+
+    assert gateway_tenant_auto_provision_enabled()
+
+
+def test_gateway_tenant_auto_provision_disabled_skips_provisioner(monkeypatch):
+    monkeypatch.setenv("KNOWLEDGE_RUNTIME_AUTO_PROVISION_TENANTS", "false")
+    called = []
+
+    result = provision_gateway_tenant_if_enabled("tenant-1", called.append)
+
+    assert result is None
+    assert called == []
+
+
+def test_gateway_tenant_auto_provision_enabled_calls_provisioner(monkeypatch):
+    monkeypatch.setenv("KNOWLEDGE_RUNTIME_AUTO_PROVISION_TENANTS", "true")
+
+    result = provision_gateway_tenant_if_enabled("tenant-1", lambda external_id: f"user:{external_id}")
+
+    assert result == "user:tenant-1"
 
 
 def test_gateway_tenant_provisioning_is_idempotent_for_clean_runtime():

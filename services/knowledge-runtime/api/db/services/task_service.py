@@ -35,8 +35,15 @@ from rag.utils.redis_conn import REDIS_CONN
 from common import settings
 from rag.nlp import search
 
-GRAPH_RAPTOR_FAKE_DOC_ID = "graph_raptor_x"
+DATASET_SCOPE_TASK_DOC_ID = "graph_raptor_x"
+# Backward-compatible alias for existing imports. New code should use
+# DATASET_SCOPE_TASK_DOC_ID to make the Task.doc_id sentinel explicit.
+GRAPH_RAPTOR_FAKE_DOC_ID = DATASET_SCOPE_TASK_DOC_ID
 TASK_MAX_LOG_LENGTH = int(os.environ.get("TASK_MAX_LOG_LENGTH", 3000)) # TEXT MAX is 64 KiB bytes!
+
+
+def is_dataset_scope_task_doc_id(doc_id: str) -> bool:
+    return str(doc_id or "") == DATASET_SCOPE_TASK_DOC_ID
 
 def trim_header_by_lines(text: str, max_length) -> str:
     # Trim header text to maximum length while preserving line breaks

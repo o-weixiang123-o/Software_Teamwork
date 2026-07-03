@@ -76,7 +76,7 @@ from common.constants import LLMType, ParserType, PipelineTaskType
 from api.db.services.document_service import DocumentService
 from api.db.services.doc_metadata_service import DocMetadataService
 from api.db.services.llm_service import LLMBundle
-from api.db.services.task_service import TaskService, has_canceled, GRAPH_RAPTOR_FAKE_DOC_ID
+from api.db.services.task_service import TaskService, has_canceled, DATASET_SCOPE_TASK_DOC_ID, is_dataset_scope_task_doc_id
 from api.db.services.file2document_service import File2DocumentService
 from api.db.joint_services.tenant_model_service import get_tenant_default_model_by_type, get_model_config_from_provider_instance
 from common.versions import get_ragflow_version
@@ -223,7 +223,7 @@ async def collect():
         return None, None
 
     canceled = False
-    if msg.get("doc_id", "") == GRAPH_RAPTOR_FAKE_DOC_ID:
+    if is_dataset_scope_task_doc_id(msg.get("doc_id", "")):
         task = msg
         if task["task_type"] in PIPELINE_SPECIAL_PROGRESS_FREEZE_TASK_TYPES:
             task = TaskService.get_task(msg["id"], msg["doc_ids"])
@@ -664,17 +664,28 @@ def init_kb(row, vector_size: int):
 async def embedding(docs, mdl, parser_config=None, callback=None):
     if parser_config is None:
         parser_config = {}
-    tts, cnts = [], []
+    tts, cnts, indexable_docs = [], [], []
+    skipped_empty_chunks = 0
     for d in docs:
-        tts.append(d.get("docnm_kwd", "Title"))
         c = "\n".join(d.get("question_kwd", []))
         if not c:
             c = d["content_with_weight"]
         c = re.sub(r"</?(table|td|caption|tr|th)( [^<>]{0,12})?>", " ", c)
         if not c.strip():
-            logging.debug("embedding(): normalized whitespace-only chunk to placeholder 'None' (len=%d)", len(c))
-            c = "None"
+            skipped_empty_chunks += 1
+            continue
+        tts.append(d.get("docnm_kwd", "Title"))
         cnts.append(c)
+        indexable_docs.append(d)
+
+    if skipped_empty_chunks:
+        logging.warning("embedding(): skipped %d empty or whitespace-only chunks before vector indexing", skipped_empty_chunks)
+        if callback:
+            callback(msg=f"[WARN] Skipped {skipped_empty_chunks} empty chunks before embedding.")
+    docs[:] = indexable_docs
+    if not docs:
+        logging.warning("embedding(): no indexable chunks after filtering empty content")
+        return 0, 0
 
     tk_count = 0
     if len(tts) == len(cnts):
@@ -829,7 +840,7 @@ async def delete_raptor_chunks(doc_id: str, tenant_id: str, kb_id: str, keep_met
 @timeout(3600)
 async def run_raptor_for_kb(row, kb_parser_config, chat_mdl, embd_mdl, vector_size, callback=None, doc_ids=[]):
     """Generate RAPTOR summaries for selected documents in a knowledge base."""
-    fake_doc_id = GRAPH_RAPTOR_FAKE_DOC_ID
+    dataset_task_doc_id = DATASET_SCOPE_TASK_DOC_ID
 
     raptor_config = kb_parser_config.get("raptor", {})
     raptor_ext_config = raptor_config.get("ext") or {}
@@ -894,7 +905,7 @@ async def run_raptor_for_kb(row, kb_parser_config, chat_mdl, embd_mdl, vector_si
         )
         original_length = len(chunks)
         chunks, layers = await raptor(chunks, kb_parser_config["raptor"]["random_seed"], callback, row["id"])
-        effective_doc_name = row["name"] if did == fake_doc_id else doc_info_by_id.get(did, {}).get("name") or row["name"]
+        effective_doc_name = row["name"] if did == dataset_task_doc_id else doc_info_by_id.get(did, {}).get("name") or row["name"]
         doc = {
             "doc_id": did,
             "kb_id": [str(row["kb_id"])],
@@ -930,7 +941,7 @@ async def run_raptor_for_kb(row, kb_parser_config, chat_mdl, embd_mdl, vector_si
             tk_count += num_tokens_from_string(content)
 
     if raptor_config.get("scope", "file") == "file":
-        dataset_methods = await get_raptor_chunk_methods(fake_doc_id, row["tenant_id"], row["kb_id"])
+        dataset_methods = await get_raptor_chunk_methods(dataset_task_doc_id, row["tenant_id"], row["kb_id"])
         remove_dataset_summaries = bool(dataset_methods)
         has_file_level_target = False
         if dataset_methods:
@@ -981,7 +992,7 @@ async def run_raptor_for_kb(row, kb_parser_config, chat_mdl, embd_mdl, vector_si
 
         if remove_dataset_summaries:
             if has_file_level_target:
-                schedule_raptor_cleanup(fake_doc_id)
+                schedule_raptor_cleanup(dataset_task_doc_id)
             else:
                 callback(msg="[RAPTOR] kept dataset-level summaries because no file-level summaries were built.")
     else:
@@ -999,10 +1010,10 @@ async def run_raptor_for_kb(row, kb_parser_config, chat_mdl, embd_mdl, vector_si
         if migrated_file_docs:
             callback(msg=f"[RAPTOR] will remove file-level summaries for {migrated_file_docs} docs after dataset-level build succeeds.")
 
-        existing_methods = await get_raptor_chunk_methods(fake_doc_id, row["tenant_id"], row["kb_id"])
+        existing_methods = await get_raptor_chunk_methods(dataset_task_doc_id, row["tenant_id"], row["kb_id"])
         if tree_builder in existing_methods:
             if existing_methods != {tree_builder}:
-                schedule_raptor_cleanup(fake_doc_id, tree_builder)
+                schedule_raptor_cleanup(dataset_task_doc_id, tree_builder)
                 callback(msg="[RAPTOR] will remove old dataset-level RAPTOR summaries after insert.")
             for doc_id in file_cleanup_doc_ids:
                 schedule_raptor_cleanup(doc_id)
@@ -1037,12 +1048,12 @@ async def run_raptor_for_kb(row, kb_parser_config, chat_mdl, embd_mdl, vector_si
             return res, tk_count, cleanup_raptor_chunks
 
         before_generate = len(res)
-        await generate(chunks, fake_doc_id)
+        await generate(chunks, dataset_task_doc_id)
         if len(res) > before_generate:
             for doc_id in file_cleanup_doc_ids:
                 schedule_raptor_cleanup(doc_id)
             if migrate_dataset_summaries:
-                schedule_raptor_cleanup(fake_doc_id, tree_builder)
+                schedule_raptor_cleanup(dataset_task_doc_id, tree_builder)
 
     return res, tk_count, cleanup_raptor_chunks
 
@@ -1265,8 +1276,8 @@ async def do_handle_task(task):
             )
         get_recording_context().record("raptor_chunks", chunks)
         get_recording_context().record("raptor_token_count", token_count)
-        if fake_doc_ids := task.get("doc_ids", []):
-            task_doc_id = fake_doc_ids[0]  # use the first document ID to represent this task for logging purposes
+        if task_doc_ids := task.get("doc_ids", []):
+            task_doc_id = task_doc_ids[0]  # use the first source document ID to represent this task for logging
     # Either using graphrag or Standard chunking methods
     elif task_type == "graphrag":
         ok, kb = KnowledgebaseService.get_by_id(task_dataset_id)

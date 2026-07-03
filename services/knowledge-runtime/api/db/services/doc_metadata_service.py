@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Optional
 
 from api.db.db_models import DB, Document
 from common import settings
-from common.metadata_utils import dedupe_list
+from common.metadata_utils import MetadataFilterFallbackTooLarge, dedupe_list, metadata_filter_in_memory_fallback_limit
 from api.db.db_models import Knowledgebase
 from common.doc_store.doc_store_base import OrderByExpr
 
@@ -844,7 +844,7 @@ class DocMetadataService:
             kb_ids: List[str],
             filters: List[Dict],
             logic: str = "and",
-            limit: int = 10000,
+            limit: Optional[int] = None,
     ) -> Optional[List[str]]:
         """Run a metadata filter directly against ES or Infinity, returning matching doc IDs.
 
@@ -870,6 +870,9 @@ class DocMetadataService:
             return None
         if not kb:
             return None
+
+        if limit is None:
+            limit = metadata_filter_in_memory_fallback_limit()
 
         tenant_id = kb.tenant_id
         index_name = cls._get_doc_meta_index_name(tenant_id)
@@ -957,10 +960,12 @@ class DocMetadataService:
         total = _es_response_total(response)
         if total is not None and total > limit:
             logging.warning(
-                f"ES metadata filter result exceeds push-down cap, falling back to in-memory: "
+                f"ES metadata filter result exceeds safe fallback cap: "
                 f"total={total}, cap={limit}, kb_ids={kb_ids}"
             )
-            return None
+            raise MetadataFilterFallbackTooLarge(
+                f"metadata filter matched {total} documents; cap is {limit}"
+            )
 
         logging.debug(f"ES metadata filter returned {len(unique)} matches for KBs {kb_ids}")
         return unique

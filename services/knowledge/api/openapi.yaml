@@ -166,6 +166,7 @@ paths:
   /internal/v1/documents/{documentId}:
     parameters:
       - $ref: "#/components/parameters/DocumentId"
+      - $ref: "#/components/parameters/DocumentKnowledgeBaseId"
     get:
       tags: [knowledge]
       summary: Get document processing details
@@ -214,6 +215,7 @@ paths:
   /internal/v1/documents/{documentId}/chunks:
     parameters:
       - $ref: "#/components/parameters/DocumentId"
+      - $ref: "#/components/parameters/DocumentKnowledgeBaseId"
     get:
       tags: [knowledge]
       summary: List document chunks
@@ -234,6 +236,7 @@ paths:
   /internal/v1/documents/{documentId}/content:
     parameters:
       - $ref: "#/components/parameters/DocumentId"
+      - $ref: "#/components/parameters/DocumentKnowledgeBaseId"
     get:
       tags: [knowledge]
       summary: Get original document content
@@ -307,6 +310,12 @@ components:
       in: path
       required: true
       schema: { type: string }
+    DocumentKnowledgeBaseId:
+      name: knowledgeBaseId
+      in: query
+      required: true
+      description: Required dataset context for runtime document operations.
+      schema: { type: string, minLength: 1 }
   responses:
     Error:
       description: Standard error envelope.
@@ -511,7 +520,10 @@ components:
       properties:
         embeddingProvider: { type: string }
         embeddingModel: { type: string }
-        embeddingDimension: { type: integer, minimum: 0 }
+        embeddingDimension:
+          type: integer
+          minimum: -1
+          description: Runtime-managed dimension; -1 means unavailable from the vendor runtime.
         qdrantCollection: { type: string }
         searchTopK: { type: integer, minimum: 1 }
         scoreThreshold: { type: number, minimum: 0 }

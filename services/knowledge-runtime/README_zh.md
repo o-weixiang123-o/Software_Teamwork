@@ -35,6 +35,8 @@
 | 变量 | 说明 |
 |------|------|
 | `KNOWLEDGE_RUNTIME_SERVICE_TOKEN` | runtime 受保护路由校验的内部 token，需要与 adapter 的 `VENDOR_RUNTIME_SERVICE_TOKEN` 一致 |
+| `KNOWLEDGE_RUNTIME_AUTO_PROVISION_TENANTS` | 是否在 Gateway 租户首次访问时自动创建 runtime user/tenant，默认 `true`；设为 `false` 时缺失租户直接返回认证/租户错误，不写入合成数据 |
+| `METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT` | metadata pushdown 失败后允许内存 fallback 的最大候选文档数，默认 `10000`；超过上限直接失败，避免全量内存过滤 |
 | `KNOWLEDGE_RUNTIME_MODEL_API_KEY` | embedding/rerank provider API key |
 | `KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY` | embedding provider factory，例如 `SILICONFLOW` |
 | `KNOWLEDGE_RUNTIME_EMBEDDING_MODEL` | embedding model id |

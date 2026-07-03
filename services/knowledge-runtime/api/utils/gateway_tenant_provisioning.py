@@ -13,11 +13,30 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 #
+import os
+
 from api.utils.gateway_identity import normalize_gateway_principal_id
 
 
 VALID_STATUS = "1"
 OWNER_ROLE = "owner"
+AUTO_PROVISION_TENANTS_ENV = "KNOWLEDGE_RUNTIME_AUTO_PROVISION_TENANTS"
+
+
+def gateway_tenant_auto_provision_enabled(environ=None) -> bool:
+    environ = environ if environ is not None else os.environ
+    raw = str(environ.get(AUTO_PROVISION_TENANTS_ENV, "true")).strip().lower()
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    if raw in {"1", "true", "yes", "on", ""}:
+        return True
+    return True
+
+
+def provision_gateway_tenant_if_enabled(external_id, provisioner):
+    if not gateway_tenant_auto_provision_enabled():
+        return None
+    return provisioner(external_id)
 
 
 def ensure_gateway_tenant_with_store(external_id, store, defaults, id_factory, model_initializer=None):

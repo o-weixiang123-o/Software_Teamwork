@@ -15,10 +15,12 @@
 #
 import hmac
 import os
+from collections.abc import Iterable
 
 
 SERVICE_TOKEN_HEADER = "X-Service-Token"
 RUNTIME_SERVICE_TOKEN_ENV = "KNOWLEDGE_RUNTIME_SERVICE_TOKEN"
+GATEWAY_AUTH_TYPE = "GATEWAY"
 
 
 def configured_service_token() -> str:
@@ -35,3 +37,17 @@ def service_token_is_valid(headers) -> bool:
         return False
 
     return hmac.compare_digest(provided, expected)
+
+
+def normalize_route_auth_types(auth_types=None, default_auth_types=(GATEWAY_AUTH_TYPE,)) -> set[str]:
+    if auth_types is None:
+        return {str(auth_type).upper() for auth_type in default_auth_types}
+    if isinstance(auth_types, str):
+        return {auth_types.upper()}
+    if isinstance(auth_types, Iterable):
+        return {str(auth_type).upper() for auth_type in auth_types}
+    return {str(auth_types).upper()}
+
+
+def route_allows_gateway_auth(auth_types=None, default_auth_types=(GATEWAY_AUTH_TYPE,)) -> bool:
+    return GATEWAY_AUTH_TYPE in normalize_route_auth_types(auth_types, default_auth_types)

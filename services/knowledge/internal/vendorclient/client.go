@@ -36,8 +36,9 @@ func New(baseURL string, timeout time.Duration, serviceToken string) *Client {
 }
 
 type APIError struct {
-	Code    int
-	Message string
+	Code       int
+	Message    string
+	HTTPStatus int
 }
 
 func (e *APIError) Error() string {
@@ -45,6 +46,16 @@ func (e *APIError) Error() string {
 		return e.Message
 	}
 	return fmt.Sprintf("vendor api error code=%d", e.Code)
+}
+
+func (e *APIError) MatchesHTTPStatus(status int) bool {
+	if e == nil {
+		return false
+	}
+	if e.HTTPStatus == status {
+		return true
+	}
+	return e.HTTPStatus == 0 && e.Code == status
 }
 
 type envelope struct {
@@ -200,7 +211,11 @@ func (c *Client) UploadDocument(ctx context.Context, userID, datasetID, filename
 		return nil, err
 	}
 	if res.StatusCode >= http.StatusBadRequest {
-		return nil, fmt.Errorf("vendor upload failed: status=%d body=%s", res.StatusCode, strings.TrimSpace(string(raw)))
+		var payload envelope
+		if err := json.Unmarshal(raw, &payload); err == nil {
+			return nil, &APIError{Code: payload.Code, Message: payload.Message, HTTPStatus: res.StatusCode}
+		}
+		return nil, &APIError{Message: "vendor upload failed", HTTPStatus: res.StatusCode}
 	}
 
 	var payload envelope
@@ -208,7 +223,7 @@ func (c *Client) UploadDocument(ctx context.Context, userID, datasetID, filename
 		return nil, err
 	}
 	if payload.Code != vendorCodeSuccess {
-		return nil, &APIError{Code: payload.Code, Message: payload.Message}
+		return nil, &APIError{Code: payload.Code, Message: payload.Message, HTTPStatus: res.StatusCode}
 	}
 	return decodeUploadDocument(payload.Data)
 }
@@ -248,10 +263,10 @@ func (c *Client) GetDocument(ctx context.Context, userID, documentID string) (ma
 		return nil, err
 	}
 	if res.StatusCode == http.StatusNotFound {
-		return nil, &APIError{Code: 404, Message: "document not found"}
+		return nil, &APIError{Code: 404, Message: "document not found", HTTPStatus: http.StatusNotFound}
 	}
 	if res.StatusCode >= http.StatusBadRequest {
-		return nil, fmt.Errorf("vendor get document failed: status=%d", res.StatusCode)
+		return nil, &APIError{Message: "vendor get document failed", HTTPStatus: res.StatusCode}
 	}
 
 	var wrapped struct {
@@ -261,7 +276,7 @@ func (c *Client) GetDocument(ctx context.Context, userID, documentID string) (ma
 		return nil, err
 	}
 	if wrapped.Data == nil {
-		return nil, &APIError{Code: 404, Message: "document not found"}
+		return nil, &APIError{Code: 404, Message: "document not found", HTTPStatus: http.StatusNotFound}
 	}
 	return wrapped.Data, nil
 }
@@ -282,7 +297,7 @@ func (c *Client) GetDatasetDocument(ctx context.Context, userID, datasetID, docu
 			break
 		}
 	}
-	return nil, &APIError{Code: 404, Message: "document not found"}
+	return nil, &APIError{Code: 404, Message: "document not found", HTTPStatus: http.StatusNotFound}
 }
 
 func (c *Client) UpdateDocument(ctx context.Context, userID, datasetID, documentID string, body []byte) (map[string]interface{}, error) {
@@ -344,7 +359,7 @@ func (c *Client) DownloadDocument(ctx context.Context, userID, datasetID, docume
 		return "", nil, err
 	}
 	if res.StatusCode >= http.StatusBadRequest {
-		return "", nil, fmt.Errorf("vendor download failed: status=%d", res.StatusCode)
+		return "", nil, &APIError{Message: "vendor download failed", HTTPStatus: res.StatusCode}
 	}
 	contentType = res.Header.Get("Content-Type")
 	if contentType == "" {
@@ -419,16 +434,16 @@ func (c *Client) doJSON(ctx context.Context, userID, method, path string, body [
 		return err
 	}
 	if res.StatusCode >= http.StatusBadRequest && len(raw) == 0 {
-		return fmt.Errorf("vendor request failed: status=%d", res.StatusCode)
+		return &APIError{Message: "vendor request failed", HTTPStatus: res.StatusCode}
 	}
 	if err := json.Unmarshal(raw, target); err != nil {
 		if res.StatusCode >= http.StatusBadRequest {
-			return fmt.Errorf("vendor request failed: status=%d body=%s", res.StatusCode, strings.TrimSpace(string(raw)))
+			return &APIError{Message: "vendor request failed", HTTPStatus: res.StatusCode}
 		}
 		return err
 	}
-	if target.Code != vendorCodeSuccess {
-		return &APIError{Code: target.Code, Message: target.Message}
+	if res.StatusCode >= http.StatusBadRequest || target.Code != vendorCodeSuccess {
+		return &APIError{Code: target.Code, Message: target.Message, HTTPStatus: res.StatusCode}
 	}
 	return nil
 }

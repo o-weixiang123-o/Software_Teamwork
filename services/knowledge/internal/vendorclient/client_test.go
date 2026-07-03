@@ -199,6 +199,30 @@ func TestDeleteDocumentRejectsVendorEnvelopeError(t *testing.T) {
 	}
 }
 
+func TestClientPreservesHTTPStatusOnVendorError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/datasets/missing" {
+			t.Fatalf("unexpected vendor request: %s %s?%s", r.Method, r.URL.Path, r.URL.RawQuery)
+		}
+		w.WriteHeader(http.StatusNotFound)
+		writeTestVendorJSON(w, `{"code":1002,"message":"dataset disappeared","data":{}}`)
+	}))
+	defer server.Close()
+
+	client := New(server.URL, time.Second, "runtime-token")
+	_, err := client.GetDataset(context.Background(), "tenant_1", "missing")
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("GetDataset error = %v, want APIError", err)
+	}
+	if apiErr.HTTPStatus != http.StatusNotFound || !apiErr.MatchesHTTPStatus(http.StatusNotFound) {
+		t.Fatalf("APIError status=%d code=%d", apiErr.HTTPStatus, apiErr.Code)
+	}
+	if apiErr.Code != 1002 {
+		t.Fatalf("APIError code=%d", apiErr.Code)
+	}
+}
+
 func writeTestVendorJSON(w http.ResponseWriter, body string) {
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = io.WriteString(w, body)

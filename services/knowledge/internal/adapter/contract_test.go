@@ -23,15 +23,16 @@ import (
 const testServiceToken = "test-service-token"
 
 type fakeVendorState struct {
-	mu          sync.Mutex
-	datasets    map[string]map[string]any
-	documents   map[string]map[string]any
-	parseCalls  []string
-	deleteCalls []deleteCall
-	failParse   bool
-	searchBody  []byte
-	createBody  []byte
-	createPath  string
+	mu                sync.Mutex
+	datasets          map[string]map[string]any
+	documents         map[string]map[string]any
+	parseCalls        []string
+	deleteCalls       []deleteCall
+	listDatasetsCalls int
+	failParse         bool
+	searchBody        []byte
+	createBody        []byte
+	createPath        string
 }
 
 type deleteCall struct {
@@ -58,6 +59,7 @@ func startFakeVendor(t *testing.T, state *fakeVendorState) *httptest.Server {
 			_, _ = w.Write([]byte("pong"))
 			return
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/datasets":
+			state.listDatasetsCalls++
 			items := make([]map[string]any, 0, len(state.datasets))
 			for _, item := range state.datasets {
 				items = append(items, item)
@@ -628,7 +630,7 @@ func TestAdapterDeleteDocumentUsesDatasetScopedRuntimeRoute(t *testing.T) {
 		ServiceToken:     testServiceToken,
 	}, nil)
 
-	req := httptest.NewRequest(http.MethodDelete, "/internal/v1/documents/doc_fake_1", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/internal/v1/documents/doc_fake_1?knowledgeBaseId=kb_fake_1", nil)
 	req.Header.Set("X-User-Id", "usr_test")
 	req.Header.Set("X-Service-Token", testServiceToken)
 	req.Header.Set("X-User-Permissions", "knowledge:write")
@@ -648,7 +650,7 @@ func TestAdapterDeleteDocumentUsesDatasetScopedRuntimeRoute(t *testing.T) {
 	}
 }
 
-func TestAdapterDeleteDocumentFindsDocumentAfterFirstDatasetPage(t *testing.T) {
+func TestAdapterDocumentRoutesRequireKnowledgeBaseIDWithoutScanningDatasets(t *testing.T) {
 	state := newFakeVendorState()
 	for i := 1; i <= 101; i++ {
 		kbID := fmt.Sprintf("kb_%03d", i)
@@ -672,13 +674,28 @@ func TestAdapterDeleteDocumentFindsDocumentAfterFirstDatasetPage(t *testing.T) {
 	req.Header.Set("X-User-Permissions", "knowledge:write")
 	rec := httptest.NewRecorder()
 	server.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusNoContent {
+	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("delete status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Error struct {
+			Code   string            `json:"code"`
+			Fields map[string]string `json:"fields"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if body.Error.Code != string(service.CodeValidation) || body.Error.Fields["knowledgeBaseId"] == "" {
+		t.Fatalf("error=%+v", body.Error)
 	}
 
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	if len(state.deleteCalls) != 1 || state.deleteCalls[0] != (deleteCall{datasetID: "kb_101", documentID: "doc_late_page"}) {
+	if state.listDatasetsCalls != 0 {
+		t.Fatalf("listDatasetsCalls=%d, want no all-KB scan", state.listDatasetsCalls)
+	}
+	if len(state.deleteCalls) != 0 {
 		t.Fatalf("deleteCalls=%v", state.deleteCalls)
 	}
 }

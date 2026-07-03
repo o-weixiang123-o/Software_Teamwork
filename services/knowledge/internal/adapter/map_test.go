@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/service"
+	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/vendorclient"
 )
 
 func TestBuildCreateDatasetBodyUsesDefaultParserConfigWhenChunkStrategyMissing(t *testing.T) {
@@ -46,6 +47,24 @@ func TestBuildCreateDatasetBodyPreservesExplicitChunkStrategy(t *testing.T) {
 	}
 }
 
+func TestBuildCreateDatasetBodyRejectsInvalidChunkStrategy(t *testing.T) {
+	explicit := json.RawMessage(`"not-an-object"`)
+	_, err := buildCreateDatasetBody(createKnowledgeBaseRequest{
+		Name:          "Manuals",
+		ChunkStrategy: &explicit,
+	}, nil, createDatasetOptions{})
+	if err == nil {
+		t.Fatal("buildCreateDatasetBody returned nil error")
+	}
+	appErr, ok := service.Classify(err)
+	if !ok || appErr.Code != service.CodeValidation {
+		t.Fatalf("error=%v, want validation_error", err)
+	}
+	if appErr.Fields["chunkStrategy"] == "" {
+		t.Fatalf("fields=%v", appErr.Fields)
+	}
+}
+
 func TestBuildCreateDatasetBodyIncludesVendorEmbeddingID(t *testing.T) {
 	body, err := buildCreateDatasetBody(
 		createKnowledgeBaseRequest{Name: "Manuals"},
@@ -74,6 +93,21 @@ func TestBuildUpdateDatasetBodyPreservesExplicitChunkStrategy(t *testing.T) {
 	}
 	if cfg["layout_recognize"] != ragflowLayoutOpenDataLoader {
 		t.Fatalf("layout_recognize=%v", cfg["layout_recognize"])
+	}
+}
+
+func TestBuildUpdateDatasetBodyRejectsInvalidChunkStrategy(t *testing.T) {
+	explicit := json.RawMessage(`[]`)
+	_, err := buildUpdateDatasetBody(updateKnowledgeBaseRequest{ChunkStrategy: &explicit})
+	if err == nil {
+		t.Fatal("buildUpdateDatasetBody returned nil error")
+	}
+	appErr, ok := service.Classify(err)
+	if !ok || appErr.Code != service.CodeValidation {
+		t.Fatalf("error=%v, want validation_error", err)
+	}
+	if appErr.Fields["chunkStrategy"] == "" {
+		t.Fatalf("fields=%v", appErr.Fields)
 	}
 }
 
@@ -353,7 +387,63 @@ func TestBuildRetrievalBodyOmitsRerankWithoutVendorModel(t *testing.T) {
 	}
 }
 
+func TestKnowledgeQueryTraceUsesConfiguredRuntimeValues(t *testing.T) {
+	summary := knowledgeQueryFromVendor(
+		"kq_test",
+		"query",
+		&vendorclient.RetrievalData{Total: 1, Chunks: []map[string]interface{}{{"id": "chunk_1"}}},
+		8,
+		0.4,
+		true,
+		ptrInt(5),
+		knowledgeQueryTraceOptions{VendorEmbeddingID: "BAAI/bge-m3@SILICONFLOW"},
+	)
+
+	if summary.Trace.EmbeddingProvider != "runtime" {
+		t.Fatalf("embeddingProvider=%q", summary.Trace.EmbeddingProvider)
+	}
+	if summary.Trace.EmbeddingModel != "BAAI/bge-m3@SILICONFLOW" {
+		t.Fatalf("embeddingModel=%q", summary.Trace.EmbeddingModel)
+	}
+	if summary.Trace.EmbeddingModel == "vendor-default" {
+		t.Fatalf("embeddingModel must not use fake default")
+	}
+	if summary.Trace.EmbeddingDimension == 0 {
+		t.Fatalf("embeddingDimension must not claim zero as a runtime fact")
+	}
+	if summary.Trace.QdrantCollection == "elasticsearch" {
+		t.Fatalf("qdrantCollection must not claim elasticsearch as a fact")
+	}
+	if summary.Trace.QdrantCollection != runtimeManagedTraceValue {
+		t.Fatalf("qdrantCollection=%q", summary.Trace.QdrantCollection)
+	}
+}
+
+func TestMapVendorErrorUsesStatusInsteadOfMessageMatching(t *testing.T) {
+	notFound := mapVendorError(&vendorclient.APIError{
+		HTTPStatus: 404,
+		Message:    "vendor hid the details",
+	})
+	appErr, ok := service.Classify(notFound)
+	if !ok || appErr.Code != service.CodeNotFound {
+		t.Fatalf("status 404 mapped to %v, want not_found", notFound)
+	}
+
+	dependency := mapVendorError(&vendorclient.APIError{
+		Code:    102,
+		Message: "not found text inside a non-404 vendor error",
+	})
+	appErr, ok = service.Classify(dependency)
+	if !ok || appErr.Code != service.CodeDependency {
+		t.Fatalf("message-matched error mapped to %v, want dependency_error", dependency)
+	}
+}
+
 func ptrFloat64(v float64) *float64 {
+	return &v
+}
+
+func ptrInt(v int) *int {
 	return &v
 }
 

@@ -32,6 +32,8 @@ The MCP transport and QA integration workflow are documented in
 | `KNOWLEDGE_SERVICE_VERSION` | no | `dev` | Version returned by readiness checks. |
 | `KNOWLEDGE_ENV` | no | `local` | Runtime environment label. |
 | `KNOWLEDGE_AUTO_START_INGESTION` | no | `true` | Call vendor `/documents/parse` after upload. |
+| `KNOWLEDGE_VENDOR_EMBEDDING_ID` | no | - | Runtime embedding model id forwarded on dataset creation and reported in retrieval trace when configured. |
+| `KNOWLEDGE_VENDOR_RERANK_ID` | no | - | Runtime rerank model id forwarded on retrieval when rerank is requested. |
 | `KNOWLEDGE_SHUTDOWN_TIMEOUT` | no | `10s` | Graceful shutdown timeout. |
 | `KNOWLEDGE_MCP_ADDR` | no | - | Optional Streamable HTTP MCP listen address, for example `127.0.0.1:8093`. |
 | `KNOWLEDGE_MCP_USER_ID` | no | `knowledge_mcp_service` | Fixed user id used by MCP bridge calls. |
@@ -56,6 +58,11 @@ Internal service routes:
 
 All `/internal/v1/**` routes require a matching `X-Service-Token` before
 user identity and permission headers are trusted.
+
+Document singleton routes (`/internal/v1/documents/{documentId}` and its
+`/chunks` and `/content` children) require `knowledgeBaseId` as a query
+parameter. The adapter uses that explicit runtime dataset context and does not
+scan all knowledge bases to infer it.
 
 - `GET /internal/v1/knowledge-bases`
 - `POST /internal/v1/knowledge-bases`

@@ -34,7 +34,7 @@ from api.utils.api_utils import server_error_response, get_json_result, build_er
 from api.constants import API_VERSION
 from common.exceptions import ModelException
 from api.route_registry import collect_runtime_page_paths
-from api.utils.gateway_auth import SERVICE_TOKEN_HEADER, service_token_is_valid
+from api.utils.gateway_auth import SERVICE_TOKEN_HEADER, normalize_route_auth_types, route_allows_gateway_auth, service_token_is_valid
 from api.utils.gateway_identity import normalize_gateway_principal_id
 
 settings.init_settings()
@@ -84,7 +84,7 @@ app.secret_key = settings.get_secret_key()
 
 from functools import wraps
 from typing import ParamSpec, TypeVar
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable
 from werkzeug.local import LocalProxy
 
 T = TypeVar("T")
@@ -99,13 +99,7 @@ DEFAULT_AUTH_TYPES = (AUTH_GATEWAY,)
 
 
 def _normalize_auth_types(auth_types=None):
-    if auth_types is None:
-        return set(DEFAULT_AUTH_TYPES)
-    if isinstance(auth_types, str):
-        return {auth_types.upper()}
-    if isinstance(auth_types, Iterable):
-        return {str(auth_type).upper() for auth_type in auth_types}
-    return {str(auth_types).upper()}
+    return normalize_route_auth_types(auth_types, DEFAULT_AUTH_TYPES)
 
 
 def _gateway_tenant_id():
@@ -119,6 +113,9 @@ def _gateway_tenant_id():
 def _load_user(auth_types=None):
     explicit_auth_types = auth_types is not None
     auth_types = _normalize_auth_types(auth_types)
+    if not route_allows_gateway_auth(auth_types, DEFAULT_AUTH_TYPES):
+        g.auth_error_message = "Gateway auth is required for runtime routes"
+        return None
     if getattr(g, "user", None) and (not explicit_auth_types or getattr(g, "auth_type", None) in auth_types):
         return g.user
 
@@ -143,12 +140,21 @@ def _load_user(auth_types=None):
             return user[0]
 
         from api.db.services.gateway_tenant_service import ensure_gateway_tenant
+        from api.utils.gateway_tenant_provisioning import provision_gateway_tenant_if_enabled
 
-        provisioned_user = ensure_gateway_tenant(tenant_id)
+        provisioned_user = provision_gateway_tenant_if_enabled(tenant_id, ensure_gateway_tenant)
         if provisioned_user:
             g.auth_type = AUTH_GATEWAY
             g.user = provisioned_user
             return provisioned_user
+        from api.utils.gateway_tenant_provisioning import gateway_tenant_auto_provision_enabled
+
+        if not gateway_tenant_auto_provision_enabled():
+            g.auth_error_message = (
+                f"Tenant not found for {GATEWAY_TENANT_HEADER}; "
+                "auto-provisioning is disabled"
+            )
+            return None
         g.auth_error_message = f"Tenant not found for {GATEWAY_TENANT_HEADER}"
     except Exception as exc:
         logging.warning("load_user from gateway tenant header failed: %s", exc)

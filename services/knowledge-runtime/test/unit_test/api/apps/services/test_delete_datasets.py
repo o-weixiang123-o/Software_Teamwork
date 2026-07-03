@@ -80,6 +80,7 @@ def _load_delete_datasets_module(monkeypatch, *, f2d_rows, file_filter_delete):
         "api.db.services.task_service",
         TaskService=SimpleNamespace(),
         GRAPH_RAPTOR_FAKE_DOC_ID="fake-doc",
+        DATASET_SCOPE_TASK_DOC_ID="fake-doc",
     )
     _stub(
         monkeypatch,

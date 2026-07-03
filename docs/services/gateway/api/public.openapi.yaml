@@ -493,6 +493,7 @@ paths:
   /api/v1/documents/{documentId}:
     parameters:
     - $ref: '#/components/parameters/DocumentId'
+    - $ref: '#/components/parameters/DocumentKnowledgeBaseId'
     get:
       tags:
       - knowledge
@@ -506,6 +507,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DocumentResponse'
+        '400':
+          $ref: '#/components/responses/Error'
         '404':
           $ref: '#/components/responses/Error'
     patch:
@@ -527,6 +530,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DocumentResponse'
+        '400':
+          $ref: '#/components/responses/Error'
         '404':
           $ref: '#/components/responses/Error'
       description: Update knowledge-owned document metadata only. File service base object metadata and knowledge-owned processing fields are not mutated by this operation.
@@ -539,12 +544,15 @@ paths:
       responses:
         '204':
           description: Document deleted.
+        '400':
+          $ref: '#/components/responses/Error'
         '404':
           $ref: '#/components/responses/Error'
       description: Delete the knowledge-owned document resource. Knowledge service coordinates RAGFlow runtime document, chunk, and index lifecycle through its document adapter; no File reference is exposed in the public contract.
   /api/v1/documents/{documentId}/chunks:
     parameters:
     - $ref: '#/components/parameters/DocumentId'
+    - $ref: '#/components/parameters/DocumentKnowledgeBaseId'
     get:
       tags:
       - knowledge
@@ -587,6 +595,7 @@ paths:
       x-owner-service: knowledge
       parameters:
       - $ref: '#/components/parameters/DocumentId'
+      - $ref: '#/components/parameters/DocumentKnowledgeBaseId'
       responses:
         '200':
           description: Original file stream.
@@ -595,6 +604,8 @@ paths:
               schema:
                 type: string
                 format: binary
+        '400':
+          $ref: '#/components/responses/Error'
         '404':
           $ref: '#/components/responses/Error'
       description: Return the original knowledge document content through gateway. Knowledge service owns the document content resource and serves it through the Knowledge runtime boundary.
@@ -2877,6 +2888,14 @@ components:
       required: true
       schema:
         type: string
+    DocumentKnowledgeBaseId:
+      name: knowledgeBaseId
+      in: query
+      required: true
+      description: Required knowledge base context for runtime-backed document operations.
+      schema:
+        type: string
+        minLength: 1
     ReportId:
       name: reportId
       in: path
@@ -3736,7 +3755,6 @@ components:
           nullable: true
         embeddingDimension:
           type: integer
-          minimum: 1
           nullable: true
         metadata:
           $ref: '#/components/schemas/JsonObject'
@@ -3848,7 +3866,8 @@ components:
           type: string
         embeddingDimension:
           type: integer
-          minimum: 1
+          minimum: -1
+          description: Runtime-managed dimension; -1 means unavailable from the vendor runtime.
         qdrantCollection:
           type: string
         searchTopK:

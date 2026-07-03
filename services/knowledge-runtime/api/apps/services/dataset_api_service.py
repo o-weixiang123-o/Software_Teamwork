@@ -26,7 +26,7 @@ from api.db.services.document_service import DocumentService, queue_raptor_o_gra
 from api.db.services.file2document_service import File2DocumentService
 from api.db.services.file_service import FileService
 from api.db.services.knowledgebase_service import KnowledgebaseService
-from api.db.services.task_service import GRAPH_RAPTOR_FAKE_DOC_ID, TaskService
+from api.db.services.task_service import DATASET_SCOPE_TASK_DOC_ID, TaskService
 from api.db.services.user_service import TenantService, UserService, UserTenantService
 from common.constants import FileSource, StatusEnum
 from api.utils.api_utils import deep_merge, get_parser_config, remap_dictionary_keys, verify_embedding_availability
@@ -535,7 +535,7 @@ def run_index(dataset_id: str, tenant_id: str, index_type: str):
     sample_document = documents[0]
     document_ids = [document["id"] for document in documents]
 
-    task_id = queue_raptor_o_graphrag_tasks(sample_doc=sample_document, ty=task_type, priority=0, fake_doc_id=GRAPH_RAPTOR_FAKE_DOC_ID, doc_ids=list(document_ids))
+    task_id = queue_raptor_o_graphrag_tasks(sample_doc=sample_document, ty=task_type, priority=0, task_scope_doc_id=DATASET_SCOPE_TASK_DOC_ID, doc_ids=list(document_ids))
 
     if not KnowledgebaseService.update_by_id(kb.id, {task_id_field: task_id}):
         logging.warning(f"Cannot save {task_id_field} for Dataset {dataset_id}")
@@ -950,7 +950,7 @@ async def search(dataset_id: str, tenant_id: str, req: dict):
     from api.db.services.llm_service import LLMBundle
     from api.db.services.user_service import UserTenantService
     from common.constants import LLMType
-    from common.metadata_utils import apply_meta_data_filter
+    from common.metadata_utils import MetadataFilterFallbackTooLarge, apply_meta_data_filter
     from rag.app.tag import label_question
     from rag.prompts.generator import cross_languages, keyword_extraction
 
@@ -991,15 +991,18 @@ async def search(dataset_id: str, tenant_id: str, req: dict):
         chat_mdl = LLMBundle(tenant_id, chat_model_config)
 
     if meta_data_filter:
-        local_doc_ids = await apply_meta_data_filter(
-            meta_data_filter,
-            None,
-            question,
-            chat_mdl,
-            local_doc_ids,
-            kb_ids=[dataset_id],
-            metas_loader=lambda: DocMetadataService.get_flatted_meta_by_kbs([dataset_id]),
-        )
+        try:
+            local_doc_ids = await apply_meta_data_filter(
+                meta_data_filter,
+                None,
+                question,
+                chat_mdl,
+                local_doc_ids,
+                kb_ids=[dataset_id],
+                metas_loader=lambda: DocMetadataService.get_flatted_meta_by_kbs([dataset_id]),
+            )
+        except MetadataFilterFallbackTooLarge as exc:
+            return False, str(exc)
 
     tenant_ids = []
     tenants = UserTenantService.query(user_id=tenant_id)
@@ -1278,7 +1281,7 @@ async def search_datasets(tenant_id: str, req: dict):
     from api.db.services.llm_service import LLMBundle
     from api.db.services.user_service import UserTenantService
     from common.constants import LLMType
-    from common.metadata_utils import apply_meta_data_filter
+    from common.metadata_utils import MetadataFilterFallbackTooLarge, apply_meta_data_filter
     from rag.app.tag import label_question
     from rag.prompts.generator import cross_languages, keyword_extraction
 
@@ -1328,15 +1331,18 @@ async def search_datasets(tenant_id: str, req: dict):
     if meta_data_filter:
         logging.debug("Metadata filter applied: %s, question length: %d, chat_mdl=%s",
                       meta_data_filter, len(question), 'None' if chat_mdl is None else 'configured')
-        local_doc_ids = await apply_meta_data_filter(
-            meta_data_filter,
-            None,
-            question,
-            chat_mdl,
-            local_doc_ids,
-            kb_ids=kb_ids,
-            metas_loader=lambda: DocMetadataService.get_flatted_meta_by_kbs(kb_ids),
-        )
+        try:
+            local_doc_ids = await apply_meta_data_filter(
+                meta_data_filter,
+                None,
+                question,
+                chat_mdl,
+                local_doc_ids,
+                kb_ids=kb_ids,
+                metas_loader=lambda: DocMetadataService.get_flatted_meta_by_kbs(kb_ids),
+            )
+        except MetadataFilterFallbackTooLarge as exc:
+            return False, str(exc)
 
     tenant_ids = []
     tenants = UserTenantService.query(user_id=tenant_id)
