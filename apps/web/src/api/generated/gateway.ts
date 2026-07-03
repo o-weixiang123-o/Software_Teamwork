@@ -38,6 +38,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/app-version/freshness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get frontend app version freshness
+         * @description Gateway-owned metadata endpoint that compares the current frontend build
+         *     commit with upstream `develop`. Gateway calls the GitHub compare API as
+         *     `currentSha...develop`; `ahead_by > 0` means develop has commits the
+         *     current build does not contain, while `ahead_by = 0` means the build
+         *     contains the latest develop commit even if it also has feature-branch
+         *     commits. Gateway only performs the server-side GitHub request when
+         *     `currentSha` matches `GATEWAY_APP_VERSION_CURRENT_SHA` or is present in
+         *     `GATEWAY_APP_VERSION_ALLOWED_SHAS`; other syntactically valid SHAs
+         *     return `data.status=unknown` without a GitHub request or cache write.
+         *     The standard local startup script auto-fills
+         *     `GATEWAY_APP_VERSION_CURRENT_SHA` from the repository `HEAD` for that
+         *     process when it is unset. Trusted requests use short-lived bounded
+         *     cache entries, in-flight request coalescing, and an optional
+         *     backend-only `GATEWAY_GITHUB_TOKEN`; browser clients never call GitHub
+         *     API directly and never receive the token.
+         *     If GitHub returns 403, 404, 429, a network error, or an invalid response, the
+         *     endpoint still returns 200 with `data.status=unknown` and a short safe
+         *     `reason`.
+         *     Missing or blank `currentSha` is treated as an unknown build. Non-empty
+         *     values must be complete 40-character hexadecimal Git SHAs and are
+         *     rejected before any GitHub request or cache write when invalid.
+         */
+        get: operations["getAppVersionFreshness"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users": {
         parameters: {
             query?: never;
@@ -1538,6 +1578,35 @@ export interface components {
                 /** @example ok */
                 status: string;
             };
+            requestId: string;
+        };
+        /**
+         * @description Freshness comparison between the current frontend build and upstream develop. `current` means the build contains the latest upstream develop commit, even when the build also has additional feature-branch commits.
+         * @enum {string}
+         */
+        AppVersionFreshnessStatus: "current" | "different" | "unknown";
+        /**
+         * @description Safe fallback reason when freshness could not be determined.
+         * @enum {string}
+         */
+        AppVersionFreshnessReason: "missing_current_sha" | "untrusted_current_sha" | "github_403" | "github_404" | "github_429" | "github_status" | "network_error" | "invalid_response";
+        AppVersionFreshness: {
+            status: components["schemas"]["AppVersionFreshnessStatus"];
+            /** @description Current frontend build commit SHA, when available. */
+            currentSha?: string;
+            /** @description Latest upstream develop commit SHA, when GitHub was reachable. */
+            latestSha?: string;
+            /**
+             * Format: uri
+             * @description Browser URL for the latest upstream develop commit.
+             */
+            latestUrl?: string;
+            /** Format: date-time */
+            checkedAt: string;
+            reason?: components["schemas"]["AppVersionFreshnessReason"];
+        };
+        AppVersionFreshnessResponse: {
+            data: components["schemas"]["AppVersionFreshness"];
             requestId: string;
         };
         ErrorResponse: {
@@ -3316,6 +3385,30 @@ export interface operations {
             };
             429: components["responses"]["Error"];
             503: components["responses"]["Error"];
+        };
+    };
+    getAppVersionFreshness: {
+        parameters: {
+            query?: {
+                /** @description Current frontend build commit SHA injected at build time. Omit or send blank when unavailable; otherwise send the full 40-character hexadecimal SHA. Gateway checks GitHub only when the SHA matches `GATEWAY_APP_VERSION_CURRENT_SHA` or is listed in `GATEWAY_APP_VERSION_ALLOWED_SHAS`; otherwise it returns unknown without an upstream request. */
+                currentSha?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current build freshness status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppVersionFreshnessResponse"];
+                };
+            };
+            400: components["responses"]["Error"];
         };
     };
     createUser: {

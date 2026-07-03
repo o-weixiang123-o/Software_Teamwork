@@ -46,6 +46,9 @@ type Config struct {
 	TokenHashKeyVersion    string
 	InternalServiceToken   string
 	AuthAdminServiceToken  string
+	GitHubToken            string
+	AppVersionCurrentSHA   string
+	AppVersionAllowedSHAs  []string
 	AuthBaseURL            string
 	KnowledgeBaseURL       string
 	QABaseURL              string
@@ -54,6 +57,15 @@ type Config struct {
 }
 
 func Load() (Config, error) {
+	appVersionCurrentSHA, err := optionalCommitSHA("GATEWAY_APP_VERSION_CURRENT_SHA")
+	if err != nil {
+		return Config{}, err
+	}
+	appVersionAllowedSHAs, err := commitSHAList("GATEWAY_APP_VERSION_ALLOWED_SHAS")
+	if err != nil {
+		return Config{}, err
+	}
+
 	cfg := Config{
 		HTTPAddr:               stringValue("GATEWAY_HTTP_ADDR", DefaultHTTPAddr),
 		MetricsAddr:            stringValue("GATEWAY_METRICS_ADDR", DefaultMetricsAddr),
@@ -74,6 +86,9 @@ func Load() (Config, error) {
 		TokenHashKeyVersion:    stringValue("GATEWAY_TOKEN_HASH_KEY_VERSION", DefaultTokenKeyVersion),
 		InternalServiceToken:   firstNonEmptyEnv("GATEWAY_INTERNAL_SERVICE_TOKEN", "INTERNAL_SERVICE_TOKEN"),
 		AuthAdminServiceToken:  strings.TrimSpace(os.Getenv("GATEWAY_AUTH_ADMIN_SERVICE_TOKEN")),
+		GitHubToken:            strings.TrimSpace(os.Getenv("GATEWAY_GITHUB_TOKEN")),
+		AppVersionCurrentSHA:   appVersionCurrentSHA,
+		AppVersionAllowedSHAs:  appVersionAllowedSHAs,
 		AuthBaseURL:            stringValue("GATEWAY_AUTH_BASE_URL", "http://localhost:8001"),
 		KnowledgeBaseURL:       strings.TrimSpace(os.Getenv("GATEWAY_KNOWLEDGE_BASE_URL")),
 		QABaseURL:              strings.TrimSpace(os.Getenv("GATEWAY_QA_BASE_URL")),
@@ -209,4 +224,53 @@ func csvValue(key string, fallback []string) []string {
 		}
 	}
 	return values
+}
+
+func commitSHAList(key string) ([]string, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return nil, nil
+	}
+	parts := strings.Split(raw, ",")
+	values := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, part := range parts {
+		sha := strings.ToLower(strings.TrimSpace(part))
+		if sha == "" {
+			continue
+		}
+		if !isFullCommitSHA(sha) {
+			return nil, fmt.Errorf("%s entries must be 40 character hexadecimal Git SHAs", key)
+		}
+		if _, ok := seen[sha]; ok {
+			continue
+		}
+		seen[sha] = struct{}{}
+		values = append(values, sha)
+	}
+	return values, nil
+}
+
+func optionalCommitSHA(key string) (string, error) {
+	sha := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+	if sha == "" {
+		return "", nil
+	}
+	if !isFullCommitSHA(sha) {
+		return "", fmt.Errorf("%s must be a 40 character hexadecimal Git SHA", key)
+	}
+	return sha, nil
+}
+
+func isFullCommitSHA(value string) bool {
+	if len(value) != 40 {
+		return false
+	}
+	for _, r := range value {
+		if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') {
+			continue
+		}
+		return false
+	}
+	return true
 }

@@ -171,6 +171,7 @@ export function AppLayout({ children }: PropsWithChildren) {
           </div>
           <span className="truncate text-sm text-primary">电力行业知识助手</span>
           <span className="truncate text-sm font-semibold">{currentLabel}</span>
+          <AppVersionBadge className="hidden shrink-0 lg:inline-flex" />
         </div>
 
         <nav
@@ -202,7 +203,6 @@ export function AppLayout({ children }: PropsWithChildren) {
         </nav>
 
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <AppVersionBadge className="hidden lg:inline-flex" />
           <Button
             aria-label="打开帮助"
             size="icon-sm"

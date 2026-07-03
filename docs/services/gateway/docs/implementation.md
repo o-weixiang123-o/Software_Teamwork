@@ -27,7 +27,7 @@
 | --- | --- | --- |
 | 文档状态 | active | README、OpenAPI、active owner map 和数据模型文档存在。 |
 | 代码状态 | partial | Go gateway、auth public routes、Redis session cache、proxy route matrix、中间件、错误归一化、Auth profile/password-change/admin-users routes 和 Prometheus HTTP metrics baseline 已实现。 |
-| 契约对齐 | guarded / partial | Gateway OpenAPI 现有 110 个 active operations；当前 route matrix 覆盖全部 110 个 active operations。admin parser-configs、Knowledge document lifecycle、chunks、content、knowledge-queries、QA session attachments 和 Auth profile/password-change/admin-users 已转为 owner proxy；admin overview/metrics 是 active contract，但实现仍返回稳定 `not_implemented`。 |
+| 契约对齐 | guarded / partial | Gateway OpenAPI 现有 112 个 active operations；当前 route matrix 覆盖全部 112 个 active operations。app-version freshness 由 Gateway 代理 GitHub compare 语义判断当前构建是否包含 develop 最新提交，并做缓存/fallback；admin parser-configs、Knowledge document lifecycle、chunks、content、knowledge-queries、QA session attachments 和 Auth profile/password-change/admin-users 已转为 owner proxy；admin overview/metrics 是 active contract，但实现仍返回稳定 `not_implemented`。 |
 | 数据持久化 | redis / none | Gateway 不持久化业务数据库；使用 Redis 保存 session cache。 |
 | 测试状态 | partial | 单元测试覆盖 route matrix、QA active OpenAPI schema contract、auth proxy、headers、binary/SSE proxy、中间件和 metrics middleware；缺真实 Redis/downstream 集成测试。 |
 | 建议动作 | 联调 / 复核 | Auth/Gateway/Redis full smoke 已脚本化；继续补真实 owner services 端到端联调验证。 |
@@ -40,7 +40,7 @@
 | 用户/会话公开入口 | `services/gateway/internal/http/auth.go` | Gateway OpenAPI auth paths | `TestCreateSessionCachesSessionWithoutRawToken` | 转发 auth，成功后写 Redis session cache。 |
 | Redis session cache | `services/gateway/internal/platform/redis/session_store.go` | `docs/services/gateway/README.md` | config/auth proxy tests | 使用 token hash key，不缓存原始 token。 |
 | 认证上下文注入 | `services/gateway/internal/http/proxy.go` | `frontend-backend-contract.md` | `TestProxyInjectsAuthenticatedContextHeaders` | 注入 `X-User-*`、`X-Request-Id`、`X-Service-Token`。 |
-| active route matrix | `services/gateway/internal/http/routes.go` | Gateway OpenAPI / owner map | `TestActiveRouteMatrixCoversGatewayOwnerMap` | 覆盖 110 个 active operations，含 Auth profile/password-change/admin-users routes。 |
+| active route matrix | `services/gateway/internal/http/routes.go` | Gateway OpenAPI / owner map | `TestActiveRouteMatrixCoversGatewayOwnerMap` | 覆盖 112 个 active operations，含 app-version freshness 与 Auth profile/password-change/admin-users routes。 |
 | binary content proxy | `services/gateway/internal/http/proxy.go` | Gateway OpenAPI file content paths | `TestProxyStreamsBinaryContentWithoutJSONEnvelope` | 文件流成功响应不包 JSON。 |
 | SSE proxy | `services/gateway/internal/http/proxy.go` | QA SSE contract | `TestProxyStreamsSSEWithoutFixedTimeout` | `Accept: text/event-stream` 使用 streaming client。 |
 | CORS / body limit / timeout / recover / request id | `services/gateway/internal/middleware/` | 前后端集成契约 | middleware/server tests | 覆盖基础 edge policy。 |

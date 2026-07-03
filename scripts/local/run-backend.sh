@@ -144,6 +144,26 @@ fi
 
 mkdir -p "$RUN_DIR" "$LOG_DIR"
 
+configure_app_version_current_sha() {
+  if [[ -n "${GATEWAY_APP_VERSION_CURRENT_SHA:-}" ]]; then
+    return
+  fi
+  if ! command -v git >/dev/null 2>&1; then
+    log_warn "git is not available; Gateway app-version freshness will require GATEWAY_APP_VERSION_CURRENT_SHA or GATEWAY_APP_VERSION_ALLOWED_SHAS."
+    return
+  fi
+
+  local sha
+  sha="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || true)"
+  if [[ "$sha" =~ ^[0-9a-fA-F]{40}$ ]]; then
+    export GATEWAY_APP_VERSION_CURRENT_SHA="${sha,,}"
+    log_info "using repository HEAD for Gateway app-version freshness: ${GATEWAY_APP_VERSION_CURRENT_SHA:0:8}"
+    return
+  fi
+
+  log_warn "could not determine a 40-character repository HEAD SHA; Gateway app-version freshness will return unknown unless trusted SHAs are configured."
+}
+
 print_go_module_hint() {
   log_error "Go module download failed before backend startup completed."
   log_hint "Current effective Go module settings:"
@@ -300,6 +320,7 @@ check_started_services() {
   return 1
 }
 
+configure_app_version_current_sha
 check_go_modules
 
 for service in "${GO_SERVICES[@]}"; do

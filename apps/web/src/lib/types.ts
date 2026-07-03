@@ -16,6 +16,9 @@ import type { components } from '@/api/generated/gateway'
 
 // ── Common ──
 export type PageInfo = components['schemas']['PageInfo']
+export type AppVersionFreshness = components['schemas']['AppVersionFreshness']
+export type AppVersionFreshnessReason = components['schemas']['AppVersionFreshnessReason']
+export type AppVersionFreshnessStatus = components['schemas']['AppVersionFreshnessStatus']
 
 // ── Auth ──
 export type UserSummary = components['schemas']['UserSummary']

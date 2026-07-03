@@ -5,6 +5,7 @@ export type GatewayPath = keyof paths
 export const ACTIVE_GATEWAY_PATHS = [
   '/healthz',
   '/readyz',
+  '/api/v1/app-version/freshness',
   '/api/v1/users',
   '/api/v1/sessions',
   '/api/v1/sessions/current',

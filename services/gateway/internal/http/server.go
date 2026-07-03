@@ -33,9 +33,13 @@ type Config struct {
 	AuthAdminServiceToken  string
 	OwnerBaseURLs          map[string]string
 	AuthClient             AuthClient
+	AppVersionChecker      AppVersionChecker
 	SessionStore           service.SessionStore
 	TokenHasher            service.TokenHasher
 	HTTPClient             *http.Client
+	GitHubToken            string
+	AppVersionCurrentSHA   string
+	AppVersionAllowedSHAs  []string
 	ReadyCheck             func(context.Context) error
 	MetricsReg             *metrics.Registry
 }
@@ -48,6 +52,7 @@ type Server struct {
 	authAdminServiceToken string
 	authClient            AuthClient
 	authRefreshLimiter    *middleware.InFlightLimiter
+	appVersionChecker     AppVersionChecker
 	sessionStore          service.SessionStore
 	tokenHasher           service.TokenHasher
 	ownerBaseURLs         map[string]*url.URL
@@ -68,6 +73,15 @@ func NewServer(cfg Config) *Server {
 	if cfg.HTTPClient == nil {
 		cfg.HTTPClient = &http.Client{Timeout: cfg.DownstreamTimeout}
 	}
+	if cfg.AppVersionChecker == nil {
+		cfg.AppVersionChecker = newGitHubAppVersionChecker(
+			cfg.HTTPClient,
+			cfg.Logger,
+			cfg.GitHubToken,
+			cfg.AppVersionCurrentSHA,
+			cfg.AppVersionAllowedSHAs,
+		)
+	}
 	s := &Server{
 		logger:                cfg.Logger,
 		serviceVersion:        cfg.ServiceVersion,
@@ -76,6 +90,7 @@ func NewServer(cfg Config) *Server {
 		authAdminServiceToken: strings.TrimSpace(cfg.AuthAdminServiceToken),
 		authClient:            cfg.AuthClient,
 		authRefreshLimiter:    middleware.NewInFlightLimiter(cfg.AuthRefreshMaxInFlight),
+		appVersionChecker:     cfg.AppVersionChecker,
 		sessionStore:          cfg.SessionStore,
 		tokenHasher:           cfg.TokenHasher,
 		ownerBaseURLs:         parseOwnerBaseURLs(cfg.OwnerBaseURLs),
@@ -106,6 +121,7 @@ func NewServer(cfg Config) *Server {
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /healthz", s.handleHealth)
 	s.mux.HandleFunc("GET /readyz", s.handleReady)
+	s.mux.HandleFunc("GET /api/v1/app-version/freshness", s.handleAppVersionFreshness)
 	s.mux.HandleFunc("POST /api/v1/users", s.handleCreateUser)
 	s.mux.HandleFunc("POST /api/v1/sessions", s.handleCreateSession)
 	s.mux.HandleFunc("GET /api/v1/users/me", s.handleCurrentUser)

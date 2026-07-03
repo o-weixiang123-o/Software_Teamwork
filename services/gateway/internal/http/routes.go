@@ -130,6 +130,7 @@ var activeProxyRoutes = []routeSpec{
 var activeDirectRoutes = []routeSpec{
 	{Method: "GET", Pattern: "/healthz", Owner: "gateway", OperationID: "getHealthz"},
 	{Method: "GET", Pattern: "/readyz", Owner: "gateway", OperationID: "getReadyz"},
+	{Method: "GET", Pattern: "/api/v1/app-version/freshness", Owner: "gateway", OperationID: "getAppVersionFreshness"},
 	{Method: "POST", Pattern: "/api/v1/users", Owner: "auth", OperationID: "createUser"},
 	{Method: "POST", Pattern: "/api/v1/sessions", Owner: "auth", OperationID: "createSession"},
 	{Method: "DELETE", Pattern: "/api/v1/sessions/current", Owner: "auth", OperationID: "deleteCurrentSession"},

@@ -1,68 +1,38 @@
 import { describe, expect, it } from 'vitest'
 
-import { checkUpstreamDevelopFreshness } from './app-version'
+import {
+  compareAppFreshness,
+  formatAppVersion,
+  getAppCommitUrl,
+  getUpstreamDevelopCommitsUrl,
+  getUpstreamDevelopCompareUrl,
+} from './app-version'
 
-describe('app version freshness', () => {
-  it('checks develop freshness without browser caching and returns behind commits', async () => {
-    const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = []
-    const fetcher: typeof fetch = async (input, init) => {
-      requests.push({ input, init })
-
-      const url = String(input)
-      if (url.endsWith('/commits/develop')) {
-        return new Response(
-          JSON.stringify({
-            html_url: 'https://github.com/Sakayori-Iroha-168/Software_Teamwork/commit/develop',
-            sha: '2222222222222222222222222222222222222222',
-          }),
-          { status: 200 },
-        )
-      }
-
-      return new Response(
-        JSON.stringify({
-          ahead_by: 3,
-          behind_by: 1,
-        }),
-        { status: 200 },
-      )
-    }
-
-    const result = await checkUpstreamDevelopFreshness(
-      fetcher,
-      '1111111111111111111111111111111111111111',
-    )
-
-    expect(result.status).toBe('different')
-    expect(result.commitsBehind).toBe(3)
-    expect(result.commitsAhead).toBe(1)
-    expect(result.latestSha).toBe('2222222222222222222222222222222222222222')
-    expect(requests).toHaveLength(2)
-    expect(requests.every((request) => request.init?.cache === 'no-store')).toBe(true)
+describe('app version helpers', () => {
+  it('formats package versions with a stable fallback', () => {
+    expect(formatAppVersion('0.1.0')).toBe('v0.1.0')
+    expect(formatAppVersion('v0.2.0')).toBe('v0.2.0')
+    expect(formatAppVersion('')).toBe('v0.0.0')
+    expect(formatAppVersion(null)).toBe('v0.0.0')
   })
 
-  it('returns unknown when the local commit is not available to GitHub compare', async () => {
-    const fetcher: typeof fetch = async (input) => {
-      const url = String(input)
-      if (url.endsWith('/commits/develop')) {
-        return new Response(
-          JSON.stringify({
-            html_url: 'https://github.com/Sakayori-Iroha-168/Software_Teamwork/commit/develop',
-            sha: '2222222222222222222222222222222222222222',
-          }),
-          { status: 200 },
-        )
-      }
+  it('compares local and upstream commit freshness without network access', () => {
+    expect(compareAppFreshness('11111111', '11111111')).toBe('current')
+    expect(compareAppFreshness('11111111', '22222222')).toBe('different')
+    expect(compareAppFreshness('', '22222222')).toBe('unknown')
+  })
 
-      return new Response(JSON.stringify({ message: 'Not Found' }), { status: 404 })
-    }
-
-    const result = await checkUpstreamDevelopFreshness(
-      fetcher,
-      'local-only-local-only-local-only-local-only',
+  it('builds GitHub commit and compare urls without calling the GitHub API', () => {
+    expect(getAppCommitUrl('ABCDEF123456')).toBe(
+      'https://github.com/Sakayori-Iroha-168/Software_Teamwork/commit/abcdef123456',
     )
-
-    expect(result.status).toBe('unknown')
-    expect(result.commitsBehind).toBe(0)
+    expect(getAppCommitUrl('')).toBeNull()
+    expect(getUpstreamDevelopCommitsUrl()).toBe(
+      'https://github.com/Sakayori-Iroha-168/Software_Teamwork/commits/develop',
+    )
+    expect(getUpstreamDevelopCompareUrl('ABCDEF123456')).toBe(
+      'https://github.com/Sakayori-Iroha-168/Software_Teamwork/compare/abcdef123456...develop',
+    )
+    expect(getUpstreamDevelopCompareUrl('')).toBe(getUpstreamDevelopCommitsUrl())
   })
 })

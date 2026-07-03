@@ -4,7 +4,7 @@ This document is the human-readable audit list for gateway active API paths. The
 
 ## Audit Result
 
-- Active operations: `111`.
+- Active operations: `112`.
 - Every `/api/v1/**` active operation has `operationId`, `tags`, `x-owner-service`, security, at least one `2XX` response, and at least one `4XX` response.
 - `/healthz` and `/readyz` are operational routes owned by `gateway`; they intentionally do not use bearer auth.
 - No stable active path uses action-style segments such as `/login`, `/logout`, `/search`, `/generate`, `/export`, `/retry`, or `/revoke`.
@@ -19,7 +19,7 @@ This document is the human-readable audit list for gateway active API paths. The
 
 | Owner service | Active operations | Notes |
 | --- | ---: | --- |
-| `gateway` | 4 | Gateway health/readiness, public routing, admin overview and metrics aggregation. |
+| `gateway` | 5 | Gateway health/readiness, app version freshness, public routing, admin overview and metrics aggregation. |
 | `auth` | 11 | Users, sessions, current-user identity, current-user profile, required password change, admin user management, roles, and permissions. |
 | `knowledge` | 18 | Knowledge bases, knowledge documents, chunks, retrieval, and parser runtime config. |
 | `ai-gateway` | 5 | Model profile runtime configuration exposed through gateway admin paths. |
@@ -37,6 +37,7 @@ aggregation endpoints are now active gateway contracts listed below.
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/healthz` | `gateway` | `health` | `getHealthz` | `none` |
 | `GET` | `/readyz` | `gateway` | `health` | `getReadyz` | `none` |
+| `GET` | `/api/v1/app-version/freshness` | `gateway` | `app-version` | `getAppVersionFreshness` | `none` |
 | `POST` | `/api/v1/users` | `auth` | `auth` | `createUser` | `none` |
 | `POST` | `/api/v1/sessions` | `auth` | `auth` | `createSession` | `none` |
 | `DELETE` | `/api/v1/sessions/current` | `auth` | `auth` | `deleteCurrentSession` | `bearerAuth` |

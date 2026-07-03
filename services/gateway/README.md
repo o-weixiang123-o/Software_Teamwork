@@ -87,6 +87,9 @@ development loopback host such as `localhost`, `127.0.0.1`, or `[::1]`.
 | `GATEWAY_TOKEN_HASH_KEY_VERSION` | `v1` | Version segment in `hmac-sha256:<version>:<hex>`. |
 | `GATEWAY_INTERNAL_SERVICE_TOKEN` | unset | Internal service credential forwarded as `X-Service-Token` when configured. |
 | `GATEWAY_AUTH_ADMIN_SERVICE_TOKEN` | required | Gateway-only credential forwarded as `X-Service-Token` for Auth admin user-management routes and current-user profile/password write routes; must be non-empty and differ from `GATEWAY_INTERNAL_SERVICE_TOKEN`. |
+| `GATEWAY_GITHUB_TOKEN` | unset | Optional backend-only GitHub token for app-version freshness checks. Never expose this value to the frontend. |
+| `GATEWAY_APP_VERSION_CURRENT_SHA` | unset | Full 40-character frontend build SHA trusted to trigger the GitHub compare check. `scripts/local/run-backend.sh` auto-fills the repository `HEAD` for the current process when this is unset; production deployments should set it to the served frontend artifact commit. |
+| `GATEWAY_APP_VERSION_ALLOWED_SHAS` | unset | Optional comma-separated additional full 40-character frontend build SHAs that may trigger the GitHub compare check. When neither this list nor `GATEWAY_APP_VERSION_CURRENT_SHA` trusts the requested SHA, Gateway returns `unknown` without calling GitHub. |
 | `GATEWAY_AUTH_BASE_URL` | `http://localhost:8001` | Auth service base URL for user/session public routes. Must be an absolute `http` or `https` URL without credentials, query, or fragment. |
 | `GATEWAY_KNOWLEDGE_BASE_URL` | unset | Knowledge service base URL for knowledge-owned active routes. Must follow the service base URL rule above when non-empty. |
 | `GATEWAY_QA_BASE_URL` | unset | QA service base URL for QA-owned active routes. Must follow the service base URL rule above when non-empty. |
