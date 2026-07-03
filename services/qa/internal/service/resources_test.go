@@ -719,6 +719,7 @@ func TestResourceServiceRevalidatesCitationSourceAvailability(t *testing.T) {
 			MessageID:         "message-1",
 			CitationNo:        1,
 			DocumentID:        "doc-1",
+			KnowledgeBaseID:   "kb-1",
 			DocumentName:      "Manual",
 			Text:              "saved quote",
 			ContentPreview:    "saved preview",
@@ -726,7 +727,7 @@ func TestResourceServiceRevalidatesCitationSourceAvailability(t *testing.T) {
 			Metadata:          map[string]any{"pageLabel": "1"},
 		}},
 	}
-	retriever := &resourceRetrieverStub{availability: map[string]bool{"doc-1": true}}
+	retriever := &resourceRetrieverStub{availability: map[string]bool{CitationSourceRefKey("kb-1", "doc-1"): true}}
 	resources, err := NewResourceService(repository, retriever, resourceLLMTester{}, RuntimeLLMConfig{}, resourceCancellerStub{})
 	if err != nil {
 		t.Fatal(err)
@@ -735,8 +736,8 @@ func TestResourceServiceRevalidatesCitationSourceAvailability(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if retriever.userID != "user-1" || !reflect.DeepEqual(retriever.documentIDs, []string{"doc-1"}) {
-		t.Fatalf("source check user=%q ids=%+v", retriever.userID, retriever.documentIDs)
+	if retriever.userID != "user-1" || !reflect.DeepEqual(retriever.refs, []CitationSourceRef{{KnowledgeBaseID: "kb-1", DocumentID: "doc-1"}}) {
+		t.Fatalf("source check user=%q refs=%+v", retriever.userID, retriever.refs)
 	}
 	if len(citations) != 1 {
 		t.Fatalf("citations=%+v", citations)
@@ -745,7 +746,7 @@ func TestResourceServiceRevalidatesCitationSourceAvailability(t *testing.T) {
 	if !citation.IsSourceAvailable || citation.Source == nil || !citation.Source.Available {
 		t.Fatalf("source should be available: %+v", citation)
 	}
-	if citation.Source.DownloadEndpoint != "/api/v1/documents/doc-1/content" || citation.Source.Reason != "" {
+	if citation.Source.DownloadEndpoint != "/api/v1/documents/doc-1/content?knowledgeBaseId=kb-1" || citation.Source.Reason != "" {
 		t.Fatalf("unexpected source mapping: %+v", citation.Source)
 	}
 }
@@ -795,16 +796,16 @@ type resourceRetrieverStub struct {
 	availability map[string]bool
 	checkErr     error
 	userID       string
-	documentIDs  []string
+	refs         []CitationSourceRef
 }
 
 func (r *resourceRetrieverStub) Retrieve(context.Context, string, RetrievalTestInput) ([]RetrievalTestResult, error) {
 	return nil, nil
 }
 
-func (r *resourceRetrieverStub) CheckCitationSources(_ context.Context, userID string, documentIDs []string) (map[string]bool, error) {
+func (r *resourceRetrieverStub) CheckCitationSources(_ context.Context, userID string, refs []CitationSourceRef) (map[string]bool, error) {
 	r.userID = userID
-	r.documentIDs = append([]string(nil), documentIDs...)
+	r.refs = append([]CitationSourceRef(nil), refs...)
 	return r.availability, r.checkErr
 }
 

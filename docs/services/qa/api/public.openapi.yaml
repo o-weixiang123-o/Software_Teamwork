@@ -730,7 +730,12 @@ components:
         score: { type: number }
         rerankScore: { type: number, nullable: true }
         chunkType: { type: string }
-        isSourceAvailable: { type: boolean }
+        isSourceAvailable:
+          type: boolean
+          description: >-
+            True only when the current user can still read the concrete source
+            document through Knowledge using the stored knowledgeBaseId and
+            documentId.
     CitationDetail:
       allOf:
         - $ref: '#/components/schemas/Citation'
@@ -742,7 +747,11 @@ components:
               properties:
                 available: { type: boolean }
                 reason: { type: string }
-                downloadEndpoint: { type: string }
+                downloadEndpoint:
+                  type: string
+                  description: >-
+                    Gateway document content endpoint including the required
+                    knowledgeBaseId query when the original source is available.
     CitationLookupRequest:
       type: object
       required: [citationIds]

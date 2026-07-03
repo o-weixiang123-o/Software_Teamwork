@@ -132,23 +132,25 @@ func (c *Client) Retrieve(ctx context.Context, userID string, input service.Retr
 	return results, nil
 }
 
-func (c *Client) CheckCitationSources(ctx context.Context, userID string, documentIDs []string) (map[string]bool, error) {
-	availability := make(map[string]bool, len(documentIDs))
-	for _, rawID := range documentIDs {
-		documentID := strings.TrimSpace(rawID)
-		if documentID == "" {
+func (c *Client) CheckCitationSources(ctx context.Context, userID string, refs []service.CitationSourceRef) (map[string]bool, error) {
+	availability := make(map[string]bool, len(refs))
+	for _, ref := range refs {
+		knowledgeBaseID := strings.TrimSpace(ref.KnowledgeBaseID)
+		documentID := strings.TrimSpace(ref.DocumentID)
+		if knowledgeBaseID == "" || documentID == "" {
 			continue
 		}
-		if _, exists := availability[documentID]; exists {
+		key := service.CitationSourceRefKey(knowledgeBaseID, documentID)
+		if _, exists := availability[key]; exists {
 			continue
 		}
-		availability[documentID] = false
-		endpoint := c.baseURL + "/internal/v1/documents/" + url.PathEscape(documentID)
+		availability[key] = false
+		endpoint := c.baseURL + "/internal/v1/documents/" + url.PathEscape(documentID) + "?knowledgeBaseId=" + url.QueryEscape(knowledgeBaseID)
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 		if err != nil {
 			return availability, fmt.Errorf("create document visibility check: %w", err)
 		}
-		c.setTrustedHeaders(ctx, req, userID)
+		c.setUserScopedHeaders(ctx, req, userID)
 		resp, err := c.http.Do(req)
 		if err != nil {
 			return availability, fmt.Errorf("call knowledge document visibility: %w", err)
@@ -157,9 +159,9 @@ func (c *Client) CheckCitationSources(ctx context.Context, userID string, docume
 		_ = resp.Body.Close()
 		switch {
 		case resp.StatusCode >= 200 && resp.StatusCode < 300:
-			availability[documentID] = true
+			availability[key] = true
 		case resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusNotFound:
-			availability[documentID] = false
+			availability[key] = false
 		case resp.StatusCode >= 400 && resp.StatusCode < 500:
 			return availability, fmt.Errorf("knowledge document visibility returned HTTP %d", resp.StatusCode)
 		default:
@@ -210,6 +212,17 @@ func (c *Client) setTrustedHeaders(ctx context.Context, req *http.Request, userI
 	req.Header.Set("X-Caller-Service", "qa")
 	req.Header.Set(knowledgeRetrievalScopeHeader, knowledgeRetrievalScopeProject)
 	req.Header.Set("X-User-Id", userID)
+	c.setRequestUserContextHeaders(ctx, req)
+}
+
+func (c *Client) setUserScopedHeaders(ctx context.Context, req *http.Request, userID string) {
+	req.Header.Set("X-Service-Token", c.serviceToken)
+	req.Header.Set("X-Caller-Service", "qa")
+	req.Header.Set("X-User-Id", userID)
+	c.setRequestUserContextHeaders(ctx, req)
+}
+
+func (c *Client) setRequestUserContextHeaders(ctx context.Context, req *http.Request) {
 	if requestID := service.RequestIDFromContext(ctx); requestID != "" {
 		req.Header.Set("X-Request-Id", requestID)
 	}

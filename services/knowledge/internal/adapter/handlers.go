@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/service"
-	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/vendorclient"
 )
 
 func (s *Server) handleListKnowledgeBases(w http.ResponseWriter, r *http.Request) {
@@ -223,26 +222,16 @@ func (s *Server) handleGetDocument(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	runtimeUserID := reqCtx.UserID
-	if trustedProjectRetrievalScope(reqCtx, r) {
-		runtimeUserID = s.projectRuntimeUserID()
-	} else {
-		if _, err := readScope(reqCtx); err != nil {
-			writeAppError(w, r, err)
-			return
-		}
-	}
-	kbID := strings.TrimSpace(r.URL.Query().Get("knowledgeBaseId"))
-	var doc map[string]interface{}
-	var err error
-	if kbID != "" {
-		doc, err = s.vendor.GetDatasetDocument(r.Context(), runtimeUserID, kbID, r.PathValue("documentId"))
-	} else if trustedProjectRetrievalScope(reqCtx, r) {
-		doc, err = s.findProjectScopeDocumentByID(r.Context(), runtimeUserID, r.PathValue("documentId"))
-	} else {
-		writeAppError(w, r, service.ValidationError("request validation failed", map[string]string{"knowledgeBaseId": "is required"}))
+	if _, err := readScope(reqCtx); err != nil {
+		writeAppError(w, r, err)
 		return
 	}
+	kbID, err := requiredDocumentKnowledgeBaseID(r)
+	if err != nil {
+		writeAppError(w, r, err)
+		return
+	}
+	doc, err := s.vendor.GetDatasetDocument(r.Context(), reqCtx.UserID, kbID, r.PathValue("documentId"))
 	if err != nil {
 		writeAppError(w, r, mapVendorError(err))
 		return
@@ -297,34 +286,6 @@ func requiredDocumentKnowledgeBaseID(r *http.Request) (string, error) {
 		return "", service.ValidationError("request validation failed", map[string]string{"knowledgeBaseId": "is required"})
 	}
 	return kbID, nil
-}
-
-func (s *Server) findProjectScopeDocumentByID(ctx context.Context, userID, documentID string) (map[string]interface{}, error) {
-	const pageSize = 100
-	for page := 1; ; page++ {
-		datasets, total, err := s.vendor.ListDatasets(ctx, userID, page, pageSize)
-		if err != nil {
-			return nil, err
-		}
-		for _, dataset := range datasets {
-			kbID := stringField(dataset, "id")
-			if kbID == "" {
-				continue
-			}
-			doc, err := s.vendor.GetDatasetDocument(ctx, userID, kbID, documentID)
-			if err == nil {
-				return doc, nil
-			}
-			if apiErr, ok := err.(*vendorclient.APIError); ok && apiErr.Code == 404 {
-				continue
-			}
-			return nil, err
-		}
-		if len(datasets) == 0 || int64(page*pageSize) >= total {
-			break
-		}
-	}
-	return nil, &vendorclient.APIError{Code: 404, Message: "document not found"}
 }
 
 func (s *Server) handleDeleteDocument(w http.ResponseWriter, r *http.Request) {

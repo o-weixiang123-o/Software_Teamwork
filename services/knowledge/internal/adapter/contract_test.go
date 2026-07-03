@@ -667,7 +667,7 @@ func TestAdapterTrustedQAKnowledgeQueryUsesProjectRuntimeScopeWithoutKnowledgeRe
 	}
 }
 
-func TestAdapterTrustedQAGetDocumentUsesProjectRuntimeScopeWithoutKnowledgeRead(t *testing.T) {
+func TestAdapterTrustedQAGetDocumentStillRequiresKnowledgeRead(t *testing.T) {
 	state := newFakeVendorState()
 	state.datasets["kb_fake_1"] = map[string]any{"id": "kb_fake_1", "name": "Boiler"}
 	state.documents["doc_fake_1"] = map[string]any{"id": "doc_fake_1", "kb_id": "kb_fake_1", "dataset_id": "kb_fake_1", "name": "guide.md"}
@@ -681,24 +681,24 @@ func TestAdapterTrustedQAGetDocumentUsesProjectRuntimeScopeWithoutKnowledgeRead(
 		ProjectRuntimeUserID: "project_runtime",
 	}, nil)
 
-	req := httptest.NewRequest(http.MethodGet, "/internal/v1/documents/doc_fake_1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/internal/v1/documents/doc_fake_1?knowledgeBaseId=kb_fake_1", nil)
 	req.Header.Set("X-User-Id", "usr_without_knowledge_permission")
 	req.Header.Set("X-Service-Token", testServiceToken)
 	req.Header.Set("X-Caller-Service", "qa")
 	req.Header.Set(retrievalScopeHeader, retrievalScopeProject)
 	rec := httptest.NewRecorder()
 	server.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusForbidden {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	if len(state.listUserIDs) == 0 || state.listUserIDs[0] != "project_runtime" {
-		t.Fatalf("list user ids=%v", state.listUserIDs)
+	if len(state.listUserIDs) != 0 {
+		t.Fatalf("list user ids=%v, want none", state.listUserIDs)
 	}
-	if len(state.documentUserIDs) == 0 || state.documentUserIDs[0] != "project_runtime" {
-		t.Fatalf("document user ids=%v", state.documentUserIDs)
+	if len(state.documentUserIDs) != 0 {
+		t.Fatalf("document user ids=%v, want none", state.documentUserIDs)
 	}
 }
 

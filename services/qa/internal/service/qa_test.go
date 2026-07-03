@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -564,12 +565,12 @@ type fakeCitationSourceChecker struct {
 	availability               map[string]bool
 	failWhenContextIsCancelled bool
 	userID                     string
-	documentIDs                []string
+	refs                       []CitationSourceRef
 }
 
-func (c *fakeCitationSourceChecker) CheckCitationSources(ctx context.Context, userID string, documentIDs []string) (map[string]bool, error) {
+func (c *fakeCitationSourceChecker) CheckCitationSources(ctx context.Context, userID string, refs []CitationSourceRef) (map[string]bool, error) {
 	c.userID = userID
-	c.documentIDs = append([]string(nil), documentIDs...)
+	c.refs = append([]CitationSourceRef(nil), refs...)
 	if c.failWhenContextIsCancelled {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -768,11 +769,12 @@ func TestListMessagesRevalidatesEmbeddedCitationSources(t *testing.T) {
 			ConversationID: "conversation-id",
 			Role:           agent.RoleAssistant,
 			Citations: []Citation{{
-				ID:         "citation-id",
-				MessageID:  "assistant-message-id",
-				CitationNo: 1,
-				DocumentID: "doc-1",
-				Text:       "saved quote",
+				ID:              "citation-id",
+				MessageID:       "assistant-message-id",
+				CitationNo:      1,
+				DocumentID:      "doc-1",
+				KnowledgeBaseID: "kb-1",
+				Text:            "saved quote",
 			}},
 		}},
 	}
@@ -780,18 +782,18 @@ func TestListMessagesRevalidatesEmbeddedCitationSources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	checker := &fakeCitationSourceChecker{availability: map[string]bool{"doc-1": true}}
+	checker := &fakeCitationSourceChecker{availability: map[string]bool{CitationSourceRefKey("kb-1", "doc-1"): true}}
 	qa.SetCitationSourceChecker(checker)
 
 	page, err := qa.ListMessages(context.Background(), "user-id", "conversation-id", MessageListOptions{IncludeCitations: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if checker.userID != "user-id" || len(checker.documentIDs) != 1 || checker.documentIDs[0] != "doc-1" {
-		t.Fatalf("source checker called with user=%q documents=%v", checker.userID, checker.documentIDs)
+	if checker.userID != "user-id" || !reflect.DeepEqual(checker.refs, []CitationSourceRef{{KnowledgeBaseID: "kb-1", DocumentID: "doc-1"}}) {
+		t.Fatalf("source checker called with user=%q refs=%v", checker.userID, checker.refs)
 	}
 	citation := page.Items[0].Citations[0]
-	if !citation.IsSourceAvailable || citation.Source == nil || !citation.Source.Available || citation.Source.DownloadEndpoint != "/api/v1/documents/doc-1/content" {
+	if !citation.IsSourceAvailable || citation.Source == nil || !citation.Source.Available || citation.Source.DownloadEndpoint != "/api/v1/documents/doc-1/content?knowledgeBaseId=kb-1" {
 		t.Fatalf("embedded citation source was not revalidated: %+v", citation)
 	}
 }
@@ -933,7 +935,7 @@ func TestAskRevalidatesFinalCitationsAfterRequestContextCancelled(t *testing.T) 
 	}
 	qa.now = func() time.Time { return now }
 	checker := &fakeCitationSourceChecker{
-		availability:               map[string]bool{"doc-1": true},
+		availability:               map[string]bool{CitationSourceRefKey("kb-1", "doc-1"): true},
 		failWhenContextIsCancelled: true,
 	}
 	qa.SetCitationSourceChecker(checker)
@@ -950,8 +952,8 @@ func TestAskRevalidatesFinalCitationsAfterRequestContextCancelled(t *testing.T) 
 	if !repository.finalization.Citations[0].IsSourceAvailable {
 		t.Fatalf("citation source availability was lost after request cancellation: %+v", repository.finalization.Citations[0])
 	}
-	if checker.userID != "user-id" || len(checker.documentIDs) != 1 || checker.documentIDs[0] != "doc-1" {
-		t.Fatalf("checker user=%q documents=%v", checker.userID, checker.documentIDs)
+	if checker.userID != "user-id" || !reflect.DeepEqual(checker.refs, []CitationSourceRef{{KnowledgeBaseID: "kb-1", DocumentID: "doc-1"}}) {
+		t.Fatalf("checker user=%q refs=%v", checker.userID, checker.refs)
 	}
 }
 
@@ -1231,7 +1233,7 @@ func TestAskPersistsCitationSnapshotsFromKnowledgeToolResults(t *testing.T) {
 		t.Fatal(err)
 	}
 	qa.now = func() time.Time { return now }
-	qa.SetCitationSourceChecker(&fakeCitationSourceChecker{availability: map[string]bool{"doc-1": true}})
+	qa.SetCitationSourceChecker(&fakeCitationSourceChecker{availability: map[string]bool{CitationSourceRefKey("kb-1", "doc-1"): true}})
 	result, err := qa.Ask(context.Background(), "user-id", "conversation-id", AskInput{Message: "find citation", Mode: "knowledge_qa"}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -1249,7 +1251,7 @@ func TestAskPersistsCitationSnapshotsFromKnowledgeToolResults(t *testing.T) {
 	if citation.DocumentID != "doc-1" || citation.DocID != "doc-1" || citation.DocumentName != "Boiler Manual" || citation.DocName != "Boiler Manual" {
 		t.Fatalf("unexpected citation document fields: %+v", citation)
 	}
-	if citation.Source == nil || !citation.Source.Available || citation.Source.DownloadEndpoint != "/api/v1/documents/doc-1/content" {
+	if citation.Source == nil || !citation.Source.Available || citation.Source.DownloadEndpoint != "/api/v1/documents/doc-1/content?knowledgeBaseId=kb-1" {
 		t.Fatalf("unexpected citation source: %+v", citation.Source)
 	}
 	if strings.Contains(fmt.Sprintf("%#v", result.Citations), "FULL RAW DOCUMENT BODY") || strings.Contains(fmt.Sprintf("%#v", repository.savedEvents), "FULL RAW DOCUMENT BODY") {
@@ -1292,7 +1294,7 @@ func TestAskStreamsCitationDeltaFromKnowledgeMCPSearchTool(t *testing.T) {
 		t.Fatal(err)
 	}
 	qa.now = func() time.Time { return now }
-	qa.SetCitationSourceChecker(&fakeCitationSourceChecker{availability: map[string]bool{"doc-1": true}})
+	qa.SetCitationSourceChecker(&fakeCitationSourceChecker{availability: map[string]bool{CitationSourceRefKey("kb-1", "doc-1"): true}})
 
 	result, err := qa.Ask(context.Background(), "user-id", "conversation-id", AskInput{Message: "find citation", Mode: "knowledge_qa"}, nil)
 	if err != nil {
@@ -1337,7 +1339,7 @@ func TestAskDeduplicatesStreamingCitationSnapshots(t *testing.T) {
 		t.Fatal(err)
 	}
 	qa.now = func() time.Time { return now }
-	qa.SetCitationSourceChecker(&fakeCitationSourceChecker{availability: map[string]bool{"doc-1": true}})
+	qa.SetCitationSourceChecker(&fakeCitationSourceChecker{availability: map[string]bool{CitationSourceRefKey("kb-1", "doc-1"): true}})
 
 	result, err := qa.Ask(context.Background(), "user-id", "conversation-id", AskInput{Message: "find repeated citation", Mode: "knowledge_qa"}, nil)
 	if err != nil {
@@ -1382,7 +1384,7 @@ func TestAskSSEPayloadsDoNotLeakPromptRawToolOrProviderSecrets(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		qa.SetCitationSourceChecker(&fakeCitationSourceChecker{availability: map[string]bool{"doc-1": true}})
+		qa.SetCitationSourceChecker(&fakeCitationSourceChecker{availability: map[string]bool{CitationSourceRefKey("kb-1", "doc-1"): true}})
 		var observed []ProgressEvent
 		_, err = qa.Ask(context.Background(), "user-id", "conversation-id", AskInput{Message: "find citation", Mode: "knowledge_qa"}, func(event ProgressEvent) {
 			observed = append(observed, event)
@@ -1759,7 +1761,7 @@ func TestAskEmitsCitationDeltaForFallbackAgentMessageCitations(t *testing.T) {
 		t.Fatal(err)
 	}
 	qa.now = func() time.Time { return now }
-	qa.SetCitationSourceChecker(&fakeCitationSourceChecker{availability: map[string]bool{"doc-1": true}})
+	qa.SetCitationSourceChecker(&fakeCitationSourceChecker{availability: map[string]bool{CitationSourceRefKey("kb-1", "doc-1"): true}})
 
 	result, err := qa.Ask(context.Background(), "user-id", "conversation-id", AskInput{Message: "find citation", Mode: "knowledge_qa"}, nil)
 	if err != nil {

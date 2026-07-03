@@ -6184,7 +6184,7 @@ components:
                 type: string
               downloadEndpoint:
                 type: string
-                description: Gateway document content endpoint when the original source is available.
+                description: Gateway document content endpoint, including the required knowledgeBaseId query, when the original source is available to the current user.
     QACitationListResponse:
       type: object
       required:

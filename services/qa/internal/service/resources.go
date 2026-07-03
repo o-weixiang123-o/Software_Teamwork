@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -94,8 +95,8 @@ func NormalizeCitation(item Citation) Citation {
 	}
 	item.Source = &CitationSource{Available: item.IsSourceAvailable}
 	if item.IsSourceAvailable {
-		if item.DocumentID != "" {
-			item.Source.DownloadEndpoint = "/api/v1/documents/" + item.DocumentID + "/content"
+		if item.DocumentID != "" && item.KnowledgeBaseID != "" {
+			item.Source.DownloadEndpoint = "/api/v1/documents/" + url.PathEscape(item.DocumentID) + "/content?knowledgeBaseId=" + url.QueryEscape(item.KnowledgeBaseID)
 		}
 	} else {
 		if item.SourceUnavailableReason == "" {
@@ -428,8 +429,13 @@ type KnowledgeRetriever interface {
 	Retrieve(context.Context, string, RetrievalTestInput) ([]RetrievalTestResult, error)
 }
 
+type CitationSourceRef struct {
+	KnowledgeBaseID string
+	DocumentID      string
+}
+
 type CitationSourceChecker interface {
-	CheckCitationSources(context.Context, string, []string) (map[string]bool, error)
+	CheckCitationSources(context.Context, string, []CitationSourceRef) (map[string]bool, error)
 }
 
 type KnowledgeStatsProvider interface {
@@ -537,23 +543,25 @@ func revalidateCitationSources(ctx context.Context, userID string, sourceChecker
 	if len(items) == 0 {
 		return items
 	}
-	documentIDs := make([]string, 0, len(items))
+	refs := make([]CitationSourceRef, 0, len(items))
 	seen := map[string]struct{}{}
 	for _, item := range items {
 		documentID := strings.TrimSpace(firstNonBlank(item.DocumentID, item.DocID))
-		if documentID == "" {
+		knowledgeBaseID := strings.TrimSpace(item.KnowledgeBaseID)
+		if documentID == "" || knowledgeBaseID == "" {
 			continue
 		}
-		if _, ok := seen[documentID]; ok {
+		key := CitationSourceRefKey(knowledgeBaseID, documentID)
+		if _, ok := seen[key]; ok {
 			continue
 		}
-		seen[documentID] = struct{}{}
-		documentIDs = append(documentIDs, documentID)
+		seen[key] = struct{}{}
+		refs = append(refs, CitationSourceRef{KnowledgeBaseID: knowledgeBaseID, DocumentID: documentID})
 	}
 	checkedOK := false
 	availability := map[string]bool{}
-	if sourceChecker != nil && len(documentIDs) > 0 {
-		checked, err := sourceChecker.CheckCitationSources(ctx, userID, documentIDs)
+	if sourceChecker != nil && len(refs) > 0 {
+		checked, err := sourceChecker.CheckCitationSources(ctx, userID, refs)
 		if err == nil && checked != nil {
 			availability = checked
 			checkedOK = true
@@ -562,13 +570,18 @@ func revalidateCitationSources(ctx context.Context, userID string, sourceChecker
 	normalized := make([]Citation, 0, len(items))
 	for _, item := range items {
 		documentID := strings.TrimSpace(firstNonBlank(item.DocumentID, item.DocID))
-		if checkedOK && documentID != "" {
-			normalized = append(normalized, ApplyCitationSourceAvailability(item, availability[documentID]))
+		knowledgeBaseID := strings.TrimSpace(item.KnowledgeBaseID)
+		if checkedOK && documentID != "" && knowledgeBaseID != "" {
+			normalized = append(normalized, ApplyCitationSourceAvailability(item, availability[CitationSourceRefKey(knowledgeBaseID, documentID)]))
 		} else {
 			normalized = append(normalized, ApplyCitationSourceAvailability(item, false))
 		}
 	}
 	return normalized
+}
+
+func CitationSourceRefKey(knowledgeBaseID, documentID string) string {
+	return strings.TrimSpace(knowledgeBaseID) + "\x00" + strings.TrimSpace(documentID)
 }
 
 func revalidateMessageCitations(ctx context.Context, userID string, sourceChecker CitationSourceChecker, messages []Message) {
