@@ -17,6 +17,9 @@ Implemented now:
 - `DELETE /internal/v1/files/{fileId}`
 - `GET /internal/v1/files/{fileId}/content`
 - Memory, local, and MinIO object-store adapters behind `service.ObjectStore`
+- Streaming service-layer upload path with SHA-256 calculation during object-store write
+- Optional MIME sniffing allowlist and per-operation caller allowlists
+- Non-local configuration guards that reject memory metadata/object storage
 - Env-gated PostgreSQL metadata + MinIO object-store smoke test
 
 
@@ -69,10 +72,23 @@ When `FILE_INTERNAL_SERVICE_TOKEN` or `INTERNAL_SERVICE_TOKEN` is configured,
 base file routes under `/internal/v1/files/**` also require `X-Service-Token`.
 Invalid or missing service tokens return `401 unauthorized`.
 
+Production-like runs should set `FILE_ENV` to a non-local value such as
+`production`. In that mode the service fails startup when object storage is
+`memory` or `FILE_DATABASE_URL` is empty. Keep `FILE_ENV=local`, `test`, or
+`development` only for tests and developer-only runs.
+
+Caller and MIME policies are optional for local compatibility. When enabled,
+`FILE_ALLOWED_CREATE_CALLERS`, `FILE_ALLOWED_READ_CALLERS`, and
+`FILE_ALLOWED_DELETE_CALLERS` require `X-Caller-Service` to match the operation
+allowlist; missing caller returns `401`, and a caller outside the configured
+operation list returns `403`. `FILE_ALLOWED_CONTENT_TYPES` compares against the
+sniffed/effective MIME type, not just the multipart header.
+
 ## Configuration
 
 | Variable | Default | Description |
 | --- | --- | --- |
+| `FILE_ENV` | `ENV` or `local` | Runtime environment label. Non-local values reject memory storage and empty metadata DB. Local-like values: `local`, `test`, `development`. |
 | `FILE_HTTP_ADDR` | `:8082` | HTTP listen address. |
 | `FILE_MAX_UPLOAD_BYTES` | `33554432` | Multipart upload limit in bytes. |
 | `FILE_STORAGE_BACKEND` | `memory` | Supported values: `memory`, `local`, `minio`. |
@@ -87,17 +103,28 @@ Invalid or missing service tokens return `401 unauthorized`.
 | `FILE_DATABASE_URL` | empty | Enables PostgreSQL metadata repository when set; empty keeps memory metadata mode. |
 | `FILE_INTERNAL_SERVICE_TOKEN` | empty | Required when `FILE_DATABASE_URL` is set. Validates `X-Service-Token` for `/internal/v1/files/**`. |
 | `INTERNAL_SERVICE_TOKEN` | empty | Shared fallback token when `FILE_INTERNAL_SERVICE_TOKEN` is empty. |
+| `FILE_ALLOWED_CONTENT_TYPES` | empty | Comma-separated effective MIME allowlist, for example `application/pdf,text/plain,application/octet-stream`. Empty allows all current behavior. |
+| `FILE_ALLOWED_CREATE_CALLERS` | empty | Comma-separated `X-Caller-Service` values allowed to create files. Empty preserves current caller-context behavior. |
+| `FILE_ALLOWED_READ_CALLERS` | empty | Comma-separated callers allowed to read metadata and content. Empty preserves current caller-context behavior. |
+| `FILE_ALLOWED_DELETE_CALLERS` | empty | Comma-separated callers allowed to delete files. Empty preserves current caller-context behavior. |
 | `FILE_SHUTDOWN_TIMEOUT` | `10s` | Graceful shutdown timeout. |
 
 ## Storage Port
 
-Object storage is behind `service.ObjectStore`. The `memory` adapter exists only for tests and early local integration. The `local` adapter stores objects under `FILE_LOCAL_STORAGE_DIR` for local durable smoke tests. The `minio` adapter uses the official `github.com/minio/minio-go/v7@v7.2.1` SDK and expects an existing MinIO or S3-compatible endpoint.
+Object storage is behind `service.ObjectStore`. The service layer streams upload
+content into that port while calculating SHA-256 and counting bytes; it no
+longer reads the entire upload into service memory before calling the object
+store. The `memory` adapter still buffers data internally and exists only for
+tests and local development. The `local` adapter stores objects under
+`FILE_LOCAL_STORAGE_DIR` for local durable smoke tests. The `minio` adapter uses
+the official `github.com/minio/minio-go/v7@v7.2.1` SDK and expects an existing
+MinIO or S3-compatible endpoint.
 
 Storage adapters do not expose object keys, bucket names, storage paths, internal URLs, access keys, or secret keys through API responses. MinIO SDK usage stays inside `internal/platform/storage` and `cmd/server` wiring; `internal/http` handlers and service use cases continue to depend on the `service.ObjectStore` port.
 
 ## Metadata Port
 
-File metadata is behind the service repository port. The runtime uses the memory repository when `FILE_DATABASE_URL` is empty and switches to the PostgreSQL repository when `FILE_DATABASE_URL` is configured. PostgreSQL stores only base file metadata such as file id, display filename, content type, size, checksum, storage reference, created timestamp, delete request timestamp, purge timestamp, and safe failure summary. Knowledge-base IDs, report IDs, template IDs, material IDs, business tags, processing status, and ACLs belong to their owner services.
+File metadata is behind the service repository port. The runtime uses the memory repository when `FILE_DATABASE_URL` is empty and switches to the PostgreSQL repository when `FILE_DATABASE_URL` is configured. Non-local `FILE_ENV` values reject the memory metadata fallback. PostgreSQL stores only base file metadata such as file id, display filename, content type, size, checksum, storage reference, created timestamp, delete request timestamp, purge timestamp, and safe failure summary. Knowledge-base IDs, report IDs, template IDs, material IDs, business tags, processing status, and ACLs belong to their owner services.
 
 
 ## Migrations
@@ -179,6 +206,13 @@ Upload uses `multipart/form-data`:
 
 - `file`: required binary part
 - `checksumSha256`: optional SHA-256 checksum for `/internal/v1/files`; when omitted, the service computes it
+
+The service reads a bounded prefix for MIME sniffing, then streams the complete
+content through the object-store port. When `FILE_ALLOWED_CONTENT_TYPES` is set,
+the effective content type must be allowed. Header-only type claims are not
+trusted when the sniffed bytes indicate a different unsafe type. Unknown binary
+content falls back to `application/octet-stream`, which must be allowed when an
+allowlist is configured.
 
 ## Response Shape
 

@@ -450,12 +450,19 @@ Rules:
   - `DELETE /internal/v1/files/{fileId}`.
   - `GET /internal/v1/files/{fileId}/content`.
 - Runtime environment:
+  - `FILE_ENV`, falling back to `ENV`, then `local`. Local-like values are
+    `local`, `test`, and `development`.
   - `FILE_STORAGE_BACKEND=memory|local|minio`.
   - `FILE_LOCAL_STORAGE_DIR` when using `local`.
   - `FILE_MINIO_ENDPOINT`, `FILE_MINIO_ACCESS_KEY`,
     `FILE_MINIO_SECRET_KEY`, and `FILE_MINIO_BUCKET` when using `minio`.
   - Optional `FILE_MINIO_USE_SSL`, `FILE_MINIO_REGION`, and
     `FILE_MINIO_TIMEOUT`.
+  - Optional `FILE_ALLOWED_CONTENT_TYPES` comma-separated effective MIME
+    allowlist.
+  - Optional `FILE_ALLOWED_CREATE_CALLERS`,
+    `FILE_ALLOWED_READ_CALLERS`, and `FILE_ALLOWED_DELETE_CALLERS`
+    comma-separated `X-Caller-Service` allowlists.
 - Database files:
   - `services/file/sqlc.yaml`.
   - `services/file/internal/repository/queries/file_objects.sql`.
@@ -468,7 +475,19 @@ Rules:
 - Responses and logs must not expose `storage_bucket`, `storage_object_key`, object-store URLs, local filesystem paths, access keys, or secret keys.
 - PostgreSQL is the durable source of metadata, deletion status, purge timestamps, and sanitized purge failure summaries.
 - Object keys are generated server-side from file IDs, never from user filenames.
+- The service layer must not `io.ReadAll` the full upload before calling the
+  object-store port. It may read a bounded sniff prefix, then stream the full
+  content through a hashing/counting reader into `ObjectStore.Put`.
 - `FILE_STORAGE_BACKEND=memory` is test/local-only; `local` is acceptable for local durable smoke tests; production should use MinIO or an equivalent persistent object store adapter.
+- Non-local `FILE_ENV` values must reject `FILE_STORAGE_BACKEND=memory` and an
+  empty `FILE_DATABASE_URL` during config load or startup.
+- `FILE_ALLOWED_CONTENT_TYPES` is checked against the sniffed/effective MIME
+  type, not blindly against the multipart `Content-Type` header. Unknown binary
+  content falls back to `application/octet-stream`, which must be in the
+  allowlist when the allowlist is configured.
+- Caller allowlists are operation-scoped: create, read metadata/content, and
+  delete are configured independently. Empty allowlists preserve local
+  compatibility; configured allowlists require `X-Caller-Service`.
 - MinIO adapter errors returned from the storage layer must be sanitized:
   `NoSuchKey` / missing object maps to `service.ErrNotFound`, timeout and
   cancellation preserve `context` errors, and other SDK failures map to a
@@ -485,21 +504,29 @@ Rules:
 | Empty file | `400 validation_error` |
 | Oversized/malformed multipart | `400 validation_error` |
 | Invalid or mismatched `checksumSha256` | `400 validation_error` |
+| Effective MIME not in `FILE_ALLOWED_CONTENT_TYPES` | `400 validation_error` |
 | Missing trusted caller context | `401 unauthorized` |
+| Caller allowlist configured but `X-Caller-Service` missing | `401 unauthorized` |
+| Caller present but not allowed for create/read/delete | `403 forbidden` |
+| Non-local config uses memory object storage | startup/config error |
+| Non-local config has no `FILE_DATABASE_URL` | startup/config error |
 | File missing, deleted, or purged | `404 not_found` |
 | Storage write/read/delete failure | `502 dependency_error` |
 | Metadata write/read/update failure | `502 dependency_error` |
 
 ### 5. Good/Base/Bad Cases
 
-- Good: handler parses multipart and writes only envelope/content headers; service computes checksum, generates object key, coordinates repository plus object store; repository persists explicit file-object columns.
-- Base: a local storage adapter persists bytes under a configured directory for smoke tests while preserving the same `ObjectStore` interface.
-- Bad: handler imports MinIO or SQL packages, response DTO includes `objectKey` or `bucket`, or owner services use object keys for authorization.
+- Good: handler parses multipart and writes only envelope/content headers; service reads a bounded sniff prefix, streams bytes through checksum/counting into `ObjectStore.Put`, generates object key, coordinates repository plus object store, and repository persists explicit file-object columns.
+- Base: a local storage adapter persists bytes under a configured directory for smoke tests while preserving the same `ObjectStore` interface and production guardrails remain disabled only in local-like environments.
+- Bad: handler imports MinIO or SQL packages, service buffers the full upload to compute checksum, response DTO includes `objectKey` or `bucket`, or owner services use object keys for authorization.
 
 ### 6. Tests Required
 
-- Handler tests for malformed multipart, missing file, empty file, oversized file, checksum mismatch, successful content stream headers, and reads after delete.
-- Service tests for checksum computation/validation, object key creation, delete state transitions, and storage dependency error mapping.
+- Config tests for `FILE_ENV` fallback, non-local memory backend rejection,
+  non-local empty `FILE_DATABASE_URL` rejection, MIME allowlist parsing, and
+  create/read/delete caller allowlist parsing.
+- Handler tests for malformed multipart, missing file, empty file, oversized file, checksum mismatch, caller allowlist `401`/`403`, successful content stream headers, and reads after delete.
+- Service tests for streaming into `ObjectStore.Put`, checksum computation/validation, MIME sniffing/allowlist behavior, object key creation, delete state transitions, and storage dependency error mapping.
 - Storage adapter tests for put/get/delete, size mismatch, context cancellation where practical, and path traversal rejection for local storage.
 - MinIO adapter tests for content type and checksum options, not-found mapping,
   sanitized dependency errors, size mismatch, and timeout/cancellation behavior.
@@ -516,7 +543,7 @@ HTTP handler receives upload -> writes object directly to MinIO -> returns objec
 #### Correct
 
 ```text
-HTTP handler parses multipart -> service validates checksum and creates FileObject -> repository stores metadata -> ObjectStore stores bytes -> response returns safe FileObject fields only
+HTTP handler parses multipart -> service sniffs prefix and streams upload into ObjectStore while hashing -> repository stores safe metadata -> response returns safe FileObject fields only
 ```
 
 #### Wrong
