@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend service layout, knowledge/knowledge-runtime boundary rules, pre-dev checklist"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Go error propagation and HTTP error response rules for adapter fixes"}
+{"file": ".trellis/spec/backend/api-contracts.md", "reason": "Response envelope and OpenAPI sync rules for contract-affecting fixes"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "PostgreSQL/Qdrant/Redis/MinIO usage rules for worker and retrieval fixes"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Structured logging and sensitive-data rules when touching error logging"}
+{"file": ".trellis/spec/guides/commit-convention.md", "reason": "Commit message convention for per-area fix commits"}
+{"file": ".trellis/tasks/07-03-review-optimize-knowledge-rag/research/reachability.md", "reason": "Stage A output: in-scope file list per review area (generated before Stage B)"}
