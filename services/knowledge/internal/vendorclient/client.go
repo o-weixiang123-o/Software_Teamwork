@@ -511,6 +511,9 @@ func (c *Client) newRequest(ctx context.Context, userID, method, path string, bo
 	if c.serviceToken != "" {
 		req.Header.Set("X-Service-Token", c.serviceToken)
 	}
+	if requestID := requestIDFromContext(ctx); requestID != "" {
+		req.Header.Set("X-Request-Id", requestID)
+	}
 	return req, nil
 }
 

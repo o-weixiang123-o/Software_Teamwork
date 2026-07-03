@@ -39,10 +39,8 @@ The MCP transport and QA integration workflow are documented in
 | `KNOWLEDGE_MCP_ADDR` | no | - | Optional Streamable HTTP MCP listen address, for example `127.0.0.1:8093`. |
 | `KNOWLEDGE_MCP_USER_ID` | no | `knowledge_mcp_service` | Fixed user id used by MCP bridge calls. |
 | `KNOWLEDGE_PROJECT_RUNTIME_USER_ID` | no | `KNOWLEDGE_MCP_USER_ID` | Runtime user id whose visible datasets form the project-wide QA RAG pool. |
-| `KNOWLEDGE_MCP_PERMISSIONS` | no | `knowledge:read` | Fixed permission set used by MCP bridge calls; write tools require `knowledge:write`. |
+| `KNOWLEDGE_MCP_PERMISSIONS` | no | `knowledge:read` | Fixed permission set used by MCP bridge calls. Current MCP tools are read-only. |
 | `KNOWLEDGE_MCP_ROLES` | no | - | Fixed role set used by MCP bridge calls. |
-| `KNOWLEDGE_AI_GATEWAY_URL` | no | - | Enables `answer_from_knowledge` MCP tool by calling AI Gateway chat completions. |
-| `KNOWLEDGE_AI_GATEWAY_SERVICE_TOKEN` | no | `INTERNAL_SERVICE_TOKEN` fallback | Service token for Knowledge -> AI Gateway chat calls. |
 
 Upload storage and vector retrieval are configured in the vendor runtime
 (`services/knowledge-runtime/conf/service_conf.yaml`): MinIO bucket
@@ -94,8 +92,16 @@ does not trust caller-supplied `X-User-*` headers, and calls the adapter with
 the fixed `KNOWLEDGE_MCP_USER_ID` / roles / permissions context.
 
 The current native tool catalog includes retrieval, answer synthesis, KB CRUD,
-document CRUD, chunk listing, and document content tools. Runtime details and
-the gap to the four-tool `knowledge__*` target contract are documented in
+The current native tool catalog is the four read-only v1 contract:
+
+- `search`
+- `list_documents`
+- `get_document`
+- `get_chunk`
+
+QA registers the server under alias `knowledge`, so model-facing names are
+`knowledge__search`, `knowledge__list_documents`, `knowledge__get_document`,
+and `knowledge__get_chunk`. Runtime details are documented in
 [`docs/services/knowledge/docs/mcp-server.md`](../../docs/services/knowledge/docs/mcp-server.md)
 and [`docs/services/knowledge/docs/mcp-tools.md`](../../docs/services/knowledge/docs/mcp-tools.md).
 

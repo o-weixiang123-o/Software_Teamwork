@@ -2,7 +2,6 @@ package mcp
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,17 +9,11 @@ import (
 	"strings"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-
-	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/aigateway"
-	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/service"
 )
-
-const defaultRAGSystemPrompt = "You are a helpful assistant. Answer the user's question using only the provided context. Cite sources using [n] notation matching the context chunk numbers. If the context does not contain enough information, say so clearly."
 
 type toolHandlers struct {
 	bridge *Bridge
 	caller CallerContext
-	chat   *aigateway.ChatClient
 }
 
 func (h *toolHandlers) effectiveCaller() CallerContext {
@@ -29,32 +22,6 @@ func (h *toolHandlers) effectiveCaller() CallerContext {
 		caller.RequestID = newRequestID()
 	}
 	return caller
-}
-
-func (h *toolHandlers) requireWriteCaller() (CallerContext, error) {
-	caller := h.effectiveCaller()
-	for _, permission := range strings.Split(caller.Permissions, ",") {
-		if strings.TrimSpace(permission) == service.PermissionKnowledgeWrite {
-			return caller, nil
-		}
-	}
-	return CallerContext{}, fmt.Errorf("knowledge:write permission is required")
-}
-
-func (h *toolHandlers) chatRequestContext(caller CallerContext) aigateway.RequestContext {
-	var roles, perms []string
-	if caller.Roles != "" {
-		roles = strings.Split(caller.Roles, ",")
-	}
-	if caller.Permissions != "" {
-		perms = strings.Split(caller.Permissions, ",")
-	}
-	return aigateway.RequestContext{
-		RequestID:   caller.RequestID,
-		UserID:      caller.UserID,
-		Roles:       roles,
-		Permissions: perms,
-	}
 }
 
 func (h *toolHandlers) searchKnowledge(ctx context.Context, _ *sdkmcp.CallToolRequest, input searchKnowledgeInput) (*sdkmcp.CallToolResult, searchKnowledgeOutput, error) {
@@ -176,180 +143,6 @@ func (h *toolHandlers) runKnowledgeSearch(ctx context.Context, caller CallerCont
 	}, nil
 }
 
-func (h *toolHandlers) answerFromKnowledge(ctx context.Context, _ *sdkmcp.CallToolRequest, input answerFromKnowledgeInput) (*sdkmcp.CallToolResult, answerFromKnowledgeOutput, error) {
-	if h.chat == nil {
-		return nil, answerFromKnowledgeOutput{}, fmt.Errorf("answer_from_knowledge requires KNOWLEDGE_AI_GATEWAY_URL to be configured")
-	}
-
-	question := strings.TrimSpace(input.Question)
-	if question == "" {
-		return nil, answerFromKnowledgeOutput{}, fmt.Errorf("question is required")
-	}
-	profileID := strings.TrimSpace(input.ModelProfileID)
-	if profileID == "" {
-		return nil, answerFromKnowledgeOutput{}, fmt.Errorf("modelProfileId is required")
-	}
-
-	caller := h.effectiveCaller()
-	retrieval, err := h.runKnowledgeSearch(ctx, caller, knowledgeSearchParams{
-		Query:            question,
-		KnowledgeBaseIDs: input.KnowledgeBaseIDs,
-		DocumentIDs:      input.DocumentIDs,
-		TopK:             input.TopK,
-		ScoreThreshold:   input.ScoreThreshold,
-	})
-	if err != nil {
-		return nil, answerFromKnowledgeOutput{}, err
-	}
-
-	citations := make([]answerCitation, 0, len(retrieval.Results))
-	var contextBuilder strings.Builder
-	for i, result := range retrieval.Results {
-		index := i + 1
-		excerpt := result.ContentPreview
-		if excerpt == "" {
-			excerpt = result.Content
-		}
-		citations = append(citations, answerCitation{
-			Index:           index,
-			KnowledgeBaseID: result.KnowledgeBaseID,
-			DocumentID:      result.DocumentID,
-			ChunkID:         result.ChunkID,
-			Excerpt:         excerpt,
-		})
-		if contextBuilder.Len() > 0 {
-			contextBuilder.WriteString("\n\n")
-		}
-		fmt.Fprintf(&contextBuilder, "[%d] (%s) %s", index, result.DocumentName, excerpt)
-	}
-
-	systemPrompt := defaultRAGSystemPrompt
-	if input.SystemPrompt != nil && strings.TrimSpace(*input.SystemPrompt) != "" {
-		systemPrompt = strings.TrimSpace(*input.SystemPrompt)
-	}
-
-	userPrompt := question
-	if contextBuilder.Len() > 0 {
-		userPrompt = fmt.Sprintf("Context:\n%s\n\nQuestion: %s", contextBuilder.String(), question)
-	} else {
-		userPrompt = fmt.Sprintf("No relevant context was retrieved.\n\nQuestion: %s", question)
-	}
-
-	chatResp, err := h.chat.CreateChatCompletion(ctx, h.chatRequestContext(caller), aigateway.ChatRequest{
-		ProfileID: profileID,
-		Model:     profileID,
-		MaxTokens: input.MaxTokens,
-		Messages: []aigateway.Message{
-			{Role: "system", Content: systemPrompt},
-			{Role: "user", Content: userPrompt},
-		},
-	})
-	if err != nil {
-		return nil, answerFromKnowledgeOutput{}, fmt.Errorf("ai gateway chat failed: %w", err)
-	}
-
-	return nil, answerFromKnowledgeOutput{
-		Answer:    chatResp.Content,
-		Citations: citations,
-		Retrieval: answerRetrievalSummary{
-			QueryID:     retrieval.QueryID,
-			ResultCount: len(retrieval.Results),
-		},
-	}, nil
-}
-
-func (h *toolHandlers) listKnowledgeBases(ctx context.Context, _ *sdkmcp.CallToolRequest, input listKnowledgeBasesInput) (*sdkmcp.CallToolResult, map[string]any, error) {
-	query := url.Values{}
-	if input.Page > 0 {
-		query.Set("page", fmt.Sprintf("%d", input.Page))
-	}
-	if input.PageSize > 0 {
-		query.Set("pageSize", fmt.Sprintf("%d", input.PageSize))
-	}
-	return h.adapterList(ctx, h.effectiveCaller(), "/internal/v1/knowledge-bases", query)
-}
-
-func (h *toolHandlers) getKnowledgeBase(ctx context.Context, _ *sdkmcp.CallToolRequest, input getKnowledgeBaseInput) (*sdkmcp.CallToolResult, map[string]any, error) {
-	kbID := strings.TrimSpace(input.KnowledgeBaseID)
-	if kbID == "" {
-		return nil, nil, fmt.Errorf("knowledgeBaseId is required")
-	}
-	return h.adapterGet(ctx, h.effectiveCaller(), "/internal/v1/knowledge-bases/"+url.PathEscape(kbID))
-}
-
-func (h *toolHandlers) createKnowledgeBase(ctx context.Context, _ *sdkmcp.CallToolRequest, input createKnowledgeBaseInput) (*sdkmcp.CallToolResult, map[string]any, error) {
-	if strings.TrimSpace(input.Name) == "" {
-		return nil, nil, fmt.Errorf("name is required")
-	}
-	payload := map[string]any{"name": input.Name}
-	if input.ID != nil && strings.TrimSpace(*input.ID) != "" {
-		payload["id"] = strings.TrimSpace(*input.ID)
-	}
-	if input.Description != nil {
-		payload["description"] = *input.Description
-	}
-	if input.DocType != nil {
-		payload["docType"] = *input.DocType
-	}
-	if len(input.ChunkStrategy) > 0 {
-		payload["chunkStrategy"] = input.ChunkStrategy
-	}
-	if len(input.RetrievalStrategy) > 0 {
-		payload["retrievalStrategy"] = input.RetrievalStrategy
-	}
-	caller, err := h.requireWriteCaller()
-	if err != nil {
-		return nil, nil, err
-	}
-	return h.adapterCreate(ctx, caller, "/internal/v1/knowledge-bases", payload)
-}
-
-func (h *toolHandlers) updateKnowledgeBase(ctx context.Context, _ *sdkmcp.CallToolRequest, input updateKnowledgeBaseInput) (*sdkmcp.CallToolResult, map[string]any, error) {
-	kbID := strings.TrimSpace(input.KnowledgeBaseID)
-	if kbID == "" {
-		return nil, nil, fmt.Errorf("knowledgeBaseId is required")
-	}
-	payload := map[string]any{}
-	if input.Name != nil {
-		payload["name"] = *input.Name
-	}
-	if input.Description != nil {
-		payload["description"] = *input.Description
-	}
-	if input.DocType != nil {
-		payload["docType"] = *input.DocType
-	}
-	if len(input.ChunkStrategy) > 0 {
-		payload["chunkStrategy"] = input.ChunkStrategy
-	}
-	if len(input.RetrievalStrategy) > 0 {
-		payload["retrievalStrategy"] = input.RetrievalStrategy
-	}
-	if len(payload) == 0 {
-		return nil, nil, fmt.Errorf("at least one field must be provided for update")
-	}
-	caller, err := h.requireWriteCaller()
-	if err != nil {
-		return nil, nil, err
-	}
-	return h.adapterUpdate(ctx, caller, "/internal/v1/knowledge-bases/"+url.PathEscape(kbID), payload)
-}
-
-func (h *toolHandlers) deleteKnowledgeBase(ctx context.Context, _ *sdkmcp.CallToolRequest, input deleteKnowledgeBaseInput) (*sdkmcp.CallToolResult, deleteResourceOutput, error) {
-	kbID := strings.TrimSpace(input.KnowledgeBaseID)
-	if kbID == "" {
-		return nil, deleteResourceOutput{}, fmt.Errorf("knowledgeBaseId is required")
-	}
-	caller, err := h.requireWriteCaller()
-	if err != nil {
-		return nil, deleteResourceOutput{}, err
-	}
-	if err := h.adapterDelete(ctx, caller, "/internal/v1/knowledge-bases/"+url.PathEscape(kbID)); err != nil {
-		return nil, deleteResourceOutput{}, err
-	}
-	return nil, deleteResourceOutput{Deleted: true, ID: kbID}, nil
-}
-
 func (h *toolHandlers) listDocuments(ctx context.Context, _ *sdkmcp.CallToolRequest, input listDocumentsInput) (*sdkmcp.CallToolResult, map[string]any, error) {
 	kbID := strings.TrimSpace(input.KnowledgeBaseID)
 	if kbID == "" {
@@ -384,101 +177,6 @@ func (h *toolHandlers) getDocument(ctx context.Context, _ *sdkmcp.CallToolReques
 	return h.adapterGet(ctx, h.effectiveCaller(), path)
 }
 
-func (h *toolHandlers) createDocument(ctx context.Context, _ *sdkmcp.CallToolRequest, input createDocumentInput) (*sdkmcp.CallToolResult, map[string]any, error) {
-	kbID := strings.TrimSpace(input.KnowledgeBaseID)
-	if kbID == "" {
-		return nil, nil, fmt.Errorf("knowledgeBaseId is required")
-	}
-	fileName := strings.TrimSpace(input.FileName)
-	if fileName == "" {
-		return nil, nil, fmt.Errorf("fileName is required")
-	}
-	if strings.TrimSpace(input.FileContentBase64) == "" {
-		return nil, nil, fmt.Errorf("fileContentBase64 is required")
-	}
-	content, err := base64.StdEncoding.DecodeString(strings.TrimSpace(input.FileContentBase64))
-	if err != nil {
-		return nil, nil, fmt.Errorf("fileContentBase64 must be valid base64")
-	}
-	if len(content) == 0 {
-		return nil, nil, fmt.Errorf("fileContentBase64 must not decode to empty content")
-	}
-
-	fields := map[string]string{}
-	if len(input.Tags) > 0 {
-		tagsJSON, err := json.Marshal(input.Tags)
-		if err != nil {
-			return nil, nil, fmt.Errorf("encode tags: %w", err)
-		}
-		fields["tags"] = string(tagsJSON)
-	}
-
-	file := MultipartFile{
-		FieldName:   "file",
-		FileName:    fileName,
-		Content:     content,
-		ContentType: "",
-	}
-	if input.ContentType != nil {
-		file.ContentType = strings.TrimSpace(*input.ContentType)
-	}
-
-	caller, err := h.requireWriteCaller()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	status, respBody, _, err := h.bridge.DoMultipart(ctx, caller, http.MethodPost,
-		"/internal/v1/knowledge-bases/"+url.PathEscape(kbID)+"/documents", fields, []MultipartFile{file})
-	if err != nil {
-		return nil, nil, err
-	}
-	if status != http.StatusCreated {
-		return nil, nil, adapterErrorMessage(status, respBody)
-	}
-	data, err := decodeAdapterSuccess(respBody)
-	if err != nil {
-		return nil, nil, err
-	}
-	out, err := rawToMap(data)
-	if err != nil {
-		return nil, nil, err
-	}
-	return nil, out, nil
-}
-
-func (h *toolHandlers) updateDocument(ctx context.Context, _ *sdkmcp.CallToolRequest, input updateDocumentInput) (*sdkmcp.CallToolResult, map[string]any, error) {
-	docID := strings.TrimSpace(input.DocumentID)
-	if docID == "" {
-		return nil, nil, fmt.Errorf("documentId is required")
-	}
-	if input.Tags == nil {
-		return nil, nil, fmt.Errorf("tags is required")
-	}
-	caller, err := h.requireWriteCaller()
-	if err != nil {
-		return nil, nil, err
-	}
-	return h.adapterUpdate(ctx, caller, "/internal/v1/documents/"+url.PathEscape(docID), map[string]any{
-		"tags": input.Tags,
-	})
-}
-
-func (h *toolHandlers) deleteDocument(ctx context.Context, _ *sdkmcp.CallToolRequest, input deleteDocumentInput) (*sdkmcp.CallToolResult, deleteResourceOutput, error) {
-	docID := strings.TrimSpace(input.DocumentID)
-	if docID == "" {
-		return nil, deleteResourceOutput{}, fmt.Errorf("documentId is required")
-	}
-	caller, err := h.requireWriteCaller()
-	if err != nil {
-		return nil, deleteResourceOutput{}, err
-	}
-	if err := h.adapterDelete(ctx, caller, "/internal/v1/documents/"+url.PathEscape(docID)); err != nil {
-		return nil, deleteResourceOutput{}, err
-	}
-	return nil, deleteResourceOutput{Deleted: true, ID: docID}, nil
-}
-
 func (h *toolHandlers) getChunk(ctx context.Context, _ *sdkmcp.CallToolRequest, input getChunkInput) (*sdkmcp.CallToolResult, map[string]any, error) {
 	chunkID := strings.TrimSpace(input.ChunkID)
 	if chunkID == "" {
@@ -503,29 +201,6 @@ func (h *toolHandlers) getChunk(ctx context.Context, _ *sdkmcp.CallToolRequest, 
 		out["chunkId"] = chunkID
 	}
 	return result, out, nil
-}
-
-func (h *toolHandlers) getDocumentContent(ctx context.Context, _ *sdkmcp.CallToolRequest, input getDocumentContentInput) (*sdkmcp.CallToolResult, getDocumentContentOutput, error) {
-	docID := strings.TrimSpace(input.DocumentID)
-	if docID == "" {
-		return nil, getDocumentContentOutput{}, fmt.Errorf("documentId is required")
-	}
-	status, respBody, headers, err := h.bridge.DoGET(ctx, h.effectiveCaller(), "/internal/v1/documents/"+url.PathEscape(docID)+"/content", nil)
-	if err != nil {
-		return nil, getDocumentContentOutput{}, err
-	}
-	if status != http.StatusOK {
-		return nil, getDocumentContentOutput{}, adapterErrorMessage(status, respBody)
-	}
-	contentType := strings.TrimSpace(headers.Get("Content-Type"))
-	if contentType == "" {
-		contentType = "application/octet-stream"
-	}
-	return nil, getDocumentContentOutput{
-		ContentBase64: base64.StdEncoding.EncodeToString(respBody),
-		ContentType:   contentType,
-		SizeBytes:     len(respBody),
-	}, nil
 }
 
 func (h *toolHandlers) adapterGet(ctx context.Context, caller CallerContext, path string) (*sdkmcp.CallToolResult, map[string]any, error) {
@@ -572,55 +247,6 @@ func (h *toolHandlers) adapterList(ctx context.Context, caller CallerContext, pa
 		out["page"] = page
 	}
 	return nil, out, nil
-}
-
-func (h *toolHandlers) adapterCreate(ctx context.Context, caller CallerContext, path string, payload map[string]any) (*sdkmcp.CallToolResult, map[string]any, error) {
-	status, respBody, _, err := h.bridge.DoJSON(ctx, caller, http.MethodPost, path, payload)
-	if err != nil {
-		return nil, nil, err
-	}
-	if status != http.StatusCreated {
-		return nil, nil, adapterErrorMessage(status, respBody)
-	}
-	data, err := decodeAdapterSuccess(respBody)
-	if err != nil {
-		return nil, nil, err
-	}
-	out, err := rawToMap(data)
-	if err != nil {
-		return nil, nil, err
-	}
-	return nil, out, nil
-}
-
-func (h *toolHandlers) adapterUpdate(ctx context.Context, caller CallerContext, path string, payload map[string]any) (*sdkmcp.CallToolResult, map[string]any, error) {
-	status, respBody, _, err := h.bridge.DoJSON(ctx, caller, http.MethodPatch, path, payload)
-	if err != nil {
-		return nil, nil, err
-	}
-	if status != http.StatusOK {
-		return nil, nil, adapterErrorMessage(status, respBody)
-	}
-	data, err := decodeAdapterSuccess(respBody)
-	if err != nil {
-		return nil, nil, err
-	}
-	out, err := rawToMap(data)
-	if err != nil {
-		return nil, nil, err
-	}
-	return nil, out, nil
-}
-
-func (h *toolHandlers) adapterDelete(ctx context.Context, caller CallerContext, path string) error {
-	status, respBody, _, err := h.bridge.Do(ctx, caller, http.MethodDelete, path, nil)
-	if err != nil {
-		return err
-	}
-	if status != http.StatusNoContent {
-		return adapterErrorMessage(status, respBody)
-	}
-	return nil
 }
 
 func intFromAny(value any) int {

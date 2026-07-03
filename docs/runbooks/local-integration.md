@@ -734,13 +734,15 @@ bodies.
    `.local/logs/gateway.log`, `.local/logs/document.log`, and
    `.local/logs/ai-gateway.log` by request id. Rich DOCX
    Pandoc/LibreOffice worker validation is not part of this checklist.
-7. Run Knowledge validation in the intended mode. The default local path uses
-   local hashing embeddings and no-op/empty rerank configuration; do not count
-   it as real AI Gateway embedding/rerank. For real provider validation set
-   `EMBEDDING_PROVIDER=ai_gateway`,
-   `KNOWLEDGE_AI_GATEWAY_BASE_URL=http://127.0.0.1:8086`, and the embedding or
-   rerank profile/model env vars, then inspect Knowledge and AI Gateway logs by
-   request id.
+7. Run Knowledge validation with `KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY=AI_GATEWAY`
+   and `KNOWLEDGE_RUNTIME_RERANK_FACTORY=AI_GATEWAY`. Set
+   `KNOWLEDGE_RUNTIME_EMBEDDING_BASE_URL` and `KNOWLEDGE_RUNTIME_RERANK_BASE_URL`
+   to `http://127.0.0.1:8086/internal/v1`, use `default-embedding` /
+   `default-rerank`, and keep `X-Service-Token`, `X-Caller-Service=knowledge`,
+   and `X-Request-Id` visible in logs. A passing Knowledge query alone is not
+   enough; verify AI Gateway `provider_invocations` contains
+   `caller_service=knowledge` rows for both `operation=embedding` and
+   `operation=reranking` with the request id or generated `stw-kgw-*` id.
 
 Acceptance record template:
 
@@ -748,5 +750,5 @@ Acceptance record template:
 | --- | --- | --- | --- |
 | AI Gateway | `/readyz` + real provider smoke | profile status is not `placeholder`; smoke succeeds for configured operations | `.local/logs/ai-gateway.log` |
 | QA | session/message or `QA_AI_GATEWAY_SMOKE=1` | answer path reaches AI Gateway and returns normalized response/error | `.local/logs/gateway.log`, `.local/logs/qa.log`, `.local/logs/ai-gateway.log` |
-| Knowledge | local hashing or AI Gateway embedding/rerank path | selected path is explicitly named; real provider path has profile/model env | `.local/logs/gateway.log`, `.local/logs/knowledge.log`, `.local/logs/ai-gateway.log` |
+| Knowledge | AI Gateway embedding/rerank path | selected runtime factories are `AI_GATEWAY`; `provider_invocations` records `caller_service=knowledge` for embedding and reranking | `.local/logs/gateway.log`, `.local/logs/knowledge.log`, `.local/logs/ai-gateway.log` |
 | Document | `summer_peak_inspection` and `coal_inventory_audit` report job flow | job/events/sections reach expected terminal state | `.local/logs/gateway.log`, `.local/logs/document.log`, `.local/logs/ai-gateway.log` |

@@ -30,6 +30,15 @@ from openai import OpenAI
 from common import settings
 from common.exceptions import ModelException
 from common.token_utils import num_tokens_from_string, truncate, total_token_count_from_response
+from rag.llm.ai_gateway_utils import (
+    ai_gateway_caller_service,
+    ai_gateway_headers,
+    ai_gateway_profile_id,
+    ai_gateway_request_id,
+    ai_gateway_timeout_seconds,
+    normalize_ai_gateway_endpoint,
+    resolve_ai_gateway_service_token,
+)
 from rag.llm.key_utils import _normalize_replicate_key
 from rag.llm.mistral_sdk import import_mistral_v2_client
 import logging
@@ -958,6 +967,45 @@ class SILICONFLOWEmbed(Base):
             "encoding_format": "float",
         }
         response = requests.post(self.base_url, json=payload, headers=self.headers, timeout=30)
+        return self._openai_http_embeddings(response)
+
+    def encode(self, texts: list):
+        return self._batched_encode(texts, self._call, batch_size=16)
+
+    def encode_queries(self, text):
+        vectors, token_count = self._batched_encode([text], self._call, batch_size=16)
+        return vectors[0], token_count
+
+
+class AIGatewayEmbed(Base):
+    _FACTORY_NAME = "AI_GATEWAY"
+
+    def __init__(self, key, model_name, base_url="http://127.0.0.1:8086/internal/v1", **kwargs):
+        self.base_url = normalize_ai_gateway_endpoint(base_url, "embeddings")
+        self.service_token = resolve_ai_gateway_service_token(key)
+        self.caller_service = ai_gateway_caller_service()
+        self.profile_id = ai_gateway_profile_id("KNOWLEDGE_RUNTIME_AI_GATEWAY_EMBEDDING_PROFILE_ID", "default-embedding")
+        self.timeout = ai_gateway_timeout_seconds()
+        self.model_name = model_name
+
+    @staticmethod
+    def _clean_batch(batch):
+        return [" " if not str(text).strip() else str(text) for text in batch]
+
+    def _call(self, batch):
+        payload = {
+            "profile_id": self.profile_id,
+            "model": self.model_name,
+            "input": self._clean_batch(batch),
+            "encoding_format": "float",
+        }
+        request_id = ai_gateway_request_id()
+        response = requests.post(
+            self.base_url,
+            json=payload,
+            headers=ai_gateway_headers(self.service_token, self.caller_service, request_id),
+            timeout=self.timeout,
+        )
         return self._openai_http_embeddings(response)
 
     def encode(self, texts: list):

@@ -1,0 +1,28 @@
+{
+  "name": "AI_GATEWAY",
+  "url": {
+    "default": "http://127.0.0.1:8086/internal/v1"
+  },
+  "url_suffix": {
+    "embedding": "embeddings",
+    "rerank": "rerankings"
+  },
+  "models": [
+    {
+      "name": "BAAI/bge-m3",
+      "max_tokens": 8192,
+      "model_types": [
+        "embedding"
+      ],
+      "max_dimension": 1024,
+      "dimensions": []
+    },
+    {
+      "name": "BAAI/bge-reranker-v2-m3",
+      "max_tokens": 8192,
+      "model_types": [
+        "rerank"
+      ]
+    }
+  ]
+}

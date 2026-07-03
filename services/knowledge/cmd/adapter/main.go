@@ -13,7 +13,6 @@ import (
 
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/adapter"
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/adapterconfig"
-	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/aigateway"
 	kmcp "github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/mcp"
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/repository"
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/service"
@@ -55,15 +54,6 @@ func main() {
 		Handler: server.Handler(),
 	}
 
-	chatClient, err := aigateway.NewChatClientFromEnv()
-	if err != nil {
-		logger.Error("ai gateway client configuration failed", "service", "knowledge-adapter", "error", err)
-		os.Exit(1)
-	}
-	if chatClient != nil {
-		logger.Info("ai gateway client enabled for answer_from_knowledge", "service", "knowledge-adapter")
-	}
-
 	go func() {
 		logger.Info("knowledge adapter listening", "addr", cfg.HTTPAddr, "vendor_runtime_url", cfg.VendorRuntimeURL)
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -82,7 +72,7 @@ func main() {
 		}
 		mcpServer = &http.Server{
 			Addr:    cfg.MCPAddr,
-			Handler: kmcp.NewStreamableHTTPHandler(server, mcpCaller, chatClient),
+			Handler: kmcp.NewStreamableHTTPHandler(server, mcpCaller),
 		}
 		go func() {
 			logger.Info("knowledge MCP server listening", "addr", cfg.MCPAddr)

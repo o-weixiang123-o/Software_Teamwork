@@ -303,24 +303,28 @@ Kubernetes/KEDA 示例见
   cp deploy/.env.example deploy/.env
   ```
 
-- 在 `deploy/.env` 中填写真实 embedding provider。以 SiliconFlow 为例：
+- 在 `deploy/.env` 中配置 AI Gateway embedding/rerank profile。外部 provider
+  API key 只放入 AI Gateway local seed 或管理 API，不放入 Knowledge runtime。
+  推荐配置：
 
   ```text
-  KNOWLEDGE_RUNTIME_MODEL_API_KEY=<your SiliconFlow key>
-  KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY=SILICONFLOW
+  KNOWLEDGE_RUNTIME_AI_GATEWAY_SERVICE_TOKEN=local-dev-internal-service-token-change-me
+  KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY=AI_GATEWAY
   KNOWLEDGE_RUNTIME_EMBEDDING_MODEL=BAAI/bge-m3
-  KNOWLEDGE_RUNTIME_EMBEDDING_BASE_URL=https://api.siliconflow.cn/v1
-  KNOWLEDGE_RUNTIME_RERANK_FACTORY=SILICONFLOW
+  KNOWLEDGE_RUNTIME_EMBEDDING_BASE_URL=http://127.0.0.1:8086/internal/v1
+  KNOWLEDGE_RUNTIME_RERANK_FACTORY=AI_GATEWAY
   KNOWLEDGE_RUNTIME_RERANK_MODEL=BAAI/bge-reranker-v2-m3
-  KNOWLEDGE_RUNTIME_RERANK_BASE_URL=https://api.siliconflow.cn/v1
-  KNOWLEDGE_VENDOR_EMBEDDING_ID=BAAI/bge-m3@default@SILICONFLOW
-  KNOWLEDGE_VENDOR_RERANK_ID=BAAI/bge-reranker-v2-m3@default@SILICONFLOW
+  KNOWLEDGE_RUNTIME_RERANK_BASE_URL=http://127.0.0.1:8086/internal/v1
+  KNOWLEDGE_VENDOR_EMBEDDING_ID=BAAI/bge-m3@default@AI_GATEWAY
+  KNOWLEDGE_VENDOR_RERANK_ID=BAAI/bge-reranker-v2-m3@default@AI_GATEWAY
   KNOWLEDGE_AUTO_START_INGESTION=true
   DOC_ENGINE=elasticsearch
   KNOWLEDGE_RUNTIME_ES_URL=http://127.0.0.1:9200
   ```
 
-  真实 key 只放在本地 `deploy/.env` 或 shell 中，不要提交。
+  direct provider（例如 `SILICONFLOW`）仍可通过显式配置
+  `KNOWLEDGE_RUNTIME_MODEL_API_KEY` 使用，但这会绕过 AI Gateway invocation
+  审计和 usage 聚合，只应作为本地/应急路径。
 
 - 如果希望 AI Gateway 的本地默认 profile 也自动指向同一组 provider，在
   `deploy/.env` 中额外填写一组本地 seed 变量，并显式设置
@@ -529,8 +533,9 @@ parse stack：
 
 ```bash
 cp deploy/.env.example deploy/.env
-# Edit deploy/.env with KNOWLEDGE_RUNTIME_MODEL_API_KEY, embedding/rerank
-# provider variables, optional AI_GATEWAY_LOCAL_PROVIDER_* seed variables,
+# Edit deploy/.env with AI_GATEWAY runtime embedding/rerank variables,
+# optional explicit direct-provider fallback variables,
+# optional AI_GATEWAY_LOCAL_PROVIDER_* seed variables,
 # KNOWLEDGE_AUTO_START_INGESTION=true, and DOC_ENGINE=elasticsearch.
 ./scripts/local/dev-up.sh
 ./scripts/local/run-knowledge-runtime-api.sh

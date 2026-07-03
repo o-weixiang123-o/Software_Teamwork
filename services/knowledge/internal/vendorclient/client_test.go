@@ -179,6 +179,27 @@ func TestGetDatasetDocumentScansAllPages(t *testing.T) {
 	}
 }
 
+func TestClientPropagatesRequestIDFromContext(t *testing.T) {
+	var gotRequestID string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/datasets" {
+			t.Fatalf("unexpected vendor request: %s %s?%s", r.Method, r.URL.Path, r.URL.RawQuery)
+		}
+		gotRequestID = r.Header.Get("X-Request-Id")
+		writeTestVendorJSON(w, `{"code":0,"data":[],"total_datasets":0}`)
+	}))
+	defer server.Close()
+
+	client := New(server.URL, time.Second, "runtime-token")
+	ctx := ContextWithRequestID(context.Background(), "req_trace")
+	if _, _, err := client.ListDatasets(ctx, "tenant_1", 1, 20); err != nil {
+		t.Fatalf("ListDatasets: %v", err)
+	}
+	if gotRequestID != "req_trace" {
+		t.Fatalf("X-Request-Id = %q, want req_trace", gotRequestID)
+	}
+}
+
 func TestDeleteDocumentRejectsVendorEnvelopeError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodDelete || r.URL.Path != "/api/v1/datasets/kb_1/documents" {

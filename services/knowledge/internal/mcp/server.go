@@ -6,15 +6,14 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/adapter"
-	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/aigateway"
 )
 
 const serverName = "knowledge-mcp"
 
 // NewStreamableHTTPHandler returns an HTTP handler for MCP Streamable HTTP transport.
-func NewStreamableHTTPHandler(adapterServer *adapter.Server, caller CallerContext, chatClient *aigateway.ChatClient) http.Handler {
+func NewStreamableHTTPHandler(adapterServer *adapter.Server, caller CallerContext) http.Handler {
 	transport := sdkmcp.NewStreamableHTTPHandler(func(r *http.Request) *sdkmcp.Server {
-		return newMCPServer(adapterServer, callerFromHTTP(r, caller), chatClient)
+		return newMCPServer(adapterServer, callerFromHTTP(r, caller))
 	}, nil)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if adapterServer == nil || !adapterServer.AuthorizeServiceToken(r.Header.Get("X-Service-Token")) {
@@ -25,12 +24,11 @@ func NewStreamableHTTPHandler(adapterServer *adapter.Server, caller CallerContex
 	})
 }
 
-func newMCPServer(adapterServer *adapter.Server, caller CallerContext, chatClient *aigateway.ChatClient) *sdkmcp.Server {
+func newMCPServer(adapterServer *adapter.Server, caller CallerContext) *sdkmcp.Server {
 	server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: serverName, Version: "0.1.0"}, nil)
 	h := &toolHandlers{
 		bridge: NewBridge(adapterServer),
 		caller: caller,
-		chat:   chatClient,
 	}
 
 	sdkmcp.AddTool(server, &sdkmcp.Tool{
@@ -57,6 +55,6 @@ func newMCPServer(adapterServer *adapter.Server, caller CallerContext, chatClien
 }
 
 // NewInMemoryServer creates an MCP server for unit tests without HTTP transport.
-func NewInMemoryServer(adapterServer *adapter.Server, caller CallerContext, chatClient *aigateway.ChatClient) *sdkmcp.Server {
-	return newMCPServer(adapterServer, caller, chatClient)
+func NewInMemoryServer(adapterServer *adapter.Server, caller CallerContext) *sdkmcp.Server {
+	return newMCPServer(adapterServer, caller)
 }

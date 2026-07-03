@@ -53,23 +53,23 @@
 | PostgreSQL migration/repository | `services/knowledge/migrations/0001_create_knowledge_core_tables.sql`、`0002_create_parser_configs.sql`、`internal/repository/postgres.go` | `docs/services/knowledge/docs/data-models.md` | `go test ./...`；CI 用 `KNOWLEDGE_TEST_DATABASE_URL` 跑 repository lifecycle integration test | Go adapter 仍保留 goose migration；当前 repository 主要服务 parser-config admin 和迁移保留字段。文档、job、chunks 等运行时事实由 RAGFlow runtime 内部持久化并经 adapter 映射。分页 limit/offset 转 `int32` 前在 repository 层做显式范围校验，非法页码或溢出 offset 返回 validation error，不静默截断到 `MaxInt32`。 |
 | Knowledge PDF E2E | local runtime stack | #440、`docs/runbooks/local-integration.md` | 手动启动宿主机 runtime API/worker 和 host-run adapter 后上传 `DL_T_673-1999.pdf` | 覆盖真实 PDF 上传、runtime 解析、切块、embedding、索引和 `knowledge-queries` 检索；需要可用 runtime、对象存储、索引后端和 provider credential。 |
 | Gateway -> Knowledge -> QA RAG smoke | `services/knowledge/internal/integration/gateway_rag_e2e_smoke_test.go` | #304、`docs/runbooks/local-integration.md` | `GATEWAY_RAG_E2E_SMOKE=1 ... go test ./internal/integration -run '^TestGatewayRAGE2ESmoke$' -count=1 -v` | 默认跳过；启用后通过 Gateway 创建 session/KB、上传 Markdown fixture，轮询文档 ready 和 chunkCount，调用 `knowledge-queries` 断言命中 `calibrate relay RAG-E2E-304` 和 rerank trace，再通过 QA config/session/message 验证 answer 包含 `RAG-E2E-304` 且 citations 匹配本轮 KB/doc/chunk。需要可用 AI Gateway chat profile/provider；默认 local hashing/in-memory vector 只证明等价检索数据，真实 Elasticsearch/runtime doc engine 和 AI Gateway embedding/rerank provider 需显式 env。 |
-| Knowledge MCP server | `services/knowledge/internal/mcp`、`cmd/adapter` | [`mcp-server.md`](mcp-server.md)、[`mcp-tools.md`](mcp-tools.md) | `go test ./internal/mcp/...`；MCP HTTP handler tests | `KNOWLEDGE_MCP_ADDR` 非空时启动独立 Streamable HTTP server；当前 ToolCatalog 为 14 个原生工具，使用 `X-Service-Token` 和服务端固定 caller context。#528/#529 的四个 `knowledge__*` 只读模型工具仍是目标收敛契约，不等同于当前默认 QA 白名单。 |
+| Knowledge MCP server | `services/knowledge/internal/mcp`、`cmd/adapter` | [`mcp-server.md`](mcp-server.md)、[`mcp-tools.md`](mcp-tools.md) | `go test ./internal/mcp/...`；MCP HTTP handler tests | `KNOWLEDGE_MCP_ADDR` 非空时启动独立 Streamable HTTP server；当前 ToolCatalog 为四个只读原生工具 `search`、`list_documents`、`get_document`、`get_chunk`，使用 `X-Service-Token` 和服务端固定 caller context。 |
 
 ## 4. 未实现
 
 | 缺口 | 文档来源 | 影响范围 | 建议任务 |
 | --- | --- | --- | --- |
-| Knowledge MCP 默认 QA 接入未闭环 | #505、[`mcp-server.md`](mcp-server.md)、[`mcp-tools.md`](mcp-tools.md) | QA / MCP / citation | 当前代码已有 MCP server，但默认 QA RAG smoke 仍使用内置 `search_knowledge`；需要收敛四个 `knowledge__*` 目标工具、default allowlist、citation 识别和 #125 smoke。 |
-| 真实 AI Gateway embedding/rerank smoke 未闭环 | `docs/architecture/service-boundaries.md`、`docs/services/knowledge/docs/data-models.md` | retrieval / AI Gateway | RAGFlow runtime/provider 配置支持真实 embedding/索引/rerank；需要带真实 provider credential 的跨服务 smoke。 |
+| Knowledge MCP 默认 QA/前端 E2E 证据未闭环 | #505、[`mcp-server.md`](mcp-server.md)、[`mcp-tools.md`](mcp-tools.md) | QA / MCP / citation | MCP server 已收敛四个只读工具，仍需要真实 provider 下 QA Agent 选择工具、citation 展示和 #125 前端 E2E 证据。 |
+| 真实 AI Gateway embedding/rerank smoke 未闭环 | `docs/architecture/service-boundaries.md`、AI Gateway invocation contract | retrieval / AI Gateway | runtime 已提供 `AI_GATEWAY` embedding/rerank provider；还需要带真实 provider credential 的跨服务 smoke，并以 AI Gateway `provider_invocations` 作为验收证据。 |
 
 ## 5. 文档与实现出入
 
 | 出入点 | 文档要求 | 当前实现 | 风险 | 建议处理 |
 | --- | --- | --- | --- | --- |
-| AI Gateway rerank smoke 状态 | AI Gateway 已实现 embeddings/rerankings endpoint，Knowledge 支持 embedding 与 rerank adapter | `knowledge-queries` 可选 rerank 已接入；本地未配置 `RERANK_MODEL` 时使用 no-op fallback | 容易把 no-op fallback 误读为真实 provider rerank 已验收 | 保留 fake/seeded 契约测试，同时补带真实 provider credential 的跨服务 smoke。 |
+| AI Gateway embedding/rerank 接入状态 | AI Gateway 已实现 embeddings/rerankings endpoint；Knowledge runtime 已提供 `AI_GATEWAY` provider 接入它 | RAGFlow runtime 负责 embedding/index/rerank；默认推荐路径从 runtime 直连 provider 收敛到 AI Gateway，未配置真实 provider 时不能声称真实 rerank 已验收 | 容易把 no-op fallback 或直连 provider 成功误读为 AI Gateway 已治理 | 保留 fake/seeded 契约测试，同时补带真实 provider credential 和 `provider_invocations` 证据的跨服务 smoke。 |
 | Runtime host 访问前置条件 | host-run Knowledge adapter 需要能访问 RAGFlow runtime API | 如果 `VENDOR_RUNTIME_URL` 指向 Docker bridge IP 且代理环境未把该 IP 加入 `NO_PROXY`，adapter 请求会被代理截走并返回 502 | 容易把代理问题误判为 runtime 或解析失败 | 默认配置使用发布到宿主机的 `127.0.0.1:9380`；临时使用容器 IP 时必须清理代理或补 `NO_PROXY`。 |
 | 公开 Knowledge 草案范围 | `docs/services/knowledge/api/public.openapi.yaml` 是服务级 public 设计草案，覆盖 deletion jobs、processing jobs、query tests、support materials、settings、statistics | runtime 已实现 KB CRUD、文档 upload/list/detail/tags/soft delete、chunks/content 和 knowledge-queries；deletion job 查询、processing job 查询、query tests、support materials、settings、statistics 仍是草案/缺口；前端稳定契约以 gateway public OpenAPI 为准 | 文件名里的 `public` 可能被误读为 active browser-facing contract | 草案文件已加说明；进入前端稳定契约前必须先更新 `docs/services/gateway/api/public.openapi.yaml`。 |
-| Knowledge MCP 工具目录与目标契约 | #528/#529 定义四个只读模型工具，#525/#531 定义协议说明 | 当前 `ToolCatalog()` 实际发布 14 个原生工具，alias 后是 `knowledge__search_knowledge` 等名称；`KNOWLEDGE_MCP_ADDR` 是独立 endpoint，非 `/mcp` path | 容易把目标 schema 当作当前默认 QA 工具，或把 endpoint 配成 `:8083/mcp` | 保留 [`mcp-server.md`](mcp-server.md) 的当前运行说明；#505 后续收敛时同步代码、QA 白名单、citation 和文档。 |
+| Knowledge MCP 工具目录 | #528/#529 定义四个只读模型工具，#525/#531 定义协议说明 | 当前 `ToolCatalog()` 发布 `search`、`list_documents`、`get_document`、`get_chunk`；alias 后是 `knowledge__search` 等名称；`KNOWLEDGE_MCP_ADDR` 是独立 endpoint，非 `/mcp` path | 容易把旧 `search_knowledge` 或 14 工具目录误读为当前实现 | 以 [`mcp-server.md`](mcp-server.md) 的当前运行说明为准；后续若改名或扩展工具，必须同步 QA 白名单、citation 和文档。 |
 
 ## 6. MVP / mock / memory backend / 占位
 
@@ -91,7 +91,7 @@
 | Object storage / vector store / AI provider | RAGFlow runtime 通过 MinIO、Elasticsearch/向量索引和 provider 配置完成文档保存、embedding、索引和检索 | 本地 PDF E2E 覆盖上传、解析、切块、索引和查询；仍需完整 Gateway/MCP/QA 联调。 |
 | Knowledge runtime | Knowledge 通过 `VENDOR_RUNTIME_URL` 调 `services/knowledge-runtime` 的 RAGFlow API；worker 负责后台 parse/index 任务 | runtime image rebuild 在网络异常时可能卡在资源仓库 clone；本地可先复用已构建健康容器验证链路。 |
 
-当 `EMBEDDING_PROVIDER=ai_gateway` 时，`EMBEDDING_MODEL` 必须匹配解析出的 AI Gateway embedding profile `model`。`AI_GATEWAY_EMBEDDING_PROFILE_ID` 可留空以使用 AI Gateway 默认启用的 embedding profile，但 provider 调用前仍会强制校验 model 匹配。
+当 Knowledge runtime 使用 `KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY=AI_GATEWAY` 或 `KNOWLEDGE_RUNTIME_RERANK_FACTORY=AI_GATEWAY` 时，runtime 请求中的 `model` 必须匹配 AI Gateway 对应 profile 的 `model`。`KNOWLEDGE_RUNTIME_AI_GATEWAY_*_PROFILE_ID` 可留空以使用 AI Gateway 默认启用的 embedding/rerank profile，但 AI Gateway 调用前仍会强制校验 model 匹配。
 
 ### 7.1 历史 delete cleanup worker 说明
 
@@ -138,20 +138,20 @@ ORDER BY j.updated_at DESC;
 
 | 任务 | 类型 | 优先级 | 依据 | 说明 |
 | --- | --- | --- | --- | --- |
-| 收敛 Knowledge MCP 默认 QA 接入 | 后续任务 | P0 | 当前 MCP server 与 #528/#529 四工具目标契约仍不一致 | 对齐原生工具名/输出 schema、QA default allowlist、citation 识别和 #125 smoke，避免 `knowledge__search_knowledge` 与目标 `knowledge__search` 长期并存。 |
+| 补 Knowledge MCP 默认 QA/前端 E2E 证据 | 后续任务 | P0 | 当前 MCP server 已发布四个只读工具，但完整 QA Agent/前端路径仍缺真实 provider 证据 | 复验 QA default allowlist、citation 识别和 #125 smoke，确保 `knowledge__search` 等工具被真实模型稳定调用。 |
 | 补真实 runtime/provider retrieval-rerank 证据 | 后续任务 | P0 | #304 已提供最小 Gateway RAG smoke，但普通路径仍缺真实 provider 运行记录 | 在真实 RAGFlow runtime、Elasticsearch/索引后端、AI Gateway embedding/rerank provider 环境下记录 `knowledge-queries` search/rerank 证据，并继续由 #125 覆盖 MCP/前端完整 E2E。 |
 
 ## 10. 最近检查记录
 
 | 日期 | 检查人/工具 | 代码基准 | 结论 |
 | --- | --- | --- | --- |
-| 2026-07-03 | Codex docs watch | `develop@ce0b4774` | 复核 #440/#529/#531：旧独立 `services/parser` 已退役，Knowledge Go adapter 通过 `services/knowledge-runtime` 的 RAGFlow runtime API/worker 完成 dataset/document、解析、切块、embedding、索引和检索支持；当前代码已有 `KNOWLEDGE_MCP_ADDR` 独立 Streamable HTTP MCP server 和 14 个原生工具，#528/#529 的四个 `knowledge__*` 只读模型工具仍是目标 schema，完整 QA 默认接入、citation、前端/#125 E2E 和真实 provider 运维仍是缺口。 |
+| 2026-07-03 | Codex AI Gateway runtime task | `L1nggTeam/feat/ragflow-runtime-vendor` | 复核 #440/#529/#531：旧独立 `services/parser` 已退役，Knowledge Go adapter 通过 `services/knowledge-runtime` 的 RAGFlow runtime API/worker 完成 dataset/document、解析、切块、embedding、索引和检索支持；当前代码已有 `KNOWLEDGE_MCP_ADDR` 独立 Streamable HTTP MCP server 和四个只读原生工具，完整 QA 默认接入、citation、前端/#125 E2E 和真实 provider 运维仍是缺口。 |
 | 2026-07-01 | Codex | Issue #342 branch | 历史路径：当时实现 Knowledge 文档 delete cleanup worker，删除文档后软删并投递 `knowledge:document:delete_cleanup`，worker 幂等调用 File DELETE 和按 `document_id` 清理 vector points，失败摘要脱敏写入 `processing_jobs`；当前 RAGFlow runtime adapter 已取代旧 Go worker，后续如恢复 cleanup worker 需重写运行手册和 smoke。 |
 | 2026-07-01 | Codex | Issue #304 branch | 新增 env-gated `TestGatewayRAGE2ESmoke`，默认 skip；启用后通过 Gateway 上传最小 Markdown fixture，验证 Knowledge ingestion ready/chunkCount、`knowledge-queries` 命中、QA answer 包含 `RAG-E2E-304`，并校验 citation 摘要匹配本轮 KB/doc/chunk。 |
 | 2026-07-01 | Codex | A-021 working tree | 历史路径：新增 env-gated `TestKnowledgeIngestionRealDepsSmoke`，当时验证 File Service、Parser Service、Knowledge worker 和 local hashing embedding 的旧路径；当前 RAGFlow runtime 方案已取代独立 Parser Service。 |
 | 2026-07-01 | Codex CodeQL follow-up | working tree | 继续收敛合并后仍 open 的 rerank allocation 告警：rerank result ordering 的 slice/map capacity 改为 `maxRetrievalTopK` 常量，`limit` 仅作为业务截断条件，避免用户控制值继续流入 allocation size。 |
 | 2026-07-01 | Codex | A-021 scope update | 历史路径：新增 env-gated `TestGatewayKnowledgeOwnerRouteSmoke` 和 Parser image 构建/缓存前置说明；当前 RAGFlow runtime 方案不再恢复 Parser image。 |
-| 2026-06-30 | Codex full-day audit | `develop@92d3afc` | 历史路径：Knowledge 当时包含 ingestion worker、Parser Service client、parser-configs runtime management、chunks/content、`knowledge-queries`、AI Gateway embedding/rerank adapter、document PATCH/DELETE lifecycle 和 Gateway proxy；当前 RAGFlow runtime 方案已取代独立 Parser Service。 |
+| 2026-06-30 | Codex full-day audit | `develop@92d3afc` | 历史路径：Knowledge 当时包含 ingestion worker、Parser Service client、parser-configs runtime management、chunks/content、`knowledge-queries`、旧文档所称的 AI Gateway embedding/rerank adapter、document PATCH/DELETE lifecycle 和 Gateway proxy；当前 RAGFlow runtime 方案已取代独立 Parser Service，runtime 统一走 AI Gateway 的实现以 2026-07-03 记录为准。 |
 | 2026-06-30 | Codex | A-014 working tree | 补齐 chunks/content internal route、Gateway proxy、seeded/fake-backed `knowledge-queries` contract、错误 envelope 和 request id 测试；当时 document PATCH/DELETE 与真实 AI Gateway smoke 仍待后续任务。 |
 | 2026-06-30 | Codex | PR #273 | 文档 PATCH/DELETE lifecycle 已落地：tags 更新、软删除、cleanup job 创建、Gateway proxy 和 PostgreSQL repository lifecycle 集成测试；真实 File cleanup worker 和跨依赖 smoke 仍待后续任务。 |
 | 2026-06-30 | Codex | working tree | 补充 A-11/A-12/A-14 解耦契约：A-12/A-14 可用 seeded chunks、fake vector/AI adapter 做契约和 handler 测试；完整 ingestion runtime 仍由 A-11 交付。 |

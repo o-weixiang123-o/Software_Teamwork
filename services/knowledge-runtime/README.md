@@ -24,7 +24,7 @@ starts only host-run processes and connects to the configured Elasticsearch URL.
 
 ```bash
 cp deploy/.env.example deploy/.env
-# Edit deploy/.env with the provider and ingestion variables below.
+# Edit deploy/.env with the AI Gateway profile and ingestion variables below.
 ./scripts/local/dev-up.sh
 ./scripts/local/run-knowledge-runtime-api.sh
 ./scripts/local/run-knowledge-parse-stack.sh
@@ -40,23 +40,28 @@ knowledge base has already been built.
 worker profile with `uv sync --python 3.13 --frozen --group worker`, starts the
 runtime API, starts `rag/svr/task_executor.py`, and starts the Knowledge adapter.
 
-For SiliconFlow local parsing, set these values in `deploy/.env` before running
-the helper:
+Preferred local parsing routes runtime embedding/rerank calls through AI Gateway.
+Seed `default-embedding` and `default-rerank` with `AI_GATEWAY_LOCAL_*` variables
+or the admin model-profile API, then set:
 
 ```text
-KNOWLEDGE_RUNTIME_MODEL_API_KEY=<your SiliconFlow key>
-KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY=SILICONFLOW
+KNOWLEDGE_RUNTIME_AI_GATEWAY_SERVICE_TOKEN=local-dev-internal-service-token-change-me
+KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY=AI_GATEWAY
 KNOWLEDGE_RUNTIME_EMBEDDING_MODEL=BAAI/bge-m3
-KNOWLEDGE_RUNTIME_EMBEDDING_BASE_URL=https://api.siliconflow.cn/v1
-KNOWLEDGE_RUNTIME_RERANK_FACTORY=SILICONFLOW
+KNOWLEDGE_RUNTIME_EMBEDDING_BASE_URL=http://127.0.0.1:8086/internal/v1
+KNOWLEDGE_RUNTIME_RERANK_FACTORY=AI_GATEWAY
 KNOWLEDGE_RUNTIME_RERANK_MODEL=BAAI/bge-reranker-v2-m3
-KNOWLEDGE_RUNTIME_RERANK_BASE_URL=https://api.siliconflow.cn/v1
-KNOWLEDGE_VENDOR_EMBEDDING_ID=BAAI/bge-m3@default@SILICONFLOW
-KNOWLEDGE_VENDOR_RERANK_ID=BAAI/bge-reranker-v2-m3@default@SILICONFLOW
+KNOWLEDGE_RUNTIME_RERANK_BASE_URL=http://127.0.0.1:8086/internal/v1
+KNOWLEDGE_VENDOR_EMBEDDING_ID=BAAI/bge-m3@default@AI_GATEWAY
+KNOWLEDGE_VENDOR_RERANK_ID=BAAI/bge-reranker-v2-m3@default@AI_GATEWAY
 KNOWLEDGE_AUTO_START_INGESTION=true
 DOC_ENGINE=elasticsearch
 KNOWLEDGE_RUNTIME_ES_URL=http://127.0.0.1:9200
 ```
+
+Direct provider factories such as `SILICONFLOW` remain available only by
+explicit local or emergency choice. They require `KNOWLEDGE_RUNTIME_MODEL_API_KEY`
+and bypass AI Gateway invocation audit and usage aggregation.
 
 Run `./scripts/local/dev-up.sh` to start the default root Compose infrastructure,
 including the pinned local `elasticsearch` service. The runtime helper writes a
@@ -146,12 +151,15 @@ go run ./cmd/adapter
   `ragflow_deps/nltk_data` and fails fast when `punkt_tab` or `wordnet` is
   missing. Run `ragflow_deps/download_deps.py --china` or set `NLTK_DATA` to a
   provisioned directory before ingestion.
-- Model credentials: set `KNOWLEDGE_RUNTIME_MODEL_API_KEY` in your local shell or
-  untracked env file. Use `KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY`,
+- Model credentials: the preferred `AI_GATEWAY` runtime factory uses
+  `KNOWLEDGE_RUNTIME_AI_GATEWAY_SERVICE_TOKEN`, `AI_GATEWAY_SERVICE_TOKEN`, or
+  `INTERNAL_SERVICE_TOKEN` and never needs an external provider key in this
+  runtime. Use `KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY`,
   `KNOWLEDGE_RUNTIME_EMBEDDING_MODEL`, `KNOWLEDGE_RUNTIME_EMBEDDING_BASE_URL`,
   `KNOWLEDGE_RUNTIME_RERANK_FACTORY`, `KNOWLEDGE_RUNTIME_RERANK_MODEL`, and
-  `KNOWLEDGE_RUNTIME_RERANK_BASE_URL` to select external embedding/rerank
-  providers without editing committed config. The startup scripts fail fast if
+  `KNOWLEDGE_RUNTIME_RERANK_BASE_URL` to select the runtime provider. Direct
+  factories such as `SILICONFLOW` still require `KNOWLEDGE_RUNTIME_MODEL_API_KEY`
+  and should be explicit legacy/local choices. The startup scripts fail fast if
   the selected doc engine or embedding provider is not configured.
 
 ## Upstream

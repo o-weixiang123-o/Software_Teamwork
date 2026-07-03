@@ -37,13 +37,16 @@
 | `KNOWLEDGE_RUNTIME_SERVICE_TOKEN` | runtime 受保护路由校验的内部 token，需要与 adapter 的 `VENDOR_RUNTIME_SERVICE_TOKEN` 一致 |
 | `KNOWLEDGE_RUNTIME_AUTO_PROVISION_TENANTS` | 是否在 Gateway 租户首次访问时自动创建 runtime user/tenant，默认 `true`；设为 `false` 时缺失租户直接返回认证/租户错误，不写入合成数据 |
 | `METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT` | metadata pushdown 失败后允许内存 fallback 的最大候选文档数，默认 `10000`；超过上限直接失败，避免全量内存过滤 |
-| `KNOWLEDGE_RUNTIME_MODEL_API_KEY` | embedding/rerank provider API key |
-| `KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY` | embedding provider factory，例如 `SILICONFLOW` |
+| `KNOWLEDGE_RUNTIME_AI_GATEWAY_SERVICE_TOKEN` | `AI_GATEWAY` factory 调用 AI Gateway internal API 的 service token；也可复用 `AI_GATEWAY_SERVICE_TOKEN` 或 `INTERNAL_SERVICE_TOKEN` |
+| `KNOWLEDGE_RUNTIME_AI_GATEWAY_EMBEDDING_PROFILE_ID` | AI Gateway embedding profile，默认 `default-embedding` |
+| `KNOWLEDGE_RUNTIME_AI_GATEWAY_RERANK_PROFILE_ID` | AI Gateway rerank profile，默认 `default-rerank` |
+| `KNOWLEDGE_RUNTIME_MODEL_API_KEY` | 仅 direct provider factory 使用的 provider API key；`AI_GATEWAY` factory 不需要 runtime 持有外部 provider key |
+| `KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY` | embedding provider factory，推荐 `AI_GATEWAY`；直连 provider 如 `SILICONFLOW` 只作显式 legacy/local 选择 |
 | `KNOWLEDGE_RUNTIME_EMBEDDING_MODEL` | embedding model id |
-| `KNOWLEDGE_RUNTIME_EMBEDDING_BASE_URL` | embedding provider OpenAI-compatible base URL |
-| `KNOWLEDGE_RUNTIME_RERANK_FACTORY` | rerank provider factory |
+| `KNOWLEDGE_RUNTIME_EMBEDDING_BASE_URL` | embedding provider base URL；`AI_GATEWAY` 时指向 `http://127.0.0.1:8086/internal/v1` |
+| `KNOWLEDGE_RUNTIME_RERANK_FACTORY` | rerank provider factory，推荐 `AI_GATEWAY` |
 | `KNOWLEDGE_RUNTIME_RERANK_MODEL` | rerank model id |
-| `KNOWLEDGE_RUNTIME_RERANK_BASE_URL` | rerank provider base URL |
+| `KNOWLEDGE_RUNTIME_RERANK_BASE_URL` | rerank provider base URL；`AI_GATEWAY` 时指向 `http://127.0.0.1:8086/internal/v1` |
 | `KNOWLEDGE_RUNTIME_ES_URL` | Elasticsearch 地址，默认 `http://127.0.0.1:9200` |
 | `HF_ENDPOINT` | deepdoc 首次加载 OCR/vision 模型时使用的 HuggingFace endpoint；默认不设置第三方 mirror，中国大陆网络用 `run-knowledge-parse-stack.sh --china` 或本地覆盖 |
 
@@ -62,28 +65,34 @@ runtime worker 第一次导入 deepdoc OCR/vision 模块时会按需下载
 `LocalEntryNotFoundError`、`ConnectTimeout` 或 `InfiniFlow/deepdoc` 下载失败，使用
 `--china` 或把本机 `deploy/.env` 改成可达的内部 HuggingFace 镜像。
 
-第一次启用真实解析前，先复制默认环境文件并在 `deploy/.env` 填写 provider：
+第一次启用真实解析前，先复制默认环境文件并在 `deploy/.env` 填写 AI Gateway
+profile 与 ingestion 配置。外部 provider API key 应写入 AI Gateway profile
+seed 或管理 API，不应写入 Knowledge runtime：
 
 ```bash
 cp deploy/.env.example deploy/.env
 ```
 
-SiliconFlow 示例：
+推荐 AI Gateway 示例：
 
 ```text
-KNOWLEDGE_RUNTIME_MODEL_API_KEY=<your SiliconFlow key>
-KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY=SILICONFLOW
+KNOWLEDGE_RUNTIME_AI_GATEWAY_SERVICE_TOKEN=local-dev-internal-service-token-change-me
+KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY=AI_GATEWAY
 KNOWLEDGE_RUNTIME_EMBEDDING_MODEL=BAAI/bge-m3
-KNOWLEDGE_RUNTIME_EMBEDDING_BASE_URL=https://api.siliconflow.cn/v1
-KNOWLEDGE_RUNTIME_RERANK_FACTORY=SILICONFLOW
+KNOWLEDGE_RUNTIME_EMBEDDING_BASE_URL=http://127.0.0.1:8086/internal/v1
+KNOWLEDGE_RUNTIME_RERANK_FACTORY=AI_GATEWAY
 KNOWLEDGE_RUNTIME_RERANK_MODEL=BAAI/bge-reranker-v2-m3
-KNOWLEDGE_RUNTIME_RERANK_BASE_URL=https://api.siliconflow.cn/v1
-KNOWLEDGE_VENDOR_EMBEDDING_ID=BAAI/bge-m3@default@SILICONFLOW
-KNOWLEDGE_VENDOR_RERANK_ID=BAAI/bge-reranker-v2-m3@default@SILICONFLOW
+KNOWLEDGE_RUNTIME_RERANK_BASE_URL=http://127.0.0.1:8086/internal/v1
+KNOWLEDGE_VENDOR_EMBEDDING_ID=BAAI/bge-m3@default@AI_GATEWAY
+KNOWLEDGE_VENDOR_RERANK_ID=BAAI/bge-reranker-v2-m3@default@AI_GATEWAY
 KNOWLEDGE_AUTO_START_INGESTION=true
 DOC_ENGINE=elasticsearch
 KNOWLEDGE_RUNTIME_ES_URL=http://127.0.0.1:9200
 ```
+
+如果显式选择 direct provider（例如 `SILICONFLOW`），需要设置
+`KNOWLEDGE_RUNTIME_MODEL_API_KEY` 和对应 provider base URL；这条路径会绕过
+AI Gateway 的 invocation 审计和 usage 聚合，只应作为本地/应急选择。
 
 默认依赖和 artifact 下载使用官方 URL。中国大陆网络显式使用镜像模式：
 

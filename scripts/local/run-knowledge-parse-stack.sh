@@ -135,7 +135,7 @@ print_required_env_hint() {
   cat >&2 <<EOF
 Required local Knowledge parse stack settings are missing.
 
-Start from the tracked defaults, then add private provider credentials:
+Start from the tracked defaults, then configure the AI Gateway model profiles:
   cp deploy/.env.example deploy/.env
 
 Required for this script:
@@ -146,18 +146,18 @@ Required for this script:
   KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY
   KNOWLEDGE_RUNTIME_EMBEDDING_MODEL
   KNOWLEDGE_RUNTIME_EMBEDDING_BASE_URL
-  KNOWLEDGE_RUNTIME_MODEL_API_KEY, unless using a trusted local keyless provider
+  KNOWLEDGE_RUNTIME_AI_GATEWAY_SERVICE_TOKEN, AI_GATEWAY_SERVICE_TOKEN, or INTERNAL_SERVICE_TOKEN when using AI_GATEWAY
 
-For SiliconFlow local parsing, deploy/.env commonly contains:
-  KNOWLEDGE_RUNTIME_MODEL_API_KEY=<your SiliconFlow key>
-  KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY=SILICONFLOW
+Preferred AI Gateway local parsing uses default-embedding/default-rerank profiles:
+  KNOWLEDGE_RUNTIME_AI_GATEWAY_SERVICE_TOKEN=local-dev-internal-service-token-change-me
+  KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY=AI_GATEWAY
   KNOWLEDGE_RUNTIME_EMBEDDING_MODEL=BAAI/bge-m3
-  KNOWLEDGE_RUNTIME_EMBEDDING_BASE_URL=https://api.siliconflow.cn/v1
-  KNOWLEDGE_RUNTIME_RERANK_FACTORY=SILICONFLOW
+  KNOWLEDGE_RUNTIME_EMBEDDING_BASE_URL=http://127.0.0.1:8086/internal/v1
+  KNOWLEDGE_RUNTIME_RERANK_FACTORY=AI_GATEWAY
   KNOWLEDGE_RUNTIME_RERANK_MODEL=BAAI/bge-reranker-v2-m3
-  KNOWLEDGE_RUNTIME_RERANK_BASE_URL=https://api.siliconflow.cn/v1
-  KNOWLEDGE_VENDOR_EMBEDDING_ID=BAAI/bge-m3@default@SILICONFLOW
-  KNOWLEDGE_VENDOR_RERANK_ID=BAAI/bge-reranker-v2-m3@default@SILICONFLOW
+  KNOWLEDGE_RUNTIME_RERANK_BASE_URL=http://127.0.0.1:8086/internal/v1
+  KNOWLEDGE_VENDOR_EMBEDDING_ID=BAAI/bge-m3@default@AI_GATEWAY
+  KNOWLEDGE_VENDOR_RERANK_ID=BAAI/bge-reranker-v2-m3@default@AI_GATEWAY
   KNOWLEDGE_AUTO_START_INGESTION=true
 EOF
 }

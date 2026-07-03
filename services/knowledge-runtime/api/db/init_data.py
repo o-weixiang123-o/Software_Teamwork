@@ -61,12 +61,11 @@ def _init_env_default_models_for_tenants(tenant_ids):
     embedding_model = os.getenv("KNOWLEDGE_RUNTIME_EMBEDDING_MODEL", "").strip()
     embedding_factory = os.getenv("KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY", "").strip()
     embedding_base_url = os.getenv("KNOWLEDGE_RUNTIME_EMBEDDING_BASE_URL", "").strip()
-    model_api_key = os.getenv("KNOWLEDGE_RUNTIME_MODEL_API_KEY", "").strip()
     _ensure_env_default_model(
         model_name=embedding_model,
         provider_name=embedding_factory,
         model_type=LLMType.EMBEDDING.value,
-        api_key=model_api_key,
+        api_key=_env_model_key_for_factory(embedding_factory),
         base_url=embedding_base_url,
         tenant_field="embd_id",
         tenant_ids=tenant_ids,
@@ -79,11 +78,25 @@ def _init_env_default_models_for_tenants(tenant_ids):
         model_name=rerank_model,
         provider_name=rerank_factory,
         model_type=LLMType.RERANK.value,
-        api_key=model_api_key,
+        api_key=_env_model_key_for_factory(rerank_factory),
         base_url=rerank_base_url,
         tenant_field="rerank_id",
         tenant_ids=tenant_ids,
     )
+
+
+def _env_model_key_for_factory(provider_name):
+    if provider_name == "AI_GATEWAY":
+        for key in (
+            "KNOWLEDGE_RUNTIME_AI_GATEWAY_SERVICE_TOKEN",
+            "AI_GATEWAY_SERVICE_TOKEN",
+            "INTERNAL_SERVICE_TOKEN",
+        ):
+            value = os.getenv(key, "").strip()
+            if value:
+                return value
+        return ""
+    return os.getenv("KNOWLEDGE_RUNTIME_MODEL_API_KEY", "").strip()
 
 
 def _ensure_env_default_model(model_name, provider_name, model_type, api_key, base_url, tenant_field, tenant_ids=None):

@@ -114,7 +114,7 @@ services/qa/
     sqlc/
   internal/agent/
   internal/mcp/
-  internal/aigateway/
+  internal/platform/modelclient/
   migrations/
   sqlc.yaml
 ```

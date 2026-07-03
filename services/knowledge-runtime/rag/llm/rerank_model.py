@@ -24,8 +24,19 @@ import numpy as np
 import requests
 from yarl import URL
 
+from common.exceptions import ModelException
 from common.log_utils import log_exception
 from common.token_utils import num_tokens_from_string, truncate, total_token_count_from_response
+from rag.llm.ai_gateway_utils import (
+    ai_gateway_caller_service,
+    ai_gateway_headers,
+    ai_gateway_profile_id,
+    ai_gateway_request_id,
+    ai_gateway_timeout_seconds,
+    normalize_ai_gateway_endpoint,
+    raise_ai_gateway_model_exception_if_failed,
+    resolve_ai_gateway_service_token,
+)
 
 class Base(ABC):
     def __init__(self, key, model_name, **kwargs):
@@ -343,6 +354,63 @@ class SILICONFLOWRerank(Base):
                 rank[d["index"]] = d["relevance_score"]
         except Exception as _e:
             log_exception(_e, response)
+        return rank, total_token_count_from_response(res)
+
+
+class AIGatewayRerank(Base):
+    _FACTORY_NAME = "AI_GATEWAY"
+
+    def __init__(self, key, model_name, base_url="http://127.0.0.1:8086/internal/v1", **kwargs):
+        self.base_url = normalize_ai_gateway_endpoint(base_url, "rerankings")
+        self.service_token = resolve_ai_gateway_service_token(key)
+        self.caller_service = ai_gateway_caller_service()
+        self.profile_id = ai_gateway_profile_id("KNOWLEDGE_RUNTIME_AI_GATEWAY_RERANK_PROFILE_ID", "default-rerank")
+        self.timeout = ai_gateway_timeout_seconds()
+        self.model_name = model_name
+
+    @staticmethod
+    def _clean_texts(texts: List) -> list[str]:
+        return [" " if not str(text).strip() else str(text) for text in texts]
+
+    def _compute_rank(self, query: str, texts: List) -> Tuple[np.ndarray, int]:
+        clean_texts = self._clean_texts(texts)
+        payload = {
+            "profile_id": self.profile_id,
+            "model": self.model_name,
+            "query": query,
+            "documents": [{"id": str(i), "text": text} for i, text in enumerate(clean_texts)],
+            "top_n": len(clean_texts),
+        }
+        request_id = ai_gateway_request_id()
+        response = requests.post(
+            self.base_url,
+            json=payload,
+            headers=ai_gateway_headers(self.service_token, self.caller_service, request_id),
+            timeout=self.timeout,
+        )
+        raise_ai_gateway_model_exception_if_failed(response)
+        res = response.json()
+        data = res.get("data", [])
+        if not isinstance(data, list):
+            raise ModelException(f"unexpected reranking response: {res}", retryable=True)
+
+        rank = np.zeros(len(clean_texts), dtype=float)
+        seen = set()
+        for item in data:
+            try:
+                index = int(item["index"])
+                score = float(item["score"])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ModelException(f"unexpected reranking response: {res}", retryable=True) from exc
+            if index < 0 or index >= len(clean_texts):
+                raise ModelException(f"unexpected reranking response index {index}", retryable=True)
+            if index in seen:
+                raise ModelException(f"unexpected duplicate reranking response index {index}", retryable=True)
+            document_id = str(item.get("document_id", ""))
+            if document_id and document_id != str(index):
+                raise ModelException(f"unexpected reranking response document_id {document_id}", retryable=True)
+            seen.add(index)
+            rank[index] = score
         return rank, total_token_count_from_response(res)
 
 

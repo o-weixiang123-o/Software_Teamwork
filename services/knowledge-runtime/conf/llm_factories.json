@@ -403,6 +403,28 @@
             ]
         },
         {
+            "name": "AI_GATEWAY",
+            "logo": "",
+            "tags": "TEXT EMBEDDING,TEXT RE-RANK",
+            "status": "1",
+            "rank": "998",
+            "url": "http://127.0.0.1:8086/internal/v1",
+            "llm": [
+                {
+                    "llm_name": "BAAI/bge-m3",
+                    "tags": "TEXT EMBEDDING,8k",
+                    "max_tokens": 8192,
+                    "model_type": "embedding"
+                },
+                {
+                    "llm_name": "BAAI/bge-reranker-v2-m3",
+                    "tags": "TEXT RE-RANK,8k",
+                    "max_tokens": 8192,
+                    "model_type": "rerank"
+                }
+            ]
+        },
+        {
             "name": "Tongyi-Qianwen",
             "logo": "",
             "tags": "LLM,TEXT EMBEDDING,TEXT RE-RANK,TTS,SPEECH2TEXT,MODERATION",

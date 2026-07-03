@@ -16,33 +16,27 @@ PostgreSQL、Elasticsearch、MinIO 或 Python Knowledge Runtime。
 
 ## 2. 工具目录与命名
 
-Knowledge MCP 当前通过官方 Go SDK 发布以下原生工具：
+Knowledge MCP 当前通过官方 Go SDK 发布四个只读原生工具：
 
 | 分类 | 原生工具 |
 | --- | --- |
-| 检索与回答 | `search_knowledge`、`answer_from_knowledge` |
-| 知识库 | `list_knowledge_bases`、`get_knowledge_base`、`create_knowledge_base`、`update_knowledge_base`、`delete_knowledge_base` |
-| 文档 | `list_documents`、`get_document`、`create_document`、`update_document`、`delete_document` |
-| 内容 | `list_document_chunks`、`get_document_content` |
+| 检索 | `search` |
+| 文档 | `list_documents`、`get_document` |
+| 内容 | `get_chunk` |
 
 QA 用 alias 隔离服务器命名空间。alias 为 `knowledge` 时，模型侧名称为
-`knowledge__search_knowledge`、`knowledge__list_documents` 等，QA 调用前会移除
+`knowledge__search`、`knowledge__list_documents` 等，QA 调用前会移除
 alias 前缀。
 
-首期 QA 自动切换至少要求以下只读工具全部可发现：
+QA 自动切换至少要求以下只读工具全部可发现：
 
-- `search_knowledge`
+- `search`
 - `list_documents`
 - `get_document`
-- `list_document_chunks`
+- `get_chunk`
 
 任一工具缺失、initialize 失败或 `tools/list` 失败时，QA 关闭该 MCP session，并
 保留内置 `search_knowledge` HTTP 工具作为检索回退。
-
-> [MCP 工具字段规范](mcp-tools.md)记录 issue #528 提出的四工具目标契约。当前
-> `develop` 已随 Knowledge Runtime adapter 落地上述 14 工具目录，工具改名、缩减
-> 或增加单 chunk 读取能力时，必须同时更新实现、QA allowlist、citation consumer 和
-> 两份文档，不能把目标契约误写成当前事实。
 
 ## 3. 传输与鉴权
 
@@ -75,7 +69,7 @@ Knowledge adapter 启动
   -> QA 使用 KNOWLEDGE_MCP_URL + service token initialize
   -> QA tools/list 并加 knowledge__ alias
   -> 校验四个必需只读工具
-  -> 模型调用 knowledge__search_knowledge
+  -> 模型调用 knowledge__search
   -> QA 移除 alias 并发送 tools/call
   -> Knowledge MCP 用固定 caller 调 adapter
   -> adapter 调 Knowledge Runtime 并返回 structuredContent
@@ -83,9 +77,8 @@ Knowledge adapter 启动
   -> 模型按需列文档或 chunk，最后生成回答
 ```
 
-QA 的 `citations.go` 已识别原生 `search_knowledge` 以及
-`*__search_knowledge` / `*.search_knowledge`，所以 alias 后的 MCP 检索仍会生成
-document/chunk citation。
+QA citation consumer 识别 Knowledge MCP `search` 结构化结果，所以 alias 后的
+MCP 检索会生成 document/chunk citation。
 
 ## 5. 输入、输出与错误
 
@@ -94,13 +87,9 @@ document/chunk citation。
 `CallToolResult.isError=true`。当前实现不额外包裹
 `requestId/toolName/status/data/error` 自定义 envelope。
 
-`search_knowledge` 返回 `queryId` 和 `results[]`；每条结果包含 score、
+`search` 返回 `queryId` 和 `results[]`；每条结果包含 score、
 knowledgeBaseId、documentId、chunkId、documentName、contentPreview，以及可选的
 章节、chunk 序号、类型和 tags。
-
-`answer_from_knowledge` 只有在 Knowledge adapter 配置 AI Gateway client 时可用，
-并要求调用方提供 `modelProfileId`。QA 自己已经拥有回答循环，默认只把
-`search_knowledge` 作为 citation-producing 检索工具。
 
 ## 6. 配置
 
@@ -127,11 +116,8 @@ QA 侧：
 
 ## 7. 安全与兼容性
 
-- 写工具除 service token 外还要求受信任 caller 包含
-  `knowledge:write`；local 默认 listener 只有读权限。
 - 工具不得返回凭据、内部 URL、对象存储 key、向量或 provider 原始错误。
-- `get_document_content` 返回 base64 原文，默认 QA allowlist 不应启用它。
-- `search_knowledge` 是 citation-producing tool；改名时必须同步 QA citation 测试。
+- `search` 是 citation-producing tool；改名时必须同步 QA citation 测试。
 - QA 默认 allowlist、历史配置和自定义配置是独立状态；新增工具不会自动进入已有
   `enabledToolNames`。
 - 工具目录、schema 或错误语义发生破坏性变化时，必须同步 Knowledge MCP 测试、
@@ -141,11 +127,11 @@ QA 侧：
 
 1. 启动 Knowledge adapter，确认日志包含 MCP listener 地址；
 2. 无 token 或错误 token 调用 initialize，确认返回 `401`；
-3. 正确 token 调用 `tools/list`，确认 14 个原生工具；
+3. 正确 token 调用 `tools/list`，确认四个原生工具；
 4. QA 使用 alias `knowledge` 后，确认模型看到
-   `knowledge__search_knowledge` 等名称；
+   `knowledge__search` 等名称；
 5. 缺少任一必需只读工具时，确认 QA 关闭 MCP client 并保留内置
    `search_knowledge`；
 6. 使用检索工具回答，确认 citation snapshot 包含 knowledge base、document 和
    chunk ID；
-7. 伪造用户或写权限 header，确认服务端仍使用配置中的固定 caller。
+7. 伪造用户 header，确认服务端仍使用配置中的固定 caller。
