@@ -308,10 +308,10 @@ function AdminKnowledgeDocumentsPage() {
   return (
     <KnowledgeDocumentsPage
       knowledgeBaseId={search.knowledgeBaseId}
-      onNavigateChunks={(documentId: string) => {
+      onNavigateChunks={(documentId: string, knowledgeBaseId: string) => {
         void navigate({
           to: '/admin/knowledge/chunks',
-          search: { documentId },
+          search: { documentId, knowledgeBaseId },
         })
       }}
     />
@@ -338,6 +338,7 @@ const adminKnowledgeSearchRoute = createRoute({
 
 interface AdminKnowledgeChunksSearch {
   documentId: string
+  knowledgeBaseId: string
 }
 
 function AdminKnowledgeChunksPage() {
@@ -347,8 +348,12 @@ function AdminKnowledgeChunksPage() {
   return (
     <KnowledgeChunksPage
       documentId={search.documentId}
+      knowledgeBaseId={search.knowledgeBaseId}
       onNavigateBack={() => {
-        void navigate({ to: '/admin/knowledge/documents' })
+        void navigate({
+          to: '/admin/knowledge/documents',
+          search: { knowledgeBaseId: search.knowledgeBaseId },
+        })
       }}
     />
   )
@@ -361,7 +366,8 @@ const adminKnowledgeChunksRoute = createRoute({
   component: AdminKnowledgeChunksPage,
   validateSearch: (search: Record<string, unknown>): AdminKnowledgeChunksSearch => {
     const documentId = typeof search.documentId === 'string' ? search.documentId : ''
-    return { documentId }
+    const knowledgeBaseId = typeof search.knowledgeBaseId === 'string' ? search.knowledgeBaseId : ''
+    return { documentId, knowledgeBaseId }
   },
 })
 

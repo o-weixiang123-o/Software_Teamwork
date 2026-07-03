@@ -1814,6 +1814,37 @@ func TestExtractCitationsFromToolResultSupportsKnowledgeSummaryFields(t *testing
 	}
 }
 
+func TestKnowledgeRetrievalStopPolicySuppressesKnowledgeToolsAfterCitationHit(t *testing.T) {
+	policy := NewKnowledgeRetrievalStopPolicy("knowledge")
+	decision := policy(agent.ToolObservation{
+		Type:     agent.EventToolCompleted,
+		ToolName: "knowledge__search",
+		Result:   citationToolResultContent,
+	})
+
+	if decision.AppendSystemMessage == "" {
+		t.Fatal("expected final-answer directive")
+	}
+	if !containsStringInSlice(decision.SuppressToolPrefixes, "knowledge__") {
+		t.Fatalf("suppressed prefixes=%v, want knowledge__", decision.SuppressToolPrefixes)
+	}
+	if !containsStringInSlice(decision.SuppressToolNames, "search_knowledge") {
+		t.Fatalf("suppressed names=%v, want search_knowledge", decision.SuppressToolNames)
+	}
+}
+
+func TestKnowledgeRetrievalStopPolicyIgnoresEmptyKnowledgeResults(t *testing.T) {
+	decision := KnowledgeRetrievalStopPolicy(agent.ToolObservation{
+		Type:     agent.EventToolCompleted,
+		ToolName: "knowledge__search",
+		Result:   `{"results":[]}`,
+	})
+
+	if decision.AppendSystemMessage != "" || len(decision.SuppressToolNames) != 0 || len(decision.SuppressToolPrefixes) != 0 {
+		t.Fatalf("unexpected policy decision for empty result: %+v", decision)
+	}
+}
+
 func TestNormalizeCitationMarksUnavailableSourceAndSanitizesMetadata(t *testing.T) {
 	citation := NormalizeCitation(Citation{
 		ID:           "citation-id",
@@ -1847,6 +1878,15 @@ func TestNormalizeCitationMarksUnavailableSourceAndSanitizesMetadata(t *testing.
 	if _, ok := nested["internalUrl"]; ok {
 		t.Fatalf("internal URL leaked in nested metadata: %#v", nested)
 	}
+}
+
+func containsStringInSlice(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func assertSSEEventTypesSeen(t *testing.T, events []ProgressEvent, expected ...string) {

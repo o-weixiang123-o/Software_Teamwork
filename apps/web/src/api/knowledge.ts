@@ -157,33 +157,44 @@ export function uploadDocument(
 }
 
 /** GET /documents/{documentId} */
-export function getDocument(documentId: string): Promise<DocumentSummary> {
-  return gatewayRequest<DocumentSummary>(`/documents/${encodeURIComponent(documentId)}`)
+export function getDocument(documentId: string, knowledgeBaseId: string): Promise<DocumentSummary> {
+  return gatewayRequest<DocumentSummary>(
+    `/documents/${encodeURIComponent(documentId)}${buildQuery({ knowledgeBaseId })}`,
+  )
 }
 
 /** PATCH /documents/{documentId} */
 export function updateDocument(
   documentId: string,
+  knowledgeBaseId: string,
   params: UpdateDocumentRequest,
 ): Promise<DocumentSummary> {
-  return gatewayRequest<DocumentSummary>(`/documents/${encodeURIComponent(documentId)}`, {
-    method: 'PATCH',
-    body: params,
-  })
+  return gatewayRequest<DocumentSummary>(
+    `/documents/${encodeURIComponent(documentId)}${buildQuery({ knowledgeBaseId })}`,
+    {
+      method: 'PATCH',
+      body: params,
+    },
+  )
 }
 
 /** DELETE /documents/{documentId} */
-export async function deleteDocument(documentId: string): Promise<void> {
-  await requestVoid(`/documents/${encodeURIComponent(documentId)}`, { method: 'DELETE' })
+export async function deleteDocument(documentId: string, knowledgeBaseId: string): Promise<void> {
+  await requestVoid(
+    `/documents/${encodeURIComponent(documentId)}${buildQuery({ knowledgeBaseId })}`,
+    { method: 'DELETE' },
+  )
 }
 
 /** GET /documents/{documentId}/chunks?page=&pageSize= */
 export async function listChunks(
   documentId: string,
+  knowledgeBaseId: string,
   params: QueryParams<'/api/v1/documents/{documentId}/chunks', 'get'> = {},
 ): Promise<KnowledgePageResult<DocumentChunk>> {
   return gatewayPageRequest<DocumentChunk>(
     `/documents/${encodeURIComponent(documentId)}/chunks${buildQuery({
+      knowledgeBaseId,
       page: params.page,
       pageSize: params.pageSize,
     })}`,
@@ -191,8 +202,10 @@ export async function listChunks(
 }
 
 /** GET /documents/{documentId}/content */
-export function getDocumentContent(documentId: string): Promise<Blob> {
-  return gatewayFileRequest(`/documents/${encodeURIComponent(documentId)}/content`)
+export function getDocumentContent(documentId: string, knowledgeBaseId: string): Promise<Blob> {
+  return gatewayFileRequest(
+    `/documents/${encodeURIComponent(documentId)}/content${buildQuery({ knowledgeBaseId })}`,
+  )
 }
 
 /** POST /knowledge-queries */

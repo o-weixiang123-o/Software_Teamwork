@@ -82,11 +82,12 @@ REQUIRED_DOCUMENT_MCP_TOKENS = [
 
 REQUIRED_QA_DEFAULT_KB_TOKENS = [
     r"\\connect\s+qa_system",
+    "keep QA's default knowledge-base list empty",
+    "defaultKnowledgeBaseIds",
+    "search all indexed",
     "qa_config_knowledge_bases",
-    "qa_config_versions",
     "kb_local_demo",
-    "Local Demo Knowledge Base",
-    "ON CONFLICT (config_id, external_kb_id) DO UPDATE",
+    "DELETE FROM qa_config_knowledge_bases",
 ]
 
 FORBIDDEN_AI_TOKENS = [
@@ -445,7 +446,7 @@ def validate_seed_004(content: str) -> list[str]:
             if not re.search(token, content):
                 issues.append(f"{SEED_004} missing database section matching `{token}`")
         elif token not in content:
-            issues.append(f"{SEED_004} missing QA default knowledge base token `{token}`")
+            issues.append(f"{SEED_004} missing QA global-search seed token `{token}`")
     return issues
 
 

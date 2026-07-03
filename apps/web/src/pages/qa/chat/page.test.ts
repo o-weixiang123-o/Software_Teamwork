@@ -322,4 +322,60 @@ describe('QA chat citation sanitizing', () => {
     expect(citation.docId).toBe('doc-legacy')
     expect(citation.docName).toBe('Legacy Manual.pdf')
   })
+
+  it('preserves citation source detail from streamed citation events', () => {
+    const citation = sanitizeCitation({
+      citationNo: 2,
+      content: 'full saved source excerpt',
+      documentId: 'doc-1',
+      documentName: 'Relay Manual.pdf',
+      id: 'cite-2',
+      isSourceAvailable: false,
+      messageId: 'msg-1',
+      source: {
+        available: false,
+        reason: 'source_deleted_or_forbidden',
+      },
+    })
+
+    expect((citation as { content?: string }).content).toBe('full saved source excerpt')
+    expect((citation as { source?: { available?: boolean; reason?: string } }).source).toEqual({
+      available: false,
+      reason: 'source_deleted_or_forbidden',
+    })
+  })
+
+  it('preserves wrapped citation payloads from QA SSE events', () => {
+    const citation = sanitizeCitation({
+      citation: {
+        citationNo: 3,
+        chunkId: 'chunk-1',
+        content: 'streamed citation excerpt',
+        contentPreview: 'streamed citation preview',
+        documentId: 'doc-2',
+        documentName: 'Wrapped Manual.pdf',
+        id: 'cite-3',
+        isSourceAvailable: true,
+        knowledgeBaseId: 'kb-1',
+        messageId: 'msg-2',
+        source: {
+          available: true,
+          downloadEndpoint: '/api/v1/documents/doc-2/content?knowledgeBaseId=kb-1',
+        },
+      },
+    })
+
+    expect(citation.documentId).toBe('doc-2')
+    expect(citation.documentName).toBe('Wrapped Manual.pdf')
+    expect(citation.chunkId).toBe('chunk-1')
+    expect(citation.knowledgeBaseId).toBe('kb-1')
+    expect((citation as { content?: string }).content).toBe('streamed citation excerpt')
+    expect(
+      (citation as { source?: { available?: boolean; downloadEndpoint?: string } }).source,
+    ).toEqual({
+      available: true,
+      downloadEndpoint: '/api/v1/documents/doc-2/content?knowledgeBaseId=kb-1',
+      reason: undefined,
+    })
+  })
 })

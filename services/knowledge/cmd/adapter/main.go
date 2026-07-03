@@ -39,7 +39,11 @@ func main() {
 			os.Exit(1)
 		}
 		defer pool.Close()
-		opts = append(opts, adapter.WithParserConfigService(service.New(repository.NewPostgresRepository(pool))))
+		repo := repository.NewPostgresRepository(pool)
+		opts = append(opts,
+			adapter.WithParserConfigService(service.New(repo)),
+			adapter.WithRuntimeKnowledgeBaseCatalog(repo),
+		)
 		logger.Info("parser config storage enabled", "service", "knowledge-adapter")
 	} else {
 		logger.Warn("DATABASE_URL or KNOWLEDGE_DATABASE_URL not set; parser-config routes will return dependency_error", "service", "knowledge-adapter")

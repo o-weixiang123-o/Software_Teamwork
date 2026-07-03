@@ -26,7 +26,7 @@ type TestThinkingStep = QAThinkingStep & {
 }
 
 const lookupCitations = vi.fn<(ids: string[]) => Promise<QACitationDetail[]>>()
-const getDocumentContent = vi.fn<(documentId: string) => Promise<Blob>>()
+const getDocumentContent = vi.fn<(documentId: string, knowledgeBaseId: string) => Promise<Blob>>()
 const downloadFromUrl = vi.fn()
 
 vi.mock('@/api/citations', () => ({
@@ -34,7 +34,8 @@ vi.mock('@/api/citations', () => ({
 }))
 
 vi.mock('@/api/knowledge', () => ({
-  getDocumentContent: (documentId: string) => getDocumentContent(documentId),
+  getDocumentContent: (documentId: string, knowledgeBaseId: string) =>
+    getDocumentContent(documentId, knowledgeBaseId),
 }))
 
 vi.mock('@/lib/download', () => ({
@@ -90,6 +91,7 @@ function citation(overrides: Partial<QACitation> = {}): QACitation {
     documentName: 'Transformer Manual.pdf',
     id: `cite-${citationNo}`,
     isSourceAvailable: true,
+    knowledgeBaseId: 'kb-1',
     messageId: 'msg-1',
     score: 0.92,
     text: `quote ${citationNo}`,
@@ -523,7 +525,7 @@ describe('ChatMessages citations', () => {
     fireEvent.click(await screen.findByRole('button', { name: '下载原文' }))
 
     await waitFor(() => {
-      expect(getDocumentContent).toHaveBeenCalledWith('doc-1')
+      expect(getDocumentContent).toHaveBeenCalledWith('doc-1', 'kb-1')
       expect(downloadFromUrl).toHaveBeenCalledWith('blob:source', 'Transformer Manual.pdf')
     })
     expect(URL.revokeObjectURL).not.toHaveBeenCalled()

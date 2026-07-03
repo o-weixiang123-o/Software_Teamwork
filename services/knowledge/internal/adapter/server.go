@@ -17,6 +17,8 @@ type Server struct {
 	logger         *slog.Logger
 	vendor         *vendorclient.Client
 	parserConfigs  *service.Service
+	knowledgeBases service.RuntimeKnowledgeBaseCatalog
+	runtimeDocs    service.RuntimeDocumentCatalog
 	maxUploadBytes int64
 	mux            *http.ServeMux
 }
@@ -26,6 +28,21 @@ type Option func(*Server)
 func WithParserConfigService(svc *service.Service) Option {
 	return func(s *Server) {
 		s.parserConfigs = svc
+	}
+}
+
+func WithRuntimeKnowledgeBaseCatalog(catalog service.RuntimeKnowledgeBaseCatalog) Option {
+	return func(s *Server) {
+		s.knowledgeBases = catalog
+		if docs, ok := catalog.(service.RuntimeDocumentCatalog); ok {
+			s.runtimeDocs = docs
+		}
+	}
+}
+
+func WithRuntimeDocumentCatalog(catalog service.RuntimeDocumentCatalog) Option {
+	return func(s *Server) {
+		s.runtimeDocs = catalog
 	}
 }
 
@@ -103,6 +120,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /internal/v1/documents/{documentId}", s.handleDeleteDocument)
 	s.mux.HandleFunc("GET /internal/v1/documents/{documentId}/chunks", s.handleListDocumentChunks)
 	s.mux.HandleFunc("GET /internal/v1/documents/{documentId}/content", s.handleGetDocumentContent)
+	s.mux.HandleFunc("GET /internal/v1/chunks/{chunkId}", s.handleGetChunk)
 	s.mux.HandleFunc("POST /internal/v1/knowledge-queries", s.handleCreateKnowledgeQuery)
 	s.mux.HandleFunc("GET /internal/v1/knowledge-statistics", s.handleKnowledgeStatistics)
 

@@ -291,7 +291,7 @@ func TestCreateRetrievalTestRunMergesActiveConfigAndOverrides(t *testing.T) {
 	}
 
 	wantRetrieval := RetrievalSettings{TopK: 8, ScoreThreshold: .35, EnableRerank: true, RerankTopN: 4}
-	if retriever.input.Question != "what is qa" || !reflect.DeepEqual(retriever.input.KnowledgeBaseIDs, []string{"kb-default"}) || retriever.input.QAConfigVersionID != "qa-config-id" || !reflect.DeepEqual(retriever.input.Retrieval, wantRetrieval) {
+	if retriever.input.Question != "what is qa" || len(retriever.input.KnowledgeBaseIDs) != 0 || retriever.input.QAConfigVersionID != "qa-config-id" || !reflect.DeepEqual(retriever.input.Retrieval, wantRetrieval) {
 		t.Fatalf("retriever input=%+v", retriever.input)
 	}
 	if !repository.saveCalled || !reflect.DeepEqual(repository.savedInput.Retrieval, wantRetrieval) {
@@ -302,7 +302,7 @@ func TestCreateRetrievalTestRunMergesActiveConfigAndOverrides(t *testing.T) {
 	}
 }
 
-func TestCreateRetrievalTestRunFallsBackToDefaultsAfterKnowledgeBaseNormalization(t *testing.T) {
+func TestCreateRetrievalTestRunKeepsEmptyKnowledgeBasesForGlobalSearch(t *testing.T) {
 	repository := &resourceRepositoryStub{activeQAConfig: QAConfigVersion{
 		ID:                      "qa-config-id",
 		DefaultKnowledgeBaseIDs: []string{" kb-default ", "kb-default"},
@@ -322,11 +322,11 @@ func TestCreateRetrievalTestRunFallsBackToDefaultsAfterKnowledgeBaseNormalizatio
 		t.Fatal(err)
 	}
 
-	if !reflect.DeepEqual(retriever.input.KnowledgeBaseIDs, []string{"kb-default"}) {
-		t.Fatalf("knowledgeBaseIds=%+v, want default knowledge base", retriever.input.KnowledgeBaseIDs)
+	if len(retriever.input.KnowledgeBaseIDs) != 0 {
+		t.Fatalf("knowledgeBaseIds=%+v, want empty for global search", retriever.input.KnowledgeBaseIDs)
 	}
-	if !reflect.DeepEqual(repository.savedInput.KnowledgeBaseIDs, []string{"kb-default"}) {
-		t.Fatalf("saved knowledgeBaseIds=%+v, want default knowledge base", repository.savedInput.KnowledgeBaseIDs)
+	if len(repository.savedInput.KnowledgeBaseIDs) != 0 {
+		t.Fatalf("saved knowledgeBaseIds=%+v, want empty for global search", repository.savedInput.KnowledgeBaseIDs)
 	}
 }
 

@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, FileText, Loader2 } from 'lucide-react'
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, FileText, Loader2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import { getDocument, getKnowledgeBase } from '@/api/knowledge'
@@ -80,20 +80,31 @@ function ChunkListSkeleton() {
 
 interface KnowledgeChunksPageProps {
   documentId: string
+  knowledgeBaseId: string
   onNavigateBack?: () => void
 }
 
-export function KnowledgeChunksPage({ documentId, onNavigateBack }: KnowledgeChunksPageProps) {
+export function KnowledgeChunksPage({
+  documentId,
+  knowledgeBaseId,
+  onNavigateBack,
+}: KnowledgeChunksPageProps) {
   // ── State ──
   const [page, setPage] = useState(1)
   const [docInfo, setDocInfo] = useState<DocumentSummary | null>(null)
   const [kbName, setKbName] = useState<string>('-')
   const [docLoading, setDocLoading] = useState(true)
   const [docError, setDocError] = useState<string | null>(null)
+  const [expandedChunkIds, setExpandedChunkIds] = useState<Set<string>>(() => new Set())
 
   // ── Query ──
 
-  const { data, isLoading, isError, error, refetch } = useChunks(documentId, page, PAGE_SIZE)
+  const { data, isLoading, isError, error, refetch } = useChunks(
+    documentId,
+    knowledgeBaseId,
+    page,
+    PAGE_SIZE,
+  )
 
   // ── Fetch document info and KB name ──
 
@@ -103,11 +114,16 @@ export function KnowledgeChunksPage({ documentId, onNavigateBack }: KnowledgeChu
       setDocError('缺少文档 ID 参数')
       return
     }
+    if (!knowledgeBaseId) {
+      setDocLoading(false)
+      setDocError('缺少知识库 ID 参数')
+      return
+    }
     let cancelled = false
     setDocLoading(true)
     setDocError(null)
 
-    getDocument(documentId)
+    getDocument(documentId, knowledgeBaseId)
       .then((doc) => {
         if (cancelled) return
         setDocInfo(doc)
@@ -128,7 +144,7 @@ export function KnowledgeChunksPage({ documentId, onNavigateBack }: KnowledgeChu
     return () => {
       cancelled = true
     }
-  }, [documentId])
+  }, [documentId, knowledgeBaseId])
 
   // ── Derived ──
 
@@ -136,6 +152,18 @@ export function KnowledgeChunksPage({ documentId, onNavigateBack }: KnowledgeChu
   const showPagination = totalPages > 1
   const isEmpty = !isLoading && !isError && data && data.items.length === 0
   const chunksIssue = isError ? getGatewayCapabilityIssue(error, '文档分块') : null
+
+  function toggleChunkExpanded(chunkId: string) {
+    setExpandedChunkIds((current) => {
+      const next = new Set(current)
+      if (next.has(chunkId)) {
+        next.delete(chunkId)
+      } else {
+        next.add(chunkId)
+      }
+      return next
+    })
+  }
 
   // ── Render ──
 
@@ -256,40 +284,70 @@ export function KnowledgeChunksPage({ documentId, onNavigateBack }: KnowledgeChu
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {data.items.map((chunk) => (
-                      <tr
-                        key={chunk.id}
-                        className="transition-colors duration-150 hover:bg-muted/30"
-                      >
-                        <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">
-                          {chunk.chunkIndex}
-                        </td>
-                        <td className="max-w-[28rem] px-4 py-2.5">
-                          <div className="line-clamp-3 text-foreground">
-                            {chunk.sectionPath && (
-                              <span className="mb-0.5 block text-xs font-medium text-muted-foreground">
-                                {chunk.sectionPath}
-                              </span>
-                            )}
-                            <span className="text-xs">{chunk.content}</span>
-                          </div>
-                          {chunk.chunkType && (
-                            <Badge variant="secondary" className="mt-1 text-[0.65rem]">
-                              {chunk.chunkType}
-                            </Badge>
-                          )}
-                        </td>
-                        <td className="hidden whitespace-nowrap px-4 py-2.5 text-right tabular-nums text-muted-foreground md:table-cell">
-                          {chunk.tokenCount}
-                        </td>
-                        <td className="hidden whitespace-nowrap px-4 py-2.5 text-muted-foreground lg:table-cell">
-                          {chunk.embeddingProvider ?? '-'}
-                        </td>
-                        <td className="hidden whitespace-nowrap px-4 py-2.5 text-right tabular-nums text-muted-foreground lg:table-cell">
-                          {chunk.embeddingDimension ?? '-'}
-                        </td>
-                      </tr>
-                    ))}
+                    {data.items.map((chunk) => {
+                      const isExpanded = expandedChunkIds.has(chunk.id)
+                      const contentId = `chunk-content-${chunk.id}`
+
+                      return (
+                        <tr
+                          key={chunk.id}
+                          className="transition-colors duration-150 hover:bg-muted/30"
+                        >
+                          <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">
+                            {chunk.chunkIndex}
+                          </td>
+                          <td className="max-w-[34rem] px-4 py-2.5">
+                            <div
+                              id={contentId}
+                              className={
+                                isExpanded
+                                  ? 'whitespace-pre-wrap break-words text-foreground'
+                                  : 'line-clamp-3 text-foreground'
+                              }
+                            >
+                              {chunk.sectionPath && (
+                                <span className="mb-0.5 block text-xs font-medium text-muted-foreground">
+                                  {chunk.sectionPath}
+                                </span>
+                              )}
+                              <span className="text-xs leading-relaxed">{chunk.content}</span>
+                            </div>
+                            <div className="mt-1 flex flex-wrap items-center gap-2">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 px-1.5 text-xs text-muted-foreground"
+                                aria-controls={contentId}
+                                aria-expanded={isExpanded}
+                                onClick={() => toggleChunkExpanded(chunk.id)}
+                              >
+                                {isExpanded ? (
+                                  <ChevronUp aria-hidden="true" className="mr-1 size-3.5" />
+                                ) : (
+                                  <ChevronDown aria-hidden="true" className="mr-1 size-3.5" />
+                                )}
+                                {isExpanded ? '收起' : '展开'}
+                              </Button>
+                              {chunk.chunkType && (
+                                <Badge variant="secondary" className="text-[0.65rem]">
+                                  {chunk.chunkType}
+                                </Badge>
+                              )}
+                            </div>
+                          </td>
+                          <td className="hidden whitespace-nowrap px-4 py-2.5 text-right tabular-nums text-muted-foreground md:table-cell">
+                            {chunk.tokenCount}
+                          </td>
+                          <td className="hidden whitespace-nowrap px-4 py-2.5 text-muted-foreground lg:table-cell">
+                            {chunk.embeddingProvider ?? '-'}
+                          </td>
+                          <td className="hidden whitespace-nowrap px-4 py-2.5 text-right tabular-nums text-muted-foreground lg:table-cell">
+                            {chunk.embeddingDimension ?? '-'}
+                          </td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>

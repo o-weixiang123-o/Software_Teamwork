@@ -788,9 +788,6 @@ func (s *ResourceService) prepareRetrievalTestInput(ctx context.Context, input R
 	}
 	input.QAConfigVersionID = active.ID
 	input.KnowledgeBaseIDs = normalizeIDs(input.KnowledgeBaseIDs)
-	if len(input.KnowledgeBaseIDs) == 0 {
-		input.KnowledgeBaseIDs = normalizeIDs(active.DefaultKnowledgeBaseIDs)
-	}
 	if len(input.KnowledgeBaseIDs) > 50 {
 		return input, ValidationError(map[string]string{"knowledgeBaseIds": "must not contain more than 50 items"})
 	}

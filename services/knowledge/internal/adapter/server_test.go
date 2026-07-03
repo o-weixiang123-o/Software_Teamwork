@@ -1,6 +1,7 @@
 package adapter
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/adapterconfig"
+	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/service"
 )
 
 func TestHealthz(t *testing.T) {
@@ -306,21 +308,38 @@ func TestCreateKnowledgeQueryMapsRetrieval(t *testing.T) {
 	}
 }
 
-func TestCreateKnowledgeQueryExpandsAccessibleKnowledgeBasesWhenOmitted(t *testing.T) {
-	var searchBody map[string]any
+func TestCreateKnowledgeQueryExpandsEmptyKnowledgeBasesAcrossRuntimeTenants(t *testing.T) {
+	type searchCall struct {
+		tenantID string
+		ids      []string
+	}
+	var calls []searchCall
 	vendor := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/datasets":
-			_, _ = w.Write([]byte(`{"code":0,"data":[{"id":"kb_1"},{"id":"kb_2"}],"total_datasets":2}`))
-		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/datasets/search":
-			if err := json.NewDecoder(r.Body).Decode(&searchBody); err != nil {
-				t.Fatalf("decode search body: %v", err)
-			}
-			_, _ = w.Write([]byte(`{"code":0,"message":"success","data":{"total":0,"chunks":[]}}`))
-		default:
-			t.Fatalf("unexpected method=%s path=%s", r.Method, r.URL.Path)
+		if r.URL.Path != "/api/v1/datasets/search" || r.Method != http.MethodPost {
+			t.Fatalf("method=%s path=%s", r.Method, r.URL.Path)
 		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode search body: %v", err)
+		}
+		ids := stringSliceFromAny(body["dataset_ids"])
+		calls = append(calls, searchCall{tenantID: r.Header.Get("X-Tenant-Id"), ids: ids})
+		score := 0.82
+		if r.Header.Get("X-Tenant-Id") == "tenant_b" {
+			score = 0.93
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code": 0,
+			"data": map[string]any{
+				"total": 1,
+				"chunks": []map[string]any{{
+					"id": "chunk_" + r.Header.Get("X-Tenant-Id"), "doc_id": "doc_1",
+					"kb_id": ids[0], "similarity": score, "docnm_kwd": "manual.pdf",
+					"content_with_weight": "tenant scoped result",
+				}},
+			},
+		})
 	}))
 	defer vendor.Close()
 
@@ -328,9 +347,13 @@ func TestCreateKnowledgeQueryExpandsAccessibleKnowledgeBasesWhenOmitted(t *testi
 		ServiceVersion:   "test",
 		VendorRuntimeURL: vendor.URL,
 		ServiceToken:     testServiceToken,
-	}, nil)
+	}, nil, WithRuntimeKnowledgeBaseCatalog(queryCatalogStub{items: []service.RuntimeKnowledgeBase{
+		{ID: "kb_a", TenantID: "tenant_a", EmbeddingID: "embed_a", ChunkCount: 3},
+		{ID: "kb_b", TenantID: "tenant_b", EmbeddingID: "embed_b", ChunkCount: 5},
+		{ID: "kb_empty", TenantID: "tenant_a", EmbeddingID: "embed_a", ChunkCount: 0},
+	}}))
 
-	req := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-queries", strings.NewReader(`{"query":"hello"}`))
+	req := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-queries", strings.NewReader(`{"query":"transformer","topK":2}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-User-Id", "usr_test")
 	req.Header.Set("X-Service-Token", testServiceToken)
@@ -340,9 +363,29 @@ func TestCreateKnowledgeQueryExpandsAccessibleKnowledgeBasesWhenOmitted(t *testi
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	datasetIDs, _ := searchBody["dataset_ids"].([]any)
-	if len(datasetIDs) != 2 || datasetIDs[0] != "kb_1" || datasetIDs[1] != "kb_2" {
-		t.Fatalf("dataset_ids=%v", searchBody["dataset_ids"])
+	if len(calls) != 2 {
+		t.Fatalf("search calls=%+v, want two tenant/embedding groups", calls)
+	}
+	if calls[0].tenantID != "tenant_a" || len(calls[0].ids) != 1 || calls[0].ids[0] != "kb_a" {
+		t.Fatalf("first call=%+v", calls[0])
+	}
+	if calls[1].tenantID != "tenant_b" || len(calls[1].ids) != 1 || calls[1].ids[0] != "kb_b" {
+		t.Fatalf("second call=%+v", calls[1])
+	}
+
+	var payload struct {
+		Data struct {
+			Results []struct {
+				KnowledgeBaseID string  `json:"knowledgeBaseId"`
+				Score           float64 `json:"score"`
+			} `json:"results"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(payload.Data.Results) != 2 || payload.Data.Results[0].KnowledgeBaseID != "kb_b" || payload.Data.Results[0].Score != 0.93 {
+		t.Fatalf("results=%+v", payload.Data.Results)
 	}
 }
 
@@ -360,6 +403,38 @@ func TestNotFoundRoute(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
+}
+
+type queryCatalogStub struct {
+	items []service.RuntimeKnowledgeBase
+}
+
+func (s queryCatalogStub) ListRuntimeKnowledgeBases(_ context.Context, ids []string) ([]service.RuntimeKnowledgeBase, error) {
+	if len(ids) == 0 {
+		return append([]service.RuntimeKnowledgeBase(nil), s.items...), nil
+	}
+	wanted := map[string]struct{}{}
+	for _, id := range ids {
+		wanted[id] = struct{}{}
+	}
+	items := []service.RuntimeKnowledgeBase{}
+	for _, item := range s.items {
+		if _, ok := wanted[item.ID]; ok {
+			items = append(items, item)
+		}
+	}
+	return items, nil
+}
+
+func stringSliceFromAny(value any) []string {
+	raw, _ := value.([]any)
+	out := make([]string, 0, len(raw))
+	for _, item := range raw {
+		if text, ok := item.(string); ok {
+			out = append(out, text)
+		}
+	}
+	return out
 }
 
 func TestListParserConfigsRequiresDatabase(t *testing.T) {

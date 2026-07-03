@@ -98,7 +98,12 @@ func (s *Server) handleGetKnowledgeBase(w http.ResponseWriter, r *http.Request) 
 		writeAppError(w, r, err)
 		return
 	}
-	dataset, err := s.vendor.GetDataset(r.Context(), reqCtx.UserID, r.PathValue("knowledgeBaseId"))
+	ref, err := s.resolveKnowledgeBaseRuntimeRef(r.Context(), r.PathValue("knowledgeBaseId"), reqCtx.UserID)
+	if err != nil {
+		writeAppError(w, r, err)
+		return
+	}
+	dataset, err := s.vendor.GetDataset(r.Context(), ref.TenantID, ref.ID)
 	if err != nil {
 		writeAppError(w, r, mapVendorError(err))
 		return
@@ -162,7 +167,12 @@ func (s *Server) handleListDocuments(w http.ResponseWriter, r *http.Request) {
 		writeAppError(w, r, err)
 		return
 	}
-	items, total, err := s.vendor.ListDocuments(r.Context(), reqCtx.UserID, r.PathValue("knowledgeBaseId"), page.Page, page.PageSize)
+	ref, err := s.resolveKnowledgeBaseRuntimeRef(r.Context(), r.PathValue("knowledgeBaseId"), reqCtx.UserID)
+	if err != nil {
+		writeAppError(w, r, err)
+		return
+	}
+	items, total, err := s.vendor.ListDocuments(r.Context(), ref.TenantID, ref.ID, page.Page, page.PageSize)
 	if err != nil {
 		writeAppError(w, r, mapVendorError(err))
 		return
@@ -226,12 +236,12 @@ func (s *Server) handleGetDocument(w http.ResponseWriter, r *http.Request) {
 		writeAppError(w, r, err)
 		return
 	}
-	kbID, err := requiredDocumentKnowledgeBaseID(r)
+	ref, err := s.resolveDocumentRuntimeRef(r.Context(), r.PathValue("documentId"), r.URL.Query().Get("knowledgeBaseId"), reqCtx.UserID)
 	if err != nil {
 		writeAppError(w, r, err)
 		return
 	}
-	doc, err := s.vendor.GetDatasetDocument(r.Context(), reqCtx.UserID, kbID, r.PathValue("documentId"))
+	doc, err := s.vendor.GetDatasetDocument(r.Context(), ref.TenantID, ref.KnowledgeBaseID, ref.ID)
 	if err != nil {
 		writeAppError(w, r, mapVendorError(err))
 		return
@@ -324,22 +334,36 @@ func (s *Server) handleListDocumentChunks(w http.ResponseWriter, r *http.Request
 		writeAppError(w, r, err)
 		return
 	}
-	kbID, err := requiredDocumentKnowledgeBaseID(r)
+	ref, err := s.resolveDocumentRuntimeRef(r.Context(), r.PathValue("documentId"), r.URL.Query().Get("knowledgeBaseId"), reqCtx.UserID)
 	if err != nil {
 		writeAppError(w, r, err)
 		return
 	}
-	_, err = s.vendor.GetDatasetDocument(r.Context(), reqCtx.UserID, kbID, r.PathValue("documentId"))
+	if chunkID := strings.TrimSpace(r.URL.Query().Get("id")); chunkID != "" {
+		chunk, err := s.vendor.GetChunk(r.Context(), ref.TenantID, ref.KnowledgeBaseID, ref.ID, chunkID)
+		if err != nil {
+			writeAppError(w, r, mapVendorError(err))
+			return
+		}
+		writePageJSON(w, http.StatusOK, []documentChunkSummary{documentChunkFromVendor(chunk, ref.KnowledgeBaseID, ref.ID, 0)}, service.Page{
+			Page:     page.Page,
+			PageSize: page.PageSize,
+			Total:    1,
+		}, reqCtx.RequestID)
+		return
+	}
+	_, err = s.vendor.GetDatasetDocument(r.Context(), ref.TenantID, ref.KnowledgeBaseID, ref.ID)
 	if err != nil {
 		writeAppError(w, r, mapVendorError(err))
 		return
 	}
-	chunks, total, err := s.vendor.ListChunks(r.Context(), reqCtx.UserID, kbID, r.PathValue("documentId"), page.Page, page.PageSize)
+	chunks, total, err := s.vendor.ListChunks(r.Context(), ref.TenantID, ref.KnowledgeBaseID, ref.ID, page.Page, page.PageSize)
 	if err != nil {
 		writeAppError(w, r, mapVendorError(err))
 		return
 	}
-	writePageJSON(w, http.StatusOK, documentChunksFromVendor(chunks, kbID, r.PathValue("documentId")), service.Page{
+	fallbackStart := (page.Page - 1) * page.PageSize
+	writePageJSON(w, http.StatusOK, documentChunksFromVendor(chunks, ref.KnowledgeBaseID, ref.ID, fallbackStart), service.Page{
 		Page:     page.Page,
 		PageSize: page.PageSize,
 		Total:    total,
@@ -355,17 +379,17 @@ func (s *Server) handleGetDocumentContent(w http.ResponseWriter, r *http.Request
 		writeAppError(w, r, err)
 		return
 	}
-	kbID, err := requiredDocumentKnowledgeBaseID(r)
+	ref, err := s.resolveDocumentRuntimeRef(r.Context(), r.PathValue("documentId"), r.URL.Query().Get("knowledgeBaseId"), reqCtx.UserID)
 	if err != nil {
 		writeAppError(w, r, err)
 		return
 	}
-	_, err = s.vendor.GetDatasetDocument(r.Context(), reqCtx.UserID, kbID, r.PathValue("documentId"))
+	_, err = s.vendor.GetDatasetDocument(r.Context(), ref.TenantID, ref.KnowledgeBaseID, ref.ID)
 	if err != nil {
 		writeAppError(w, r, mapVendorError(err))
 		return
 	}
-	contentType, body, err := s.vendor.DownloadDocument(r.Context(), reqCtx.UserID, kbID, r.PathValue("documentId"))
+	contentType, body, err := s.vendor.DownloadDocument(r.Context(), ref.TenantID, ref.KnowledgeBaseID, ref.ID)
 	if err != nil {
 		writeAppError(w, r, mapVendorError(err))
 		return
@@ -376,6 +400,63 @@ func (s *Server) handleGetDocumentContent(w http.ResponseWriter, r *http.Request
 	}
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(body)
+}
+
+func (s *Server) handleGetChunk(w http.ResponseWriter, r *http.Request) {
+	reqCtx, ok := s.gatewayContext(w, r)
+	if !ok {
+		return
+	}
+	if _, err := readScope(reqCtx); err != nil {
+		writeAppError(w, r, err)
+		return
+	}
+	chunkID := strings.TrimSpace(r.PathValue("chunkId"))
+	if chunkID == "" {
+		writeAppError(w, r, service.ValidationError("request validation failed", map[string]string{"chunkId": "is required"}))
+		return
+	}
+
+	documentID := strings.TrimSpace(r.URL.Query().Get("documentId"))
+	if documentID != "" {
+		ref, err := s.resolveDocumentRuntimeRef(r.Context(), documentID, r.URL.Query().Get("knowledgeBaseId"), reqCtx.UserID)
+		if err != nil {
+			writeAppError(w, r, err)
+			return
+		}
+		chunk, err := s.vendor.GetChunk(r.Context(), ref.TenantID, ref.KnowledgeBaseID, ref.ID, chunkID)
+		if err != nil {
+			writeAppError(w, r, mapVendorError(err))
+			return
+		}
+		writeJSON(w, http.StatusOK, documentChunkFromVendor(chunk, ref.KnowledgeBaseID, ref.ID, 0), reqCtx.RequestID)
+		return
+	}
+
+	docs, err := s.listRuntimeDocuments(r.Context())
+	if err != nil {
+		writeAppError(w, r, err)
+		return
+	}
+	for _, doc := range docs {
+		docID := strings.TrimSpace(doc.ID)
+		kbID := strings.TrimSpace(doc.KnowledgeBaseID)
+		tenantID := strings.TrimSpace(doc.TenantID)
+		if docID == "" || kbID == "" || tenantID == "" {
+			continue
+		}
+		chunk, err := s.vendor.GetChunk(r.Context(), tenantID, kbID, docID, chunkID)
+		if err == nil {
+			writeJSON(w, http.StatusOK, documentChunkFromVendor(chunk, kbID, docID, 0), reqCtx.RequestID)
+			return
+		}
+		if isVendorNotFound(err) {
+			continue
+		}
+		writeAppError(w, r, mapVendorError(err))
+		return
+	}
+	writeAppError(w, r, service.NotFoundError("chunk not found"))
 }
 
 func (s *Server) handleCreateKnowledgeQuery(w http.ResponseWriter, r *http.Request) {
@@ -396,28 +477,11 @@ func (s *Server) handleCreateKnowledgeQuery(w http.ResponseWriter, r *http.Reque
 	if !decodeJSONBody(w, r, &body) {
 		return
 	}
-	if len(body.KnowledgeBaseIDs) == 0 {
-		ids, err := s.accessibleKnowledgeBaseIDs(r.Context(), runtimeUserID)
-		if err != nil {
-			writeAppError(w, r, mapVendorError(err))
-			return
-		}
-		if len(ids) == 0 {
-			writeAppError(w, r, service.ValidationError("request validation failed", map[string]string{"knowledgeBaseIds": "no project knowledge bases available"}))
-			return
-		}
-		body.KnowledgeBaseIDs = ids
-	}
-	payload, err := buildRetrievalBody(body, retrievalBuildOptions{
+	data, err := s.runKnowledgeQuery(r.Context(), runtimeUserID, body, retrievalBuildOptions{
 		VendorRerankID: s.cfg.VendorRerankID,
 	})
 	if err != nil {
 		writeAppError(w, r, err)
-		return
-	}
-	data, err := s.vendor.RetrievalSearch(r.Context(), runtimeUserID, payload)
-	if err != nil {
-		writeAppError(w, r, mapVendorError(err))
 		return
 	}
 	topK := body.TopK

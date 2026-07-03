@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -86,7 +85,7 @@ func TestBuildKnowledgeProviderFallsBackWhenDiscoveryIsIncomplete(t *testing.T) 
 	}
 }
 
-func TestPolicyToolClientInjectsDefaultKnowledgeBaseIDsForKnowledgeMCPSearch(t *testing.T) {
+func TestPolicyToolClientLeavesKnowledgeMCPSearchGlobalWhenOnlyDefaultKnowledgeBaseIDsExist(t *testing.T) {
 	recorder := &recordingToolClient{definitions: []agent.ToolDefinition{knowledgeMCPSearchDefinition("knowledge")}}
 	policy, err := toolspkg.NewPolicy(toolspkg.PolicyConfig{EnabledToolNames: []string{"knowledge__search"}})
 	if err != nil {
@@ -102,14 +101,12 @@ func TestPolicyToolClientInjectsDefaultKnowledgeBaseIDsForKnowledgeMCPSearch(t *
 	if result.IsError || !recorder.called {
 		t.Fatalf("result=%#v called=%v", result, recorder.called)
 	}
-	var args struct {
-		KnowledgeBaseIDs []string `json:"knowledgeBaseIds"`
-	}
+	var args map[string]any
 	if err := json.Unmarshal(recorder.calledArgs, &args); err != nil {
 		t.Fatal(err)
 	}
-	if len(args.KnowledgeBaseIDs) != 1 || args.KnowledgeBaseIDs[0] != "kb-default" {
-		t.Fatalf("knowledgeBaseIds = %#v", args.KnowledgeBaseIDs)
+	if _, exists := args["knowledgeBaseIds"]; exists {
+		t.Fatalf("knowledgeBaseIds should not be injected from defaults: %#v", args["knowledgeBaseIds"])
 	}
 }
 
@@ -141,7 +138,7 @@ func TestPolicyToolClientOverridesKnowledgeMCPSearchWithRequestKnowledgeBaseIDs(
 	}
 }
 
-func TestPolicyToolClientRejectsUnauthorizedKnowledgeMCPSearch(t *testing.T) {
+func TestPolicyToolClientAllowsKnowledgeMCPSearchOutsideDefaultKnowledgeBaseIDs(t *testing.T) {
 	recorder := &recordingToolClient{definitions: []agent.ToolDefinition{knowledgeMCPSearchDefinition("knowledge")}}
 	policy, err := toolspkg.NewPolicy(toolspkg.PolicyConfig{EnabledToolNames: []string{"knowledge__search"}})
 	if err != nil {
@@ -154,11 +151,17 @@ func TestPolicyToolClientRejectsUnauthorizedKnowledgeMCPSearch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsError || !strings.Contains(result.Content, "unauthorized_knowledge_bases") {
-		t.Fatalf("result = %#v", result)
+	if result.IsError || !recorder.called {
+		t.Fatalf("result=%#v called=%v", result, recorder.called)
 	}
-	if recorder.called {
-		t.Fatal("unauthorized search must not call the Knowledge MCP server")
+	var args struct {
+		KnowledgeBaseIDs []string `json:"knowledgeBaseIds"`
+	}
+	if err := json.Unmarshal(recorder.calledArgs, &args); err != nil {
+		t.Fatal(err)
+	}
+	if len(args.KnowledgeBaseIDs) != 1 || args.KnowledgeBaseIDs[0] != "kb-forbidden" {
+		t.Fatalf("knowledgeBaseIds = %#v", args.KnowledgeBaseIDs)
 	}
 }
 
@@ -189,7 +192,7 @@ func TestPolicyToolClientAllowsKnowledgeMCPSearchWhenDefaultKnowledgeBaseIDsEmpt
 	}
 }
 
-func TestPolicyToolClientRejectsUnauthorizedKnowledgeMCPListDocuments(t *testing.T) {
+func TestPolicyToolClientAllowsKnowledgeMCPListDocumentsOutsideDefaultKnowledgeBaseIDs(t *testing.T) {
 	recorder := &recordingToolClient{definitions: []agent.ToolDefinition{knowledgeMCPListDocumentsDefinition("knowledge")}}
 	policy, err := toolspkg.NewPolicy(toolspkg.PolicyConfig{EnabledToolNames: []string{"knowledge__list_documents"}})
 	if err != nil {
@@ -202,11 +205,17 @@ func TestPolicyToolClientRejectsUnauthorizedKnowledgeMCPListDocuments(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsError || !strings.Contains(result.Content, "unauthorized_knowledge_bases") {
-		t.Fatalf("result = %#v", result)
+	if result.IsError || !recorder.called {
+		t.Fatalf("result=%#v called=%v", result, recorder.called)
 	}
-	if recorder.called {
-		t.Fatal("unauthorized list_documents must not call the Knowledge MCP server")
+	var args struct {
+		KnowledgeBaseID string `json:"knowledgeBaseId"`
+	}
+	if err := json.Unmarshal(recorder.calledArgs, &args); err != nil {
+		t.Fatal(err)
+	}
+	if args.KnowledgeBaseID != "kb-forbidden" {
+		t.Fatalf("knowledgeBaseId = %q", args.KnowledgeBaseID)
 	}
 }
 

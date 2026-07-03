@@ -68,10 +68,10 @@ class LocalSeedContractTests(unittest.TestCase):
             )
             (root / "deploy" / "seeds" / "004-qa-default-knowledge-base.sql").write_text(
                 "\\connect qa_system\n"
-                "INSERT INTO qa_config_knowledge_bases (config_id, external_kb_id)\n"
-                "SELECT id, 'kb_local_demo' FROM qa_config_versions\n"
-                "ON CONFLICT (config_id, external_kb_id) DO UPDATE;\n"
-                "Local Demo Knowledge Base\n",
+                "keep QA's default knowledge-base list empty\n"
+                "defaultKnowledgeBaseIds\n"
+                "search all indexed\n"
+                "DELETE FROM qa_config_knowledge_bases WHERE external_kb_id = 'kb_local_demo';\n",
                 encoding="utf-8",
             )
             (root / "deploy" / "README.md").write_text(

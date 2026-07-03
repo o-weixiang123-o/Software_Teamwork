@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -342,6 +343,50 @@ func (c *Client) ListChunks(ctx context.Context, userID, datasetID, documentID s
 		return nil, 0, err
 	}
 	return listed.Chunks, listed.Total, nil
+}
+
+func (c *Client) GetChunk(ctx context.Context, userID, datasetID, documentID, chunkID string) (map[string]interface{}, error) {
+	query := url.Values{}
+	query.Set("id", chunkID)
+	query.Set("page", "1")
+	query.Set("page_size", "1")
+	path := fmt.Sprintf("/api/v1/datasets/%s/documents/%s/chunks?%s",
+		url.PathEscape(datasetID), url.PathEscape(documentID), query.Encode())
+	var payload envelope
+	if err := c.getJSON(ctx, userID, path, &payload); err != nil {
+		return nil, normalizeChunkNotFoundError(err)
+	}
+	if len(payload.Data) == 0 {
+		return nil, chunkNotFoundError()
+	}
+	var listed chunkListData
+	if err := json.Unmarshal(payload.Data, &listed); err == nil && len(listed.Chunks) > 0 {
+		return listed.Chunks[0], nil
+	}
+	chunk, err := decodeObject(payload.Data)
+	if err != nil || len(chunk) == 0 {
+		return nil, chunkNotFoundError()
+	}
+	id := strings.TrimSpace(fmt.Sprint(chunk["id"]))
+	if id == "" {
+		id = strings.TrimSpace(fmt.Sprint(chunk["chunk_id"]))
+	}
+	if id != "" && id != chunkID {
+		return nil, chunkNotFoundError()
+	}
+	return chunk, nil
+}
+
+func chunkNotFoundError() error {
+	return &APIError{Code: http.StatusNotFound, Message: "chunk not found", HTTPStatus: http.StatusNotFound}
+}
+
+func normalizeChunkNotFoundError(err error) error {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) && strings.Contains(strings.ToLower(apiErr.Message), "chunk not found") {
+		return chunkNotFoundError()
+	}
+	return err
 }
 
 func (c *Client) DownloadDocument(ctx context.Context, userID, datasetID, documentID string) (contentType string, body []byte, err error) {

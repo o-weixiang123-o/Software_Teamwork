@@ -22,6 +22,88 @@ func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {
 	return &PostgresRepository{pool: pool}
 }
 
+func (r *PostgresRepository) ListRuntimeKnowledgeBases(ctx context.Context, ids []string) ([]service.RuntimeKnowledgeBase, error) {
+	args := []any{"1"}
+	filter := ""
+	if len(ids) > 0 {
+		filter = " AND id = ANY($2::text[])"
+		args = append(args, ids)
+	}
+	rows, err := r.pool.Query(ctx, `SELECT id, tenant_id, COALESCE(embd_id,''), COALESCE(chunk_num,0) FROM knowledgebase WHERE status=$1`+filter+` ORDER BY update_time DESC, id`, args...)
+	if err != nil {
+		return nil, wrapPostgresError("list runtime knowledge bases", err)
+	}
+	defer rows.Close()
+
+	items := []service.RuntimeKnowledgeBase{}
+	for rows.Next() {
+		var item service.RuntimeKnowledgeBase
+		if err := rows.Scan(&item.ID, &item.TenantID, &item.EmbeddingID, &item.ChunkCount); err != nil {
+			return nil, wrapPostgresError("scan runtime knowledge base", err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrapPostgresError("list runtime knowledge bases", err)
+	}
+	return items, nil
+}
+
+func (r *PostgresRepository) GetRuntimeDocument(ctx context.Context, id string) (service.RuntimeDocument, error) {
+	const query = `
+		SELECT d.id, d.kb_id, k.tenant_id, COALESCE(d.chunk_num,0)
+		FROM document d
+		JOIN knowledgebase k ON k.id=d.kb_id
+		WHERE d.id=$1
+			AND COALESCE(d.status,'1')='1'
+			AND k.status='1'
+	`
+	var item service.RuntimeDocument
+	if err := r.pool.QueryRow(ctx, query, id).Scan(&item.ID, &item.KnowledgeBaseID, &item.TenantID, &item.ChunkCount); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return service.RuntimeDocument{}, service.ErrNotFound
+		}
+		return service.RuntimeDocument{}, wrapPostgresError("get runtime document", err)
+	}
+	return item, nil
+}
+
+func (r *PostgresRepository) ListRuntimeDocuments(ctx context.Context, ids []string) ([]service.RuntimeDocument, error) {
+	args := []any{}
+	filter := ""
+	if len(ids) > 0 {
+		filter = " AND d.id = ANY($1::text[])"
+		args = append(args, ids)
+	}
+	rows, err := r.pool.Query(ctx, `
+		SELECT d.id, d.kb_id, k.tenant_id, COALESCE(d.chunk_num,0)
+		FROM document d
+		JOIN knowledgebase k ON k.id=d.kb_id
+		WHERE COALESCE(d.status,'1')='1'
+			AND k.status='1'
+			AND COALESCE(d.chunk_num,0)>0
+		`+filter+`
+		ORDER BY d.update_time DESC, d.id
+	`, args...)
+	if err != nil {
+		return nil, wrapPostgresError("list runtime documents", err)
+	}
+	defer rows.Close()
+
+	items := []service.RuntimeDocument{}
+	for rows.Next() {
+		var item service.RuntimeDocument
+		if err := rows.Scan(&item.ID, &item.KnowledgeBaseID, &item.TenantID, &item.ChunkCount); err != nil {
+			return nil, wrapPostgresError("scan runtime document", err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrapPostgresError("list runtime documents", err)
+	}
+	return items, nil
+}
+
 const parserConfigColumns = `id, name, backend, enabled, is_default, concurrency, supported_content_types, endpoint_url, default_parameters, created_at, updated_at, deleted_at`
 
 func (r *PostgresRepository) ListParserConfigs(ctx context.Context, enabled *bool) ([]service.ParserConfig, error) {

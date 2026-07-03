@@ -373,7 +373,15 @@ func (h *toolHandlers) getDocument(ctx context.Context, _ *sdkmcp.CallToolReques
 	if docID == "" {
 		return nil, nil, fmt.Errorf("documentId is required")
 	}
-	return h.adapterGet(ctx, h.effectiveCaller(), "/internal/v1/documents/"+url.PathEscape(docID))
+	path := "/internal/v1/documents/" + url.PathEscape(docID)
+	query := url.Values{}
+	if kbID := strings.TrimSpace(input.KnowledgeBaseID); kbID != "" {
+		query.Set("knowledgeBaseId", kbID)
+	}
+	if len(query) > 0 {
+		path += "?" + query.Encode()
+	}
+	return h.adapterGet(ctx, h.effectiveCaller(), path)
 }
 
 func (h *toolHandlers) createDocument(ctx context.Context, _ *sdkmcp.CallToolRequest, input createDocumentInput) (*sdkmcp.CallToolResult, map[string]any, error) {
@@ -472,56 +480,29 @@ func (h *toolHandlers) deleteDocument(ctx context.Context, _ *sdkmcp.CallToolReq
 }
 
 func (h *toolHandlers) getChunk(ctx context.Context, _ *sdkmcp.CallToolRequest, input getChunkInput) (*sdkmcp.CallToolResult, map[string]any, error) {
-	kbID := strings.TrimSpace(input.KnowledgeBaseID)
-	if kbID == "" {
-		return nil, nil, fmt.Errorf("knowledgeBaseId is required")
-	}
 	chunkID := strings.TrimSpace(input.ChunkID)
 	if chunkID == "" {
 		return nil, nil, fmt.Errorf("chunkId is required")
 	}
-	docID := strings.TrimSpace(input.DocumentID)
-	if docID == "" {
-		return nil, nil, fmt.Errorf("documentId is required")
+	query := url.Values{}
+	if docID := strings.TrimSpace(input.DocumentID); docID != "" {
+		query.Set("documentId", docID)
 	}
-	for page := 1; ; page++ {
-		query := url.Values{}
+	if kbID := strings.TrimSpace(input.KnowledgeBaseID); kbID != "" {
 		query.Set("knowledgeBaseId", kbID)
-		query.Set("page", fmt.Sprintf("%d", page))
-		query.Set("pageSize", "200")
-		status, respBody, _, err := h.bridge.DoGET(ctx, h.effectiveCaller(), "/internal/v1/documents/"+url.PathEscape(docID)+"/chunks", query)
-		if err != nil {
-			return nil, nil, err
-		}
-		if status != http.StatusOK {
-			return nil, nil, adapterErrorMessage(status, respBody)
-		}
-		list, err := decodeAdapterList(respBody)
-		if err != nil {
-			return nil, nil, err
-		}
-		items, err := rawToSlice(list.Data)
-		if err != nil {
-			return nil, nil, err
-		}
-		for _, mapped := range items {
-			if strings.TrimSpace(fmt.Sprint(mapped["id"])) == chunkID {
-				mapped["chunkId"] = chunkID
-				return nil, mapped, nil
-			}
-		}
-		pageInfo, err := rawToMap(list.Page)
-		if err != nil {
-			return nil, nil, err
-		}
-		total := intFromAny(pageInfo["total"])
-		pageSize := intFromAny(pageInfo["pageSize"])
-		currentPage := intFromAny(pageInfo["page"])
-		if len(items) == 0 || pageSize <= 0 || currentPage*pageSize >= total {
-			break
-		}
 	}
-	return nil, nil, fmt.Errorf("chunk not found")
+	path := "/internal/v1/chunks/" + url.PathEscape(chunkID)
+	if len(query) > 0 {
+		path += "?" + query.Encode()
+	}
+	result, out, err := h.adapterGet(ctx, h.effectiveCaller(), path)
+	if err != nil {
+		return result, out, err
+	}
+	if _, ok := out["chunkId"]; !ok {
+		out["chunkId"] = chunkID
+	}
+	return result, out, nil
 }
 
 func (h *toolHandlers) getDocumentContent(ctx context.Context, _ *sdkmcp.CallToolRequest, input getDocumentContentInput) (*sdkmcp.CallToolResult, getDocumentContentOutput, error) {

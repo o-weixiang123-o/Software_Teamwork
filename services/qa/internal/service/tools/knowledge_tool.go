@@ -92,7 +92,7 @@ func (c *KnowledgeToolClient) ListTools(ctx context.Context) ([]agent.ToolDefini
 						"knowledge_base_ids": map[string]any{
 							"type":        "array",
 							"items":       map[string]any{"type": "string"},
-							"description": "Optional list of knowledge base IDs to search. If empty, uses default configured bases or the project pool.",
+							"description": "Optional list of knowledge base IDs to search. If empty, searches all available knowledge bases.",
 						},
 						"top_k": map[string]any{
 							"type":        "integer",
@@ -178,12 +178,10 @@ func (c *KnowledgeToolClient) searchKnowledge(ctx context.Context, arguments jso
 	toolCtx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	// Enforce knowledge base restrictions from context. Non-empty defaultKBIDs
-	// acts as an allowlist. Empty defaultKBIDs means QA has no preselected KB
-	// scope; Knowledge expands retrieval to the project pool when no IDs are
-	// provided.
+	// Request-level IDs are explicit user scope. Model-provided IDs are an
+	// optional narrowing hint. Empty means Knowledge should search all available
+	// knowledge bases.
 	requestKBIDs := contextutil.KnowledgeBaseIDsFromContext(ctx)
-	defaultKBIDs := contextutil.DefaultKnowledgeBaseIDsFromContext(ctx)
 
 	var targetKBIDs []string
 	if len(requestKBIDs) > 0 {
@@ -191,29 +189,9 @@ func (c *KnowledgeToolClient) searchKnowledge(ctx context.Context, arguments jso
 	} else {
 		targetKBIDs = input.KnowledgeBaseIDs
 	}
+	input.KnowledgeBaseIDs = targetKBIDs
 
-	if len(defaultKBIDs) > 0 {
-		// QA config exists - enforce KB allowlist restriction
-		allowed := make(map[string]struct{}, len(defaultKBIDs))
-		for _, id := range defaultKBIDs {
-			allowed[id] = struct{}{}
-		}
-		if len(targetKBIDs) == 0 {
-			input.KnowledgeBaseIDs = defaultKBIDs
-		} else {
-			for _, id := range targetKBIDs {
-				if _, ok := allowed[id]; !ok {
-					return toolFailure("unauthorized_knowledge_bases", "one or more requested knowledge bases are not accessible"), nil
-				}
-			}
-			input.KnowledgeBaseIDs = targetKBIDs
-		}
-	} else {
-		// No QA config - no restriction
-		input.KnowledgeBaseIDs = targetKBIDs
-	}
-
-	// Build retrieval input with QA config defaults as fallback
+	// Build retrieval input with QA retrieval defaults as fallback.
 	defaultSettings := contextutil.RetrievalSettingsFromContext(ctx)
 
 	retrievalInput := RetrievalTestInput{

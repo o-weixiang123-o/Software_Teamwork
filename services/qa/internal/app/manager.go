@@ -283,35 +283,17 @@ func guardKnowledgeMCPSearch(ctx context.Context, arguments json.RawMessage) (js
 		return nil, nil, err
 	}
 	requestKBIDs := normalizeKnowledgeMCPIDs(contextutil.KnowledgeBaseIDsFromContext(ctx))
-	defaultKBIDs := normalizeKnowledgeMCPIDs(contextutil.DefaultKnowledgeBaseIDsFromContext(ctx))
-	hasDefaultKBIDs := contextutil.DefaultKnowledgeBaseIDsFromContext(ctx) != nil
 
 	if len(requestKBIDs) > 0 {
-		if hasDefaultKBIDs && len(defaultKBIDs) > 0 && !knowledgeMCPIDsSubset(requestKBIDs, defaultKBIDs) {
-			result := knowledgeMCPToolFailure("unauthorized_knowledge_bases", "one or more requested knowledge bases are not accessible")
-			return arguments, &result, nil
-		}
 		payload["knowledgeBaseIds"] = requestKBIDs
 		return marshalKnowledgeMCPArguments(payload)
 	}
-	if hasDefaultKBIDs && len(defaultKBIDs) > 0 {
-		if value, exists := payload["knowledgeBaseIds"]; exists {
-			provided, ok := knowledgeMCPStringSlice(value)
-			if !ok {
-				return arguments, nil, nil
-			}
-			if len(provided) == 0 {
-				payload["knowledgeBaseIds"] = defaultKBIDs
-				return marshalKnowledgeMCPArguments(payload)
-			}
-			if !knowledgeMCPIDsSubset(provided, defaultKBIDs) {
-				result := knowledgeMCPToolFailure("unauthorized_knowledge_bases", "one or more requested knowledge bases are not accessible")
-				return arguments, &result, nil
-			}
-			payload["knowledgeBaseIds"] = normalizeKnowledgeMCPIDs(provided)
-			return marshalKnowledgeMCPArguments(payload)
+	if value, exists := payload["knowledgeBaseIds"]; exists {
+		provided, ok := knowledgeMCPStringSlice(value)
+		if !ok {
+			return arguments, nil, nil
 		}
-		payload["knowledgeBaseIds"] = defaultKBIDs
+		payload["knowledgeBaseIds"] = provided
 		return marshalKnowledgeMCPArguments(payload)
 	}
 	return arguments, nil, nil
@@ -323,34 +305,14 @@ func guardKnowledgeMCPListDocuments(ctx context.Context, arguments json.RawMessa
 		return nil, nil, err
 	}
 	requestKBIDs := normalizeKnowledgeMCPIDs(contextutil.KnowledgeBaseIDsFromContext(ctx))
-	defaultKBIDs := normalizeKnowledgeMCPIDs(contextutil.DefaultKnowledgeBaseIDsFromContext(ctx))
-	hasDefaultKBIDs := contextutil.DefaultKnowledgeBaseIDsFromContext(ctx) != nil
-
-	var allowed []string
-	switch {
-	case len(requestKBIDs) > 0:
-		if hasDefaultKBIDs && len(defaultKBIDs) > 0 && !knowledgeMCPIDsSubset(requestKBIDs, defaultKBIDs) {
-			result := knowledgeMCPToolFailure("unauthorized_knowledge_bases", "one or more requested knowledge bases are not accessible")
-			return arguments, &result, nil
-		}
-		allowed = requestKBIDs
-	case hasDefaultKBIDs && len(defaultKBIDs) > 0:
-		allowed = defaultKBIDs
-	default:
-		return arguments, nil, nil
-	}
 	target, _ := payload["knowledgeBaseId"].(string)
 	target = strings.TrimSpace(target)
 	if target == "" {
-		if len(allowed) != 1 {
+		if len(requestKBIDs) != 1 {
 			result := knowledgeMCPToolFailure("invalid_arguments", "knowledgeBaseId is required when multiple knowledge bases are available")
 			return arguments, &result, nil
 		}
-		target = allowed[0]
-	}
-	if !knowledgeMCPIDsSubset([]string{target}, allowed) {
-		result := knowledgeMCPToolFailure("unauthorized_knowledge_bases", "one or more requested knowledge bases are not accessible")
-		return arguments, &result, nil
+		target = requestKBIDs[0]
 	}
 	payload["knowledgeBaseId"] = target
 	return marshalKnowledgeMCPArguments(payload)
@@ -412,19 +374,6 @@ func normalizeKnowledgeMCPIDs(ids []string) []string {
 		normalized = append(normalized, id)
 	}
 	return normalized
-}
-
-func knowledgeMCPIDsSubset(ids []string, allowed []string) bool {
-	allowedSet := make(map[string]struct{}, len(allowed))
-	for _, id := range allowed {
-		allowedSet[id] = struct{}{}
-	}
-	for _, id := range normalizeKnowledgeMCPIDs(ids) {
-		if _, ok := allowedSet[id]; !ok {
-			return false
-		}
-	}
-	return true
 }
 
 func knowledgeMCPToolFailure(code, message string) agent.ToolResult {
@@ -543,6 +492,7 @@ func (m *Manager) buildState(ctx context.Context, runtimeConfig service.RuntimeC
 		ToolTimeout:            toolTimeout,
 		MaxToolResultBytes:     m.cfg.MaxToolResultBytes,
 		ReasoningFilterFactory: service.NewReasoningFilter,
+		ToolResultPolicy:       service.NewKnowledgeRetrievalStopPolicy(m.cfg.KnowledgeMCPAlias),
 	})
 	if err != nil {
 		closeClients(clients)

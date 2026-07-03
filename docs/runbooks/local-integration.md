@@ -445,7 +445,7 @@ chunks、jobs、documents、knowledge base 的顺序删除本轮 Knowledge Postg
 | Knowledge ingestion | `document ... did not become ready` 或 `chunkCount = 0` | 查 `.local/logs/knowledge.log` 和 runtime worker 日志，并确认 PostgreSQL、Redis、MinIO、Elasticsearch 处于 healthy；检查 runtime task 状态和对象存储 bucket。 |
 | Knowledge retrieval | `Knowledge retrieval stage: ...`、无 expected hit 或 rerank trace 异常 | 查 `.local/logs/gateway.log`、`.local/logs/knowledge.log` 和 `.local/logs/ai-gateway.log`；确认 `knowledge-queries` 返回 ready 文档 chunk，`rerank=true` 在无 `RERANK_MODEL` 时只证明 no-op fallback trace。 |
 | AI Gateway | QA message 返回 `502`、model error 或 provider unavailable | 查 `.local/logs/qa.log` 和 `.local/logs/ai-gateway.log`；确认 chat profile enabled、model exact-match、credential/provider 可用。不要粘贴 provider 原始错误 body 或 API key。 |
-| QA | QA config POST `403/400`、answer 未完成、无 citation | 确认 `QA_SETTINGS_OPEN=true` 或账号具备 `qa:settings:write`；确认模型支持 OpenAI-compatible tool/function calling，并且 QA config 只启用 `search_knowledge`。 |
+| QA | QA config POST `403/400`、answer 未完成、无 citation | 确认 `QA_SETTINGS_OPEN=true` 或账号具备 `qa:settings:write`；确认模型支持 OpenAI-compatible tool/function calling；确认 QA config 启用了 `knowledge__search` 或 fallback `search_knowledge`，且默认 KB 列表为空以允许全量知识库检索。 |
 
 如果只需要验证 Knowledge ingestion 和 retrieval，不要运行本 RAG smoke；先使用上面的
 `KNOWLEDGE_INGESTION_SMOKE` 或 `GATEWAY_KNOWLEDGE_OWNER_SMOKE` 缩小范围。

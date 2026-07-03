@@ -11,12 +11,14 @@ import (
 )
 
 type fakeModel struct {
-	responses []Completion
-	requests  [][]Message
+	responses    []Completion
+	requests     [][]Message
+	toolRequests [][]ToolDefinition
 }
 
-func (f *fakeModel) Complete(_ context.Context, messages []Message, _ []ToolDefinition) (Completion, error) {
+func (f *fakeModel) Complete(_ context.Context, messages []Message, tools []ToolDefinition) (Completion, error) {
 	f.requests = append(f.requests, append([]Message(nil), messages...))
+	f.toolRequests = append(f.toolRequests, append([]ToolDefinition(nil), tools...))
 	if len(f.responses) == 0 {
 		return Completion{}, errors.New("unexpected model call")
 	}
@@ -126,6 +128,25 @@ func addToolDefinition() ToolDefinition {
 	}}
 }
 
+func namedToolDefinition(name string) ToolDefinition {
+	return ToolDefinition{Type: "function", Function: FunctionTool{
+		Name: name,
+		Parameters: map[string]any{
+			"type":                 "object",
+			"additionalProperties": true,
+		},
+	}}
+}
+
+func hasToolName(definitions []ToolDefinition, name string) bool {
+	for _, definition := range definitions {
+		if definition.Function.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 func TestRunnerExecutesMCPToolAndContinues(t *testing.T) {
 	model := &fakeModel{responses: []Completion{
 		{Message: Message{Role: RoleAssistant, ToolCalls: []ToolCall{{
@@ -152,6 +173,64 @@ func TestRunnerExecutesMCPToolAndContinues(t *testing.T) {
 	last := model.requests[1][len(model.requests[1])-1]
 	if last.Role != RoleTool || last.ToolCallID != "call-1" || last.Content != `{"sum":3}` {
 		t.Fatalf("unexpected tool result message: %+v", last)
+	}
+}
+
+func TestRunnerAppliesToolResultPolicyBeforeNextModelCall(t *testing.T) {
+	model := &fakeModel{responses: []Completion{
+		{Message: Message{Role: RoleAssistant, ToolCalls: []ToolCall{{
+			ID: "call-1", Type: "function", Function: FunctionCall{Name: "knowledge__search", Arguments: `{"query":"resin"}`},
+		}}}, FinishReason: "tool_calls"},
+		{Message: Message{Role: RoleAssistant, Content: "final answer [1]"}, FinishReason: "stop"},
+	}}
+	tools := &fakeTools{
+		definitions: []ToolDefinition{
+			namedToolDefinition("knowledge__search"),
+			namedToolDefinition("knowledge__get_chunk"),
+			namedToolDefinition("document__generate_report_text"),
+		},
+		result: ToolResult{Content: `{"results":[{"documentId":"doc-1","chunkId":"chunk-1","contentPreview":"hit"}]}`},
+	}
+	runner, err := NewRunner(model, tools, Config{
+		MaxIterations:      4,
+		ToolTimeout:        time.Second,
+		MaxToolResultBytes: 1024,
+		ToolResultPolicy: func(observation ToolObservation) ToolResultPolicyDecision {
+			if observation.ToolName != "knowledge__search" || !strings.Contains(observation.Result, "doc-1") {
+				return ToolResultPolicyDecision{}
+			}
+			return ToolResultPolicyDecision{
+				SuppressToolPrefixes: []string{"knowledge__"},
+				AppendSystemMessage:  "Knowledge results are enough; answer now.",
+			}
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := runner.Run(context.Background(), []Message{{Role: RoleUser, Content: "question"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Final.Content != "final answer [1]" {
+		t.Fatalf("final answer = %q", result.Final.Content)
+	}
+	if len(model.toolRequests) != 2 {
+		t.Fatalf("model tool requests = %d, want 2", len(model.toolRequests))
+	}
+	if !hasToolName(model.toolRequests[0], "knowledge__search") {
+		t.Fatalf("first model request missing knowledge search tool: %+v", model.toolRequests[0])
+	}
+	if hasToolName(model.toolRequests[1], "knowledge__search") || hasToolName(model.toolRequests[1], "knowledge__get_chunk") {
+		t.Fatalf("knowledge tools were not suppressed: %+v", model.toolRequests[1])
+	}
+	if !hasToolName(model.toolRequests[1], "document__generate_report_text") {
+		t.Fatalf("unrelated tools should remain available: %+v", model.toolRequests[1])
+	}
+	lastBeforeFinal := model.requests[1][len(model.requests[1])-1]
+	if lastBeforeFinal.Role != RoleSystem || !strings.Contains(lastBeforeFinal.Content, "answer now") {
+		t.Fatalf("policy directive missing before final model call: %+v", model.requests[1])
 	}
 }
 

@@ -34,7 +34,7 @@ func ToolCatalog() []string {
 
 type searchKnowledgeInput struct {
 	Query            string            `json:"query" jsonschema:"required,Search query text (1-2000 characters)"`
-	KnowledgeBaseIDs []string          `json:"knowledgeBaseIds,omitempty" jsonschema:"Knowledge base IDs to search"`
+	KnowledgeBaseIDs []string          `json:"knowledgeBaseIds,omitempty" jsonschema:"Knowledge base IDs to search; empty searches all available knowledge bases"`
 	DocumentIDs      []string          `json:"documentIds,omitempty" jsonschema:"Optional document IDs to restrict search"`
 	TopK             int               `json:"topK,omitempty" jsonschema:"Maximum number of results to return"`
 	ScoreThreshold   *float64          `json:"scoreThreshold,omitempty" jsonschema:"Minimum similarity score threshold"`
@@ -65,7 +65,7 @@ type searchKnowledgeOutput struct {
 
 type answerFromKnowledgeInput struct {
 	Question         string   `json:"question" jsonschema:"required,Question to answer using retrieved knowledge"`
-	KnowledgeBaseIDs []string `json:"knowledgeBaseIds,omitempty" jsonschema:"Knowledge base IDs to search"`
+	KnowledgeBaseIDs []string `json:"knowledgeBaseIds,omitempty" jsonschema:"Knowledge base IDs to search; empty searches all available knowledge bases"`
 	DocumentIDs      []string `json:"documentIds,omitempty" jsonschema:"Optional document IDs to restrict search"`
 	TopK             int      `json:"topK,omitempty" jsonschema:"Maximum retrieval results"`
 	ScoreThreshold   *float64 `json:"scoreThreshold,omitempty" jsonschema:"Minimum similarity score threshold"`
@@ -143,7 +143,8 @@ type listDocumentsInput struct {
 }
 
 type getDocumentInput struct {
-	DocumentID string `json:"documentId" jsonschema:"required,Document ID"`
+	DocumentID      string `json:"documentId" jsonschema:"required,Document ID"`
+	KnowledgeBaseID string `json:"knowledgeBaseId,omitempty" jsonschema:"Optional knowledge base ID from search results; server resolves it when omitted"`
 }
 
 type createDocumentInput struct {
@@ -164,9 +165,9 @@ type deleteDocumentInput struct {
 }
 
 type getChunkInput struct {
-	KnowledgeBaseID string `json:"knowledgeBaseId" jsonschema:"required,Knowledge base ID from search results"`
 	ChunkID         string `json:"chunkId" jsonschema:"required,Chunk ID from search results"`
-	DocumentID      string `json:"documentId" jsonschema:"required,Document ID from search results"`
+	DocumentID      string `json:"documentId,omitempty" jsonschema:"Optional document ID from search results; improves lookup performance"`
+	KnowledgeBaseID string `json:"knowledgeBaseId,omitempty" jsonschema:"Optional knowledge base ID from search results; server resolves it when omitted"`
 }
 
 type getDocumentContentInput struct {

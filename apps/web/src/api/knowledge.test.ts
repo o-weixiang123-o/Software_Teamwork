@@ -144,10 +144,10 @@ describe('knowledge gateway API', () => {
       )
     vi.stubGlobal('fetch', fetchMock)
 
-    await expect(listChunks('doc-1', { page: 1, pageSize: 50 })).resolves.toMatchObject({
+    await expect(listChunks('doc-1', 'kb-1', { page: 1, pageSize: 50 })).resolves.toMatchObject({
       items: [{ chunkIndex: 0, content: 'chunk', id: 'chunk-1' }],
     })
-    await expect((await getDocumentContent('doc-1')).text()).resolves.toBe('raw-content')
+    await expect((await getDocumentContent('doc-1', 'kb-1')).text()).resolves.toBe('raw-content')
 
     const chunkRequest = fetchMock.mock.calls[0]?.[0]
     const contentRequest = fetchMock.mock.calls[1]?.[0]
@@ -157,9 +157,11 @@ describe('knowledge gateway API', () => {
       throw new Error('expected Request instances')
     }
     expect(chunkRequest.url).toBe(
-      'http://gateway.test/api/v1/documents/doc-1/chunks?page=1&pageSize=50',
+      'http://gateway.test/api/v1/documents/doc-1/chunks?knowledgeBaseId=kb-1&page=1&pageSize=50',
     )
-    expect(contentRequest.url).toBe('http://gateway.test/api/v1/documents/doc-1/content')
+    expect(contentRequest.url).toBe(
+      'http://gateway.test/api/v1/documents/doc-1/content?knowledgeBaseId=kb-1',
+    )
     expect(contentRequest.headers.get('Accept')).toContain('application/octet-stream')
   })
 

@@ -38,6 +38,10 @@ function citationDocumentId(citation: CitationLike): string {
   return citation.documentId ?? citation.docId ?? ''
 }
 
+function citationKnowledgeBaseId(citation: CitationLike): string {
+  return citation.knowledgeBaseId ?? ''
+}
+
 function citationDocumentName(citation: CitationLike): string {
   return citation.documentName ?? citation.docName ?? '未知文档'
 }
@@ -130,12 +134,13 @@ function CitationTooltip({
 
   async function handleDownload(citation: CitationLike) {
     const documentId = citationDocumentId(citation)
-    if (!documentId || downloadingId) return
+    const knowledgeBaseId = citationKnowledgeBaseId(citation)
+    if (!documentId || !knowledgeBaseId || downloadingId) return
 
     setDownloadError(null)
     setDownloadingId(citation.id)
     try {
-      const blob = await getDocumentContent(documentId)
+      const blob = await getDocumentContent(documentId, knowledgeBaseId)
       const url = URL.createObjectURL(blob)
       downloadFromUrl(url, downloadFilename(citation))
       setTimeout(() => URL.revokeObjectURL(url), 1000)
@@ -177,6 +182,7 @@ function CitationTooltip({
           <div className="space-y-4">
             {effectiveCitations.map((citation) => {
               const documentId = citationDocumentId(citation)
+              const knowledgeBaseId = citationKnowledgeBaseId(citation)
               const source = (citation as QACitationDetail).source
               const sourceAvailability = source?.available ?? citation.isSourceAvailable
               const sourceAvailable = sourceAvailability === true
@@ -201,7 +207,7 @@ function CitationTooltip({
                         {citation.citationNo != null ? `[${citation.citationNo}]` : citation.id}
                       </div>
                     </div>
-                    {sourceAvailable && documentId && (
+                    {sourceAvailable && documentId && knowledgeBaseId && (
                       <Button
                         aria-label="下载原文"
                         className="h-7 shrink-0 px-2"

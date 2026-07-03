@@ -73,6 +73,28 @@ func TestKnowledgeToolDoesNotRaiseConfiguredScoreThreshold(t *testing.T) {
 	}
 }
 
+func TestKnowledgeToolKeepsEmptyKnowledgeBaseIDsForGlobalSearch(t *testing.T) {
+	retriever := &captureKnowledgeRetriever{}
+	client, err := NewKnowledgeToolClient(KnowledgeToolConfig{RetrievalClient: retriever})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := contextutil.WithUserID(context.Background(), "user-1")
+	ctx = contextutil.WithDefaultKnowledgeBaseIDs(ctx, []string{"stale-default-kb"})
+	ctx = contextutil.WithRetrievalSettings(ctx, contextutil.RetrievalSettings{TopK: 5})
+
+	result, err := client.CallTool(ctx, ToolSearchKnowledge, json.RawMessage(`{"query":"支持向量机"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected tool failure: %+v", result)
+	}
+	if len(retriever.input.KnowledgeBaseIDs) != 0 {
+		t.Fatalf("knowledgeBaseIds=%+v, want empty for global search", retriever.input.KnowledgeBaseIDs)
+	}
+}
+
 func TestKnowledgeToolAllowsLowerScoreThreshold(t *testing.T) {
 	retriever := &captureKnowledgeRetriever{}
 	client, err := NewKnowledgeToolClient(KnowledgeToolConfig{RetrievalClient: retriever})

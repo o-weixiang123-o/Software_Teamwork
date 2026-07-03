@@ -284,12 +284,15 @@ func documentsFromVendor(items []map[string]interface{}) []documentSummary {
 	return out
 }
 
-func documentChunkFromVendor(raw map[string]interface{}, kbID, documentID string) documentChunkSummary {
+func documentChunkFromVendor(raw map[string]interface{}, kbID, documentID string, fallbackIndex int) documentChunkSummary {
 	content := stringField(raw, "content_with_weight", "content")
 	if content == "" {
 		content = stringField(raw, "content_ltks")
 	}
-	chunkIndex := int32(intField(raw, "chunk_index", "page_num_int"))
+	chunkIndex := int32(fallbackIndex)
+	if explicitIndex := optionalIntField(raw, "chunk_index", "chunkIndex"); explicitIndex != nil {
+		chunkIndex = int32(*explicitIndex)
+	}
 	metadata := map[string]any{}
 	for key, value := range raw {
 		switch key {
@@ -310,10 +313,10 @@ func documentChunkFromVendor(raw map[string]interface{}, kbID, documentID string
 	}
 }
 
-func documentChunksFromVendor(items []map[string]interface{}, kbID, documentID string) []documentChunkSummary {
+func documentChunksFromVendor(items []map[string]interface{}, kbID, documentID string, fallbackStart int) []documentChunkSummary {
 	out := make([]documentChunkSummary, 0, len(items))
-	for _, item := range items {
-		out = append(out, documentChunkFromVendor(item, kbID, documentID))
+	for idx, item := range items {
+		out = append(out, documentChunkFromVendor(item, kbID, documentID, fallbackStart+idx))
 	}
 	return out
 }

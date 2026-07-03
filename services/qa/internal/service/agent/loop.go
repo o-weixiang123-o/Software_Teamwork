@@ -67,12 +67,24 @@ type ToolObservation struct {
 
 type ToolObserver func(ToolObservation)
 
+// ToolResultPolicyDecision lets the QA service tighten the tool surface after
+// a completed tool call. It is intentionally internal to the agent runtime and
+// must not expose raw tool payloads to public events.
+type ToolResultPolicyDecision struct {
+	SuppressToolNames    []string
+	SuppressToolPrefixes []string
+	AppendSystemMessage  string
+}
+
+type ToolResultPolicy func(ToolObservation) ToolResultPolicyDecision
+
 type Config struct {
 	MaxIterations          int
 	ToolTimeout            time.Duration
 	MaxToolResultBytes     int
 	Observer               Observer
 	ReasoningFilterFactory ReasoningFilterFactory
+	ToolResultPolicy       ToolResultPolicy
 }
 
 type Runner struct {
@@ -149,7 +161,12 @@ func (r *Runner) run(ctx context.Context, input []Message, observer Observer, to
 	}
 
 	messages := append([]Message(nil), input...)
+	suppressedToolNames := map[string]struct{}{}
+	suppressedToolPrefixes := map[string]struct{}{}
+	appendedPolicyMessages := map[string]struct{}{}
 	for iteration := 1; iteration <= r.cfg.MaxIterations; iteration++ {
+		activeToolDefs := filterToolDefinitions(toolDefs, suppressedToolNames, suppressedToolPrefixes)
+		activeAllowed := allowedToolNames(activeToolDefs)
 		emit(observer, Event{Type: EventModelStarted, Iteration: iteration})
 		var answerDeltas []string
 		var reasoningFilter ReasoningFilter
@@ -174,7 +191,7 @@ func (r *Runner) run(ctx context.Context, input []Message, observer Observer, to
 				answerDeltas = append(answerDeltas, delta)
 			}
 		})
-		completion, err := r.model.Complete(modelCtx, messages, toolDefs)
+		completion, err := r.model.Complete(modelCtx, messages, activeToolDefs)
 		if err != nil {
 			return Result{}, fmt.Errorf("complete model iteration %d: %w", iteration, err)
 		}
@@ -208,12 +225,93 @@ func (r *Runner) run(ctx context.Context, input []Message, observer Observer, to
 		}
 
 		for index, call := range assistant.ToolCalls {
-			resultMessage := r.executeTool(ctx, iteration, index, allowed, call, observer, toolObserver)
+			resultMessage := r.executeTool(ctx, iteration, index, activeAllowed, call, observer, toolObserver)
 			messages = append(messages, resultMessage)
+			r.applyToolResultPolicy(&messages, appendedPolicyMessages, suppressedToolNames, suppressedToolPrefixes, iteration, call, resultMessage)
 		}
 	}
 
 	return Result{Messages: messages, Iterations: r.cfg.MaxIterations}, ErrMaxIterations
+}
+
+func (r *Runner) applyToolResultPolicy(messages *[]Message, appended map[string]struct{}, suppressedNames map[string]struct{}, suppressedPrefixes map[string]struct{}, iteration int, call ToolCall, resultMessage Message) {
+	if r.cfg.ToolResultPolicy == nil {
+		return
+	}
+	toolName := strings.TrimSpace(call.Function.Name)
+	if toolName == "" {
+		toolName = strings.TrimSpace(resultMessage.Name)
+	}
+	decision := r.cfg.ToolResultPolicy(ToolObservation{
+		Type:       EventToolCompleted,
+		Iteration:  iteration,
+		ToolCallID: strings.TrimSpace(call.ID),
+		ToolName:   toolName,
+		Arguments:  normalizedToolArguments(call.Function.Arguments),
+		Result:     resultMessage.Content,
+	})
+	for _, name := range decision.SuppressToolNames {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			suppressedNames[name] = struct{}{}
+		}
+	}
+	for _, prefix := range decision.SuppressToolPrefixes {
+		prefix = strings.TrimSpace(prefix)
+		if prefix != "" {
+			suppressedPrefixes[prefix] = struct{}{}
+		}
+	}
+	message := strings.TrimSpace(decision.AppendSystemMessage)
+	if message == "" {
+		return
+	}
+	if _, exists := appended[message]; exists {
+		return
+	}
+	appended[message] = struct{}{}
+	*messages = append(*messages, Message{Role: RoleSystem, Content: message})
+}
+
+func allowedToolNames(definitions []ToolDefinition) map[string]struct{} {
+	allowed := make(map[string]struct{}, len(definitions))
+	for _, definition := range definitions {
+		name := strings.TrimSpace(definition.Function.Name)
+		if name != "" {
+			allowed[name] = struct{}{}
+		}
+	}
+	return allowed
+}
+
+func filterToolDefinitions(definitions []ToolDefinition, suppressedNames map[string]struct{}, suppressedPrefixes map[string]struct{}) []ToolDefinition {
+	if len(suppressedNames) == 0 && len(suppressedPrefixes) == 0 {
+		return definitions
+	}
+	filtered := make([]ToolDefinition, 0, len(definitions))
+	for _, definition := range definitions {
+		name := strings.TrimSpace(definition.Function.Name)
+		if name == "" {
+			continue
+		}
+		if _, suppressed := suppressedNames[name]; suppressed {
+			continue
+		}
+		if hasSuppressedPrefix(name, suppressedPrefixes) {
+			continue
+		}
+		filtered = append(filtered, definition)
+	}
+	return filtered
+}
+
+func hasSuppressedPrefix(name string, prefixes map[string]struct{}) bool {
+	for prefix := range prefixes {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Runner) executeTool(ctx context.Context, iteration, callIndex int, allowed map[string]struct{}, call ToolCall, observer Observer, toolObserver ToolObserver) Message {

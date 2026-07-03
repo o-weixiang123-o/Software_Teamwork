@@ -27,11 +27,14 @@ export const documentKeys = {
   list: (knowledgeBaseId: string, page: number, pageSize: number, status?: string) =>
     [...documentKeys.lists(), { knowledgeBaseId, page, pageSize, status }] as const,
   details: () => [...documentKeys.all, 'detail'] as const,
-  detail: (id: string) => [...documentKeys.details(), id] as const,
-  chunks: (documentId: string) => [...documentKeys.all, 'chunks', documentId] as const,
-  chunkPage: (documentId: string, page: number, pageSize: number) =>
-    [...documentKeys.chunks(documentId), { page, pageSize }] as const,
-  content: (documentId: string) => [...documentKeys.all, 'content', documentId] as const,
+  detail: (id: string, knowledgeBaseId: string) =>
+    [...documentKeys.details(), { id, knowledgeBaseId }] as const,
+  chunks: (documentId: string, knowledgeBaseId: string) =>
+    [...documentKeys.all, 'chunks', { documentId, knowledgeBaseId }] as const,
+  chunkPage: (documentId: string, knowledgeBaseId: string, page: number, pageSize: number) =>
+    [...documentKeys.chunks(documentId, knowledgeBaseId), { page, pageSize }] as const,
+  content: (documentId: string, knowledgeBaseId: string) =>
+    [...documentKeys.all, 'content', { documentId, knowledgeBaseId }] as const,
   search: ['knowledge-search'] as const,
 }
 
@@ -53,30 +56,30 @@ export function useDocuments(
 }
 
 /** Single document detail. */
-export function useDocument(id: string) {
+export function useDocument(id: string, knowledgeBaseId: string) {
   return useQuery({
-    queryKey: documentKeys.detail(id),
-    queryFn: () => getDocument(id),
-    enabled: id.length > 0,
+    queryKey: documentKeys.detail(id, knowledgeBaseId),
+    queryFn: () => getDocument(id, knowledgeBaseId),
+    enabled: id.length > 0 && knowledgeBaseId.length > 0,
   })
 }
 
 /** Paginated document chunks. */
-export function useChunks(documentId: string, page = 1, pageSize = 50) {
+export function useChunks(documentId: string, knowledgeBaseId: string, page = 1, pageSize = 50) {
   return useQuery({
-    queryKey: documentKeys.chunkPage(documentId, page, pageSize),
-    queryFn: () => listChunks(documentId, { page, pageSize }),
+    queryKey: documentKeys.chunkPage(documentId, knowledgeBaseId, page, pageSize),
+    queryFn: () => listChunks(documentId, knowledgeBaseId, { page, pageSize }),
     placeholderData: (prev) => prev,
-    enabled: Boolean(documentId),
+    enabled: Boolean(documentId) && Boolean(knowledgeBaseId),
   })
 }
 
 /** Document raw content as Blob (for download). */
-export function useDocumentContent(documentId: string) {
+export function useDocumentContent(documentId: string, knowledgeBaseId: string) {
   return useQuery({
-    queryKey: documentKeys.content(documentId),
-    queryFn: () => getDocumentContent(documentId),
-    enabled: Boolean(documentId),
+    queryKey: documentKeys.content(documentId, knowledgeBaseId),
+    queryFn: () => getDocumentContent(documentId, knowledgeBaseId),
+    enabled: Boolean(documentId) && Boolean(knowledgeBaseId),
     staleTime: Infinity,
   })
 }
@@ -113,14 +116,18 @@ export function useUpdateDocument() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ id, ...params }: { id: string } & UpdateDocumentRequest) =>
-      updateDocument(id, params),
+    mutationFn: ({
+      id,
+      knowledgeBaseId,
+      ...params
+    }: { id: string; knowledgeBaseId: string } & UpdateDocumentRequest) =>
+      updateDocument(id, knowledgeBaseId, params),
     onSuccess: (_data, _variables) => {
       void queryClient.invalidateQueries({
         queryKey: documentKeys.lists(),
       })
       void queryClient.invalidateQueries({
-        queryKey: documentKeys.detail(_variables.id),
+        queryKey: documentKeys.detail(_variables.id, _variables.knowledgeBaseId),
       })
     },
   })
@@ -131,13 +138,14 @@ export function useDeleteDocument() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (id: string) => deleteDocument(id),
-    onSuccess: (_data, id) => {
+    mutationFn: ({ id, knowledgeBaseId }: { id: string; knowledgeBaseId: string }) =>
+      deleteDocument(id, knowledgeBaseId),
+    onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({
         queryKey: documentKeys.lists(),
       })
       queryClient.removeQueries({
-        queryKey: documentKeys.detail(id),
+        queryKey: documentKeys.detail(variables.id, variables.knowledgeBaseId),
       })
       void queryClient.invalidateQueries({
         queryKey: ['knowledge-bases'],

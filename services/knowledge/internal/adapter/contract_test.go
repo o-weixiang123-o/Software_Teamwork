@@ -589,8 +589,8 @@ func TestAdapterKnowledgeQueryMapsRuntimeNotFoundError(t *testing.T) {
 
 func TestAdapterKnowledgeQueryExpandsAccessibleKnowledgeBasesWhenOmitted(t *testing.T) {
 	state := newFakeVendorState()
-	state.datasets["kb_fake_1"] = map[string]any{"id": "kb_fake_1", "name": "Boiler"}
-	state.datasets["kb_fake_2"] = map[string]any{"id": "kb_fake_2", "name": "Transformer"}
+	state.datasets["kb_fake_1"] = map[string]any{"id": "kb_fake_1", "name": "Boiler", "chunk_count": 1}
+	state.datasets["kb_fake_2"] = map[string]any{"id": "kb_fake_2", "name": "Transformer", "chunk_count": 1}
 	vendor := startFakeVendor(t, state)
 	defer vendor.Close()
 
@@ -625,8 +625,8 @@ func TestAdapterKnowledgeQueryExpandsAccessibleKnowledgeBasesWhenOmitted(t *test
 
 func TestAdapterTrustedQAKnowledgeQueryUsesProjectRuntimeScopeWithoutKnowledgeRead(t *testing.T) {
 	state := newFakeVendorState()
-	state.datasets["kb_fake_1"] = map[string]any{"id": "kb_fake_1", "name": "Boiler"}
-	state.datasets["kb_fake_2"] = map[string]any{"id": "kb_fake_2", "name": "Transformer"}
+	state.datasets["kb_fake_1"] = map[string]any{"id": "kb_fake_1", "name": "Boiler", "chunk_count": 1}
+	state.datasets["kb_fake_2"] = map[string]any{"id": "kb_fake_2", "name": "Transformer", "chunk_count": 1}
 	vendor := startFakeVendor(t, state)
 	defer vendor.Close()
 

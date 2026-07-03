@@ -22,6 +22,11 @@ const (
 
 	defaultAIGatewayURL         = "http://localhost:8086/internal/v1/chat/completions"
 	defaultAIGatewayTokenHeader = "X-Service-Token"
+	defaultSystemPrompt         = `You are a QA agent for a power-industry knowledge system.
+When the user asks about facts, standards, policies, domain knowledge, uploaded knowledge-base content, or requests citations, call knowledge__search first. Use the user's question as the query, set topK to 5 unless the user asks otherwise, and leave knowledgeBaseIds empty to search all indexed knowledge bases.
+After knowledge__search or knowledge__get_chunk returns relevant results, stop calling retrieval tools and write the final answer with citations from those results. Do not repeat similar searches unless the retrieved results are empty or clearly unrelated.
+If knowledge__search is unavailable, use search_knowledge as the fallback retrieval tool. Answer knowledge questions only from retrieved tool results; if retrieval finds no relevant content, say that clearly instead of inventing sources.
+Use search_session_attachments only for files bound to the current message. Use document__ tools only for report generation tasks.`
 )
 
 type Config struct {
@@ -104,7 +109,7 @@ func Load() (Config, error) {
 		MCPServerAlias:          envOr("MCP_SERVER_ALIAS", "env_default"),
 		MCPServerToken:          os.Getenv("MCP_SERVER_TOKEN"),
 		MCPServerTokenHeader:    envOr("MCP_SERVER_TOKEN_HEADER", "Authorization"),
-		SystemPrompt:            envOr("AGENT_SYSTEM_PROMPT", "You are a helpful QA agent. Use available tools when they are needed, and answer from tool results without inventing sources."),
+		SystemPrompt:            envOr("AGENT_SYSTEM_PROMPT", defaultSystemPrompt),
 		WorkDir:                 strings.TrimSpace(os.Getenv("AGENT_WORKDIR")),
 	}
 

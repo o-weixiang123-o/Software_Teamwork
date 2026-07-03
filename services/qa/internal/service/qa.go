@@ -428,20 +428,6 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 	input.AttachmentIDs = attachmentIDs
 	input.KnowledgeBaseIDs = normalizeIDList(input.KnowledgeBaseIDs)
 
-	if len(runtime.DefaultKnowledgeBaseIDs) > 0 {
-		if len(input.KnowledgeBaseIDs) > 0 {
-			allowed := make(map[string]struct{}, len(runtime.DefaultKnowledgeBaseIDs))
-			for _, id := range runtime.DefaultKnowledgeBaseIDs {
-				allowed[id] = struct{}{}
-			}
-			for _, id := range input.KnowledgeBaseIDs {
-				if _, ok := allowed[id]; !ok {
-					return AskResult{}, NewError(CodeValidation, "one or more requested knowledge bases are not accessible", nil)
-				}
-			}
-		}
-	}
-
 	run, err := s.repository.AppendMessages(ctx, userID, conversationID, ResponseRunStart{
 		RequestID:          RequestIDFromContext(ctx),
 		QAConfigVersionID:  runtime.QAConfigVersionID,

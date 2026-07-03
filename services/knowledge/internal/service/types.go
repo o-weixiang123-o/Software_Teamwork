@@ -124,6 +124,29 @@ type PageInput struct {
 	PageSize int
 }
 
+type RuntimeKnowledgeBase struct {
+	ID          string
+	TenantID    string
+	EmbeddingID string
+	ChunkCount  int64
+}
+
+type RuntimeKnowledgeBaseCatalog interface {
+	ListRuntimeKnowledgeBases(ctx context.Context, ids []string) ([]RuntimeKnowledgeBase, error)
+}
+
+type RuntimeDocument struct {
+	ID              string
+	KnowledgeBaseID string
+	TenantID        string
+	ChunkCount      int64
+}
+
+type RuntimeDocumentCatalog interface {
+	GetRuntimeDocument(ctx context.Context, id string) (RuntimeDocument, error)
+	ListRuntimeDocuments(ctx context.Context, ids []string) ([]RuntimeDocument, error)
+}
+
 type ParserConfigRepository interface {
 	ListParserConfigs(ctx context.Context, enabled *bool) ([]ParserConfig, error)
 	GetParserConfig(ctx context.Context, id string) (ParserConfig, error)

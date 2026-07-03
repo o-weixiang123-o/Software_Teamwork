@@ -407,6 +407,41 @@ func TestBuildRetrievalBodyOmitsRerankWithoutVendorModel(t *testing.T) {
 	}
 }
 
+func TestDocumentChunksFromVendorUsesPageOffsetFallbackIndex(t *testing.T) {
+	chunks := documentChunksFromVendor([]map[string]interface{}{
+		{
+			"id":                  "chunk_10",
+			"content_with_weight": "first",
+			"page_num_int":        []any{1, 1, 2},
+		},
+		{
+			"id":                  "chunk_11",
+			"content_with_weight": "second",
+			"page_num_int":        []any{2},
+		},
+	}, "kb_1", "doc_1", 10)
+
+	if len(chunks) != 2 {
+		t.Fatalf("len(chunks)=%d, want 2", len(chunks))
+	}
+	if chunks[0].ChunkIndex != 10 || chunks[1].ChunkIndex != 11 {
+		t.Fatalf("chunk indexes=%d,%d; want 10,11", chunks[0].ChunkIndex, chunks[1].ChunkIndex)
+	}
+}
+
+func TestDocumentChunkFromVendorKeepsExplicitChunkIndex(t *testing.T) {
+	chunk := documentChunkFromVendor(map[string]interface{}{
+		"id":                  "chunk_42",
+		"content_with_weight": "content",
+		"chunk_index":         float64(42),
+		"page_num_int":        []any{9},
+	}, "kb_1", "doc_1", 7)
+
+	if chunk.ChunkIndex != 42 {
+		t.Fatalf("ChunkIndex=%d, want explicit vendor chunk_index 42", chunk.ChunkIndex)
+	}
+}
+
 func TestKnowledgeQueryTraceUsesConfiguredRuntimeValues(t *testing.T) {
 	summary := knowledgeQueryFromVendor(
 		"kq_test",
