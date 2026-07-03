@@ -224,30 +224,33 @@ func TestRunnerEmitsAnswerDeltaFromModelStreamObserver(t *testing.T) {
 	}
 }
 
-func TestRunnerSuppressesAnswerDeltasFromToolCallTurns(t *testing.T) {
+func TestRunnerRejectsAnswerDeltasFromToolCallTurns(t *testing.T) {
 	tools := &fakeTools{definitions: []ToolDefinition{addToolDefinition()}, result: ToolResult{Content: `{"sum":1}`}}
 	runner := testRunner(t, &toolThenAnswerStreamingModel{}, tools, 3)
 	var events []Event
-	result, err := runner.RunWithObserver(context.Background(), []Message{{Role: RoleUser, Content: "calculate"}}, func(event Event) {
+	_, err := runner.RunWithObserver(context.Background(), []Message{{Role: RoleUser, Content: "calculate"}}, func(event Event) {
 		events = append(events, event)
 	})
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, ErrInvalidResponse) {
+		t.Fatalf("error=%v, want invalid response", err)
 	}
-	if result.Final.Content != "final answer" {
-		t.Fatalf("final = %+v", result.Final)
-	}
-	var deltas []string
+	var sawAnswerDelta, sawToolStarted, sawAgentCompleted bool
 	for _, event := range events {
 		if event.Type == EventAnswerDelta {
-			deltas = append(deltas, event.AnswerContent)
+			sawAnswerDelta = true
+		}
+		if event.Type == EventToolStarted {
+			sawToolStarted = true
+		}
+		if event.Type == EventAgentCompleted {
+			sawAgentCompleted = true
 		}
 	}
-	if strings.Join(deltas, "") != result.Final.Content {
-		t.Fatalf("answer deltas=%q events=%+v", deltas, events)
+	if !sawAnswerDelta {
+		t.Fatalf("missing streamed answer delta before invalid response: %+v", events)
 	}
-	if strings.Contains(strings.Join(deltas, ""), "checking") {
-		t.Fatalf("tool-call turn content leaked into answer deltas: %q", deltas)
+	if sawToolStarted || sawAgentCompleted {
+		t.Fatalf("tool turn continued after streamed answer/tool-call conflict: %+v", events)
 	}
 }
 

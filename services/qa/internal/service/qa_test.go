@@ -1392,7 +1392,32 @@ func TestAskStreamsAnswerDeltasFromAgentEvents(t *testing.T) {
 	assertStreamPayloadsDoNotLeakSensitiveData(t, repository.savedEvents)
 }
 
-func TestAskDoesNotReplayToolTurnAnswerDeltas(t *testing.T) {
+func TestAskFailsMismatchedAnswerDeltas(t *testing.T) {
+	repository := &fakeRepository{conversation: Conversation{ID: "conversation-id", OwnerUserID: "user-id", Status: "active"}}
+	qa, err := NewQAService(repository, fakeRuntimeProvider{
+		runner: answerDeltaRunner{deltas: []string{"intermediate"}, final: "final answer"},
+		prompt: "system",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := qa.Ask(context.Background(), "user-id", "conversation-id", AskInput{Message: "stream mismatched answer"}, nil)
+	appErr, ok := Classify(err)
+	if !ok || appErr.Code != CodeDependency || appErr.Message != "answer stream did not match final answer" {
+		t.Fatalf("error=%v, want answer stream mismatch dependency error", err)
+	}
+	if result.ResponseRun.Status != "failed" || repository.finalization.Status != "failed" {
+		t.Fatalf("result=%+v finalization=%+v", result.ResponseRun, repository.finalization)
+	}
+	for _, event := range repository.savedEvents {
+		if event.EventType == "answer.completed" {
+			t.Fatalf("answer.completed emitted after answer stream mismatch: %+v", repository.savedEvents)
+		}
+	}
+	assertStreamPayloadsDoNotLeakSensitiveData(t, repository.savedEvents)
+}
+
+func TestAskRejectsToolTurnAnswerDeltas(t *testing.T) {
 	repository := &fakeRepository{conversation: Conversation{ID: "conversation-id", OwnerUserID: "user-id", Status: "active"}}
 	runner, err := agent.NewRunner(&streamingToolThenAnswerModel{}, streamingToolClient{}, agent.Config{
 		MaxIterations:      3,
@@ -1410,24 +1435,29 @@ func TestAskDoesNotReplayToolTurnAnswerDeltas(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := qa.Ask(context.Background(), "user-id", "conversation-id", AskInput{Message: "stream answer with tool"}, nil)
-	if err != nil {
-		t.Fatal(err)
+	appErr, ok := Classify(err)
+	if !ok || appErr.Code != CodeDependency || appErr.Message != "answer generation failed" {
+		t.Fatalf("error=%v, want dependency answer generation failed", err)
 	}
-	if result.AssistantMessage.Content != "final answer" || repository.finalization.AssistantMessage.Content != "final answer" {
-		t.Fatalf("result=%+v finalization=%+v", result.AssistantMessage, repository.finalization.AssistantMessage)
+	if result.ResponseRun.Status != "failed" || repository.finalization.Status != "failed" {
+		t.Fatalf("result=%+v finalization=%+v", result.ResponseRun, repository.finalization)
 	}
 	var answerTexts []string
+	var sawCompleted bool
 	for _, event := range repository.savedEvents {
-		if event.EventType == "answer.delta" {
+		switch event.EventType {
+		case "answer.delta":
 			answerTexts = append(answerTexts, fmt.Sprint(event.Payload["text"]))
+		case "answer.completed":
+			sawCompleted = true
 		}
 	}
 	joined := strings.Join(answerTexts, "")
-	if joined != "final answer" {
+	if joined != "checking " {
 		t.Fatalf("answer texts=%q events=%+v", answerTexts, repository.savedEvents)
 	}
-	if strings.Contains(joined, "checking") {
-		t.Fatalf("tool-call turn content leaked into answer deltas: %q", answerTexts)
+	if sawCompleted {
+		t.Fatalf("answer.completed emitted after invalid tool-turn answer deltas: %+v", repository.savedEvents)
 	}
 	assertStreamPayloadsDoNotLeakSensitiveData(t, repository.savedEvents)
 }

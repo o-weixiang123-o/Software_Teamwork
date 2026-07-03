@@ -717,6 +717,25 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 		emitAnswerDelta(assistantMessage.Content)
 	} else if strings.HasPrefix(assistantMessage.Content, streamedAnswerText) && len(streamedAnswerText) < len(assistantMessage.Content) {
 		emitAnswerDelta(assistantMessage.Content[len(streamedAnswerText):])
+	} else if streamedAnswerText != assistantMessage.Content {
+		publicMessage := "answer stream did not match final answer"
+		assistantMessage.Status = "failed"
+		emit("error", map[string]any{"responseRunId": run.ID, "code": string(CodeDependency), "message": publicMessage})
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		finalized, finalizeErr := s.repository.FinalizeResponseRun(cleanupCtx, userID, ResponseRunFinalization{
+			RunID: run.ID, AssistantMessage: assistantMessage, ReasoningSteps: steps, StreamEvents: events,
+			Citations: finalCitations,
+			Status:    "failed", TerminationReason: "answer_stream_mismatch", CurrentIteration: result.Iterations,
+			PromptTokens: usage.PromptTokens, CompletionTokens: usage.CompletionTokens,
+			ReasoningTokens: usage.ReasoningTokens, TotalTokens: usage.TotalTokens,
+			CompletedAt: s.now().UTC(),
+		})
+		if finalizeErr != nil {
+			return AskResult{}, NewError(CodeDependency, "answer state persistence failed", fmt.Errorf("finalize mismatched answer stream: %w", finalizeErr))
+		}
+		run = finalized
+		return AskResult{UserMessage: userMessage, AssistantMessage: assistantMessage, ResponseRun: run, Citations: finalCitations, ReasoningSteps: steps}, NewError(CodeDependency, publicMessage, errors.New("streamed answer deltas do not match final answer"))
 	}
 	emit("answer.completed", map[string]any{
 		"responseRunId": run.ID,
