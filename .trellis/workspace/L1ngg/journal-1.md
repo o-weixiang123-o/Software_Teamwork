@@ -580,3 +580,37 @@ Removed Knowledge runtime compatibility debt: explicit document dataset context,
 ### Next Steps
 
 - None - task complete
+
+
+## Session 18: Knowledge module review (parsing & RAG) — research only
+
+**Date**: 2026-07-03
+**Task**: Review and optimize knowledge module (document parsing & RAG)
+**Branch**: `L1nggTeam/feat/ragflow-runtime-vendor`
+
+### Summary
+
+Read-only correctness/robustness review of the knowledge module along product-reachable paths (scope: reachability map from adapter routes + worker task types). Four parallel review agents (worker / parsing / retrieval / adapter) + orchestrator adversarial verification. No source code modified — deliverable is `review-report.md` with per-finding fix proposals.
+
+### Key Results
+
+- **P0 x1 (verified)**: vendoring dropped `get_task` doc_ids join-key substitution (`task_service.py:82`) — all dataset-scope RAPTOR/GraphRAG/mindmap tasks silently dropped, KB index slot locked after one attempt. 2-line fix proposed.
+- **P1 x12 (deduped)**: queue_tasks zero-task stuck-RUNNING (double-found); OCR failure masked by progress ratchet; book.py PDF tables dropped (verified upstream-inherited, not project regression); VisionFigureParser list->str corruption; markdown vision TypeError; empty-index retrieval -> 502; validation errors collapse to opaque 502; adapter topK never mapped to runtime size (results pinned to 30); download passes JSON error envelope as file bytes; PATCH tags missing from response; statistics N+1 fan-out; unbounded JSON bodies.
+- **Verification corrections**: 1 provenance fix (book.py upstream-inherited), 1 downgrade (multi-tenant break unreachable in 1:1 tenant deployment -> P2 latent).
+- Clean: tenant isolation (worker + API), auth chain (timing-safe, fail-closed, idempotent provisioning), chunk-id idempotency, metadata filter 3-way semantics, PR #440/#536 hardening complete.
+
+### Artifacts
+
+`review-report.md` (consolidated, with fix batches A-D and rollout order), `research/{reachability,findings-worker,findings-parsing,findings-retrieval,findings-adapter,verification-log}.md`
+
+### Testing
+
+- Not run: no code changed (research-only scope per user directive mid-task).
+
+### Status
+
+[OK] **Completed** (research & proposals delivered)
+
+### Next Steps
+
+- Optional follow-up task: implement fix batches per review-report.md recommended order (P0 first).
