@@ -321,7 +321,7 @@ class CryptoUtil:
 if __name__ == "__main__":
     # Test AES encryption
     crypto = CryptoUtil(algorithm="aes-256-cbc", key="test_key_123456")
-    test_data = b"Hello, RAGFlow! This is a test for encryption."
+    test_data = b"Hello, Knowledge runtime! This is a test for encryption."
     
     encrypted = crypto.encrypt(test_data)
     decrypted = crypto.decrypt(encrypted)

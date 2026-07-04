@@ -2,10 +2,13 @@ package adapter
 
 import (
 	"encoding/json"
+	"net/http"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/service"
+	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/vendorclient"
 )
 
 func TestBuildCreateDatasetBodyUsesDefaultParserConfigWhenChunkStrategyMissing(t *testing.T) {
@@ -46,6 +49,24 @@ func TestBuildCreateDatasetBodyPreservesExplicitChunkStrategy(t *testing.T) {
 	}
 }
 
+func TestBuildCreateDatasetBodyRejectsInvalidChunkStrategy(t *testing.T) {
+	explicit := json.RawMessage(`"not-an-object"`)
+	_, err := buildCreateDatasetBody(createKnowledgeBaseRequest{
+		Name:          "Manuals",
+		ChunkStrategy: &explicit,
+	}, nil, createDatasetOptions{})
+	if err == nil {
+		t.Fatal("buildCreateDatasetBody returned nil error")
+	}
+	appErr, ok := service.Classify(err)
+	if !ok || appErr.Code != service.CodeValidation {
+		t.Fatalf("error=%v, want validation_error", err)
+	}
+	if appErr.Fields["chunkStrategy"] == "" {
+		t.Fatalf("fields=%v", appErr.Fields)
+	}
+}
+
 func TestBuildCreateDatasetBodyIncludesVendorEmbeddingID(t *testing.T) {
 	body, err := buildCreateDatasetBody(
 		createKnowledgeBaseRequest{Name: "Manuals"},
@@ -74,6 +95,21 @@ func TestBuildUpdateDatasetBodyPreservesExplicitChunkStrategy(t *testing.T) {
 	}
 	if cfg["layout_recognize"] != ragflowLayoutOpenDataLoader {
 		t.Fatalf("layout_recognize=%v", cfg["layout_recognize"])
+	}
+}
+
+func TestBuildUpdateDatasetBodyRejectsInvalidChunkStrategy(t *testing.T) {
+	explicit := json.RawMessage(`[]`)
+	_, err := buildUpdateDatasetBody(updateKnowledgeBaseRequest{ChunkStrategy: &explicit})
+	if err == nil {
+		t.Fatal("buildUpdateDatasetBody returned nil error")
+	}
+	appErr, ok := service.Classify(err)
+	if !ok || appErr.Code != service.CodeValidation {
+		t.Fatalf("error=%v, want validation_error", err)
+	}
+	if appErr.Fields["chunkStrategy"] == "" {
+		t.Fatalf("fields=%v", appErr.Fields)
 	}
 }
 
@@ -335,6 +371,24 @@ func TestBuildRetrievalBodyForwardsSearchParams(t *testing.T) {
 	}
 }
 
+func TestBuildRetrievalBodyMapsTopKToRuntimeSizeWithoutRerank(t *testing.T) {
+	body, err := buildRetrievalBody(knowledgeQueryRequest{
+		Query:            "maintenance",
+		KnowledgeBaseIDs: []string{"kb_1"},
+		TopK:             7,
+	}, retrievalBuildOptions{})
+	if err != nil {
+		t.Fatalf("buildRetrievalBody: %v", err)
+	}
+	payload := decodeMap(t, body)
+	if payload["top_k"].(float64) != 7 {
+		t.Fatalf("top_k=%v", payload["top_k"])
+	}
+	if payload["size"].(float64) != 7 {
+		t.Fatalf("size=%v", payload["size"])
+	}
+}
+
 func TestBuildRetrievalBodyOmitsRerankWithoutVendorModel(t *testing.T) {
 	body, err := buildRetrievalBody(knowledgeQueryRequest{
 		Query:            "q",
@@ -353,7 +407,142 @@ func TestBuildRetrievalBodyOmitsRerankWithoutVendorModel(t *testing.T) {
 	}
 }
 
+func TestDocumentChunksFromVendorUsesPageOffsetFallbackIndex(t *testing.T) {
+	chunks := documentChunksFromVendor([]map[string]interface{}{
+		{
+			"id":                  "chunk_10",
+			"content_with_weight": "first",
+			"page_num_int":        []any{1, 1, 2},
+		},
+		{
+			"id":                  "chunk_11",
+			"content_with_weight": "second",
+			"page_num_int":        []any{2},
+		},
+	}, "kb_1", "doc_1", 10)
+
+	if len(chunks) != 2 {
+		t.Fatalf("len(chunks)=%d, want 2", len(chunks))
+	}
+	if chunks[0].ChunkIndex != 10 || chunks[1].ChunkIndex != 11 {
+		t.Fatalf("chunk indexes=%d,%d; want 10,11", chunks[0].ChunkIndex, chunks[1].ChunkIndex)
+	}
+}
+
+func TestDocumentChunkFromVendorKeepsExplicitChunkIndex(t *testing.T) {
+	chunk := documentChunkFromVendor(map[string]interface{}{
+		"id":                  "chunk_42",
+		"content_with_weight": "content",
+		"chunk_index":         float64(42),
+		"page_num_int":        []any{9},
+	}, "kb_1", "doc_1", 7)
+
+	if chunk.ChunkIndex != 42 {
+		t.Fatalf("ChunkIndex=%d, want explicit vendor chunk_index 42", chunk.ChunkIndex)
+	}
+}
+
+func TestKnowledgeQueryTraceUsesConfiguredRuntimeValues(t *testing.T) {
+	summary := knowledgeQueryFromVendor(
+		"kq_test",
+		"query",
+		&vendorclient.RetrievalData{Total: 1, Chunks: []map[string]interface{}{{"id": "chunk_1"}}},
+		8,
+		0.4,
+		true,
+		ptrInt(5),
+		knowledgeQueryTraceOptions{VendorEmbeddingID: "BAAI/bge-m3@SILICONFLOW"},
+	)
+
+	if summary.Trace.EmbeddingProvider != "runtime" {
+		t.Fatalf("embeddingProvider=%q", summary.Trace.EmbeddingProvider)
+	}
+	if summary.Trace.EmbeddingModel != "BAAI/bge-m3@SILICONFLOW" {
+		t.Fatalf("embeddingModel=%q", summary.Trace.EmbeddingModel)
+	}
+	if summary.Trace.EmbeddingModel == "vendor-default" {
+		t.Fatalf("embeddingModel must not use fake default")
+	}
+	if summary.Trace.EmbeddingDimension == 0 {
+		t.Fatalf("embeddingDimension must not claim zero as a runtime fact")
+	}
+}
+
+func TestMapRetrievalChunkOmitsMissingChunkIndex(t *testing.T) {
+	result := mapRetrievalChunk(map[string]interface{}{
+		"id":                  "chunk_1",
+		"content_with_weight": "content",
+	})
+
+	if result.ChunkIndex != nil {
+		t.Fatalf("ChunkIndex=%v, want nil when vendor payload has no chunk index", *result.ChunkIndex)
+	}
+}
+
+func TestMapRetrievalChunkKeepsContentPreviewUTF8Valid(t *testing.T) {
+	result := mapRetrievalChunk(map[string]interface{}{
+		"id":                  "chunk_1",
+		"content_with_weight": strings.Repeat("电力A", 80),
+	})
+
+	if !utf8.ValidString(result.ContentPreview) {
+		t.Fatalf("ContentPreview is not valid UTF-8: %q", result.ContentPreview)
+	}
+	if strings.ContainsRune(result.ContentPreview, utf8.RuneError) {
+		t.Fatalf("ContentPreview contains replacement rune: %q", result.ContentPreview)
+	}
+	if len(result.ContentPreview) > 240 {
+		t.Fatalf("ContentPreview length=%d, want <= 240 bytes", len(result.ContentPreview))
+	}
+}
+
+func TestMapVendorErrorUsesStatusInsteadOfMessageMatching(t *testing.T) {
+	notFound := mapVendorError(&vendorclient.APIError{
+		HTTPStatus: 404,
+		Message:    "vendor hid the details",
+	})
+	appErr, ok := service.Classify(notFound)
+	if !ok || appErr.Code != service.CodeNotFound {
+		t.Fatalf("status 404 mapped to %v, want not_found", notFound)
+	}
+
+	dependency := mapVendorError(&vendorclient.APIError{
+		Code:    102,
+		Message: "not found text inside a non-404 vendor error",
+	})
+	appErr, ok = service.Classify(dependency)
+	if !ok || appErr.Code != service.CodeDependency {
+		t.Fatalf("message-matched error mapped to %v, want dependency_error", dependency)
+	}
+}
+
+func TestMapVendorErrorClassifiesRuntimeBodyCodes(t *testing.T) {
+	validation := mapVendorError(&vendorclient.APIError{
+		HTTPStatus: http.StatusOK,
+		Code:       101,
+		Message:    "Datasets use different embedding models.",
+	})
+	appErr, ok := service.Classify(validation)
+	if !ok || appErr.Code != service.CodeValidation {
+		t.Fatalf("body code 101 mapped to %v, want validation_error", validation)
+	}
+
+	notFound := mapVendorError(&vendorclient.APIError{
+		HTTPStatus: http.StatusOK,
+		Code:       404,
+		Message:    "Dataset not found.",
+	})
+	appErr, ok = service.Classify(notFound)
+	if !ok || appErr.Code != service.CodeNotFound {
+		t.Fatalf("body code 404 mapped to %v, want not_found", notFound)
+	}
+}
+
 func ptrFloat64(v float64) *float64 {
+	return &v
+}
+
+func ptrInt(v int) *int {
 	return &v
 }
 

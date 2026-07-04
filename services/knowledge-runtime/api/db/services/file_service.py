@@ -50,10 +50,10 @@ class FileService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def get_by_pf_id(cls, tenant_id, pf_id, page_number, items_per_page, orderby, desc, keywords):
+    def get_by_pf_id(cls, scope_id, pf_id, page_number, items_per_page, orderby, desc, keywords):
         # Get files by parent folder ID with pagination and filtering
         # Args:
-        #     tenant_id: ID of the tenant
+        #     scope_id: runtime scope ID
         #     pf_id: Parent folder ID
         #     page_number: Page number for pagination
         #     items_per_page: Number of items per page
@@ -63,9 +63,9 @@ class FileService(CommonService):
         # Returns:
         #     Tuple of (file_list, total_count)
         if keywords:
-            files = cls.model.select().where((cls.model.tenant_id == tenant_id), (cls.model.parent_id == pf_id), (fn.LOWER(cls.model.name).contains(keywords.lower())), ~(cls.model.id == pf_id))
+            files = cls.model.select().where((cls.model.scope_id == scope_id), (cls.model.parent_id == pf_id), (fn.LOWER(cls.model.name).contains(keywords.lower())), ~(cls.model.id == pf_id))
         else:
-            files = cls.model.select().where((cls.model.tenant_id == tenant_id), (cls.model.parent_id == pf_id), ~(cls.model.id == pf_id))
+            files = cls.model.select().where((cls.model.scope_id == scope_id), (cls.model.parent_id == pf_id), ~(cls.model.id == pf_id))
         count = files.count()
         if desc:
             files = files.order_by(cls.model.getter_by(orderby).desc())
@@ -82,7 +82,7 @@ class FileService(CommonService):
                 children = list(
                     cls.model.select()
                     .where(
-                        (cls.model.tenant_id == tenant_id),
+                        (cls.model.scope_id == scope_id),
                         (cls.model.parent_id == file["id"]),
                         ~(cls.model.id == file["id"]),
                     )
@@ -174,9 +174,9 @@ class FileService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def get_all_file_ids_by_tenant_id(cls, tenant_id):
+    def get_all_file_ids_by_scope_id(cls, scope_id):
         fields = [cls.model.id]
-        files = cls.model.select(*fields).where(cls.model.tenant_id == tenant_id)
+        files = cls.model.select(*fields).where(cls.model.scope_id == scope_id)
         files.order_by(cls.model.create_time.asc())
         offset, limit = 0, 100
         res = []
@@ -191,14 +191,14 @@ class FileService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def create_folder(cls, file, parent_id, name, count, tenant_id, created_by):
+    def create_folder(cls, file, parent_id, name, count, scope_id, created_by):
         # Recursively create folder structure
         # Args:
         #     file: Current file object
         #     parent_id: Parent folder ID
         #     name: List of folder names to create
         #     count: Current depth in creation
-        #     tenant_id: Tenant ID
+        #     scope_id: runtime scope ID
         #     created_by: Created by user ID
         # Returns:
         #     Created file object
@@ -206,9 +206,9 @@ class FileService(CommonService):
             return file
         else:
             file = cls.insert(
-                {"id": get_uuid(), "parent_id": parent_id, "tenant_id": tenant_id, "created_by": created_by, "name": name[count], "location": "", "size": 0, "type": FileType.FOLDER.value}
+                {"id": get_uuid(), "parent_id": parent_id, "scope_id": scope_id, "created_by": created_by, "name": name[count], "location": "", "size": 0, "type": FileType.FOLDER.value}
             )
-            return cls.create_folder(file, file.id, name, count + 1, tenant_id, created_by)
+            return cls.create_folder(file, file.id, name, count + 1, scope_id, created_by)
 
     @classmethod
     @DB.connection_context()
@@ -226,21 +226,21 @@ class FileService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def get_root_folder(cls, tenant_id):
-        # Get or create root folder for tenant
+    def get_root_folder(cls, scope_id):
+        # Get or create root folder for the runtime scope
         # Args:
-        #     tenant_id: Tenant ID
+        #     scope_id: runtime scope ID
         # Returns:
         #     Root folder dictionary
-        for file in cls.model.select().where((cls.model.tenant_id == tenant_id), (cls.model.parent_id == cls.model.id)):
+        for file in cls.model.select().where((cls.model.scope_id == scope_id), (cls.model.parent_id == cls.model.id)):
             return file.to_dict()
 
         file_id = get_uuid()
         file = {
             "id": file_id,
             "parent_id": file_id,
-            "tenant_id": tenant_id,
-            "created_by": tenant_id,
+            "scope_id": scope_id,
+            "created_by": scope_id,
             "name": "/",
             "type": FileType.FOLDER.value,
             "size": 0,
@@ -251,26 +251,26 @@ class FileService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def get_kb_folder(cls, tenant_id):
-        # Get dataset folder for tenant
+    def get_kb_folder(cls, scope_id):
+        # Get dataset folder for the runtime scope
         # Args:
-        #     tenant_id: Tenant ID
+        #     scope_id: runtime scope ID
         # Returns:
         #     Knowledge base folder dictionary
-        root_folder = cls.get_root_folder(tenant_id)
+        root_folder = cls.get_root_folder(scope_id)
         root_id = root_folder["id"]
-        kb_folder = cls.model.select().where((cls.model.tenant_id == tenant_id), (cls.model.parent_id == root_id), (cls.model.name == KNOWLEDGEBASE_FOLDER_NAME)).first()
+        kb_folder = cls.model.select().where((cls.model.scope_id == scope_id), (cls.model.parent_id == root_id), (cls.model.name == KNOWLEDGEBASE_FOLDER_NAME)).first()
         if not kb_folder:
-            kb_folder = cls.new_a_file_from_kb(tenant_id, KNOWLEDGEBASE_FOLDER_NAME, root_id)
+            kb_folder = cls.new_a_file_from_kb(scope_id, KNOWLEDGEBASE_FOLDER_NAME, root_id)
             return kb_folder
         return kb_folder.to_dict()
 
     @classmethod
     @DB.connection_context()
-    def new_a_file_from_kb(cls, tenant_id, name, parent_id, ty=FileType.FOLDER.value, size=0, location=""):
+    def new_a_file_from_kb(cls, scope_id, name, parent_id, ty=FileType.FOLDER.value, size=0, location=""):
         # Create a new file from dataset
         # Args:
-        #     tenant_id: Tenant ID
+        #     scope_id: runtime scope ID
         #     name: File name
         #     parent_id: Parent folder ID
         #     ty: File type
@@ -278,13 +278,13 @@ class FileService(CommonService):
         #     location: File location
         # Returns:
         #     Created file dictionary
-        for file in cls.query(tenant_id=tenant_id, parent_id=parent_id, name=name):
+        for file in cls.query(scope_id=scope_id, parent_id=parent_id, name=name):
             return file.to_dict()
         file = {
             "id": get_uuid(),
             "parent_id": parent_id,
-            "tenant_id": tenant_id,
-            "created_by": tenant_id,
+            "scope_id": scope_id,
+            "created_by": scope_id,
             "name": name,
             "type": ty,
             "size": size,
@@ -296,19 +296,19 @@ class FileService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def init_knowledgebase_docs(cls, root_id, tenant_id):
+    def init_knowledgebase_docs(cls, root_id, scope_id):
         # Initialize dataset documents
         # Args:
         #     root_id: Root folder ID
-        #     tenant_id: Tenant ID
+        #     scope_id: runtime scope ID
         for _ in cls.model.select().where((cls.model.name == KNOWLEDGEBASE_FOLDER_NAME) & (cls.model.parent_id == root_id)):
             return
-        folder = cls.new_a_file_from_kb(tenant_id, KNOWLEDGEBASE_FOLDER_NAME, root_id)
+        folder = cls.new_a_file_from_kb(scope_id, KNOWLEDGEBASE_FOLDER_NAME, root_id)
 
-        for kb in Knowledgebase.select(*[Knowledgebase.id, Knowledgebase.name]).where(Knowledgebase.tenant_id == tenant_id):
-            kb_folder = cls.new_a_file_from_kb(tenant_id, kb.name, folder["id"])
+        for kb in Knowledgebase.select(*[Knowledgebase.id, Knowledgebase.name]).where(Knowledgebase.scope_id == scope_id):
+            kb_folder = cls.new_a_file_from_kb(scope_id, kb.name, folder["id"])
             for doc in DocumentService.query(kb_id=kb.id):
-                FileService.add_file_from_kb(doc.to_dict(), kb_folder["id"], tenant_id)
+                FileService.add_file_from_kb(doc.to_dict(), kb_folder["id"], scope_id)
 
     @classmethod
     @DB.connection_context()
@@ -374,18 +374,18 @@ class FileService(CommonService):
     @DB.connection_context()
     def delete_folder_by_pf_id(cls, user_id, folder_id):
         try:
-            files = cls.model.select().where((cls.model.tenant_id == user_id) & (cls.model.parent_id == folder_id))
+            files = cls.model.select().where((cls.model.scope_id == user_id) & (cls.model.parent_id == folder_id))
             for file in files:
                 cls.delete_folder_by_pf_id(user_id, file.id)
-            return (cls.model.delete().where((cls.model.tenant_id == user_id) & (cls.model.id == folder_id)).execute(),)
+            return (cls.model.delete().where((cls.model.scope_id == user_id) & (cls.model.id == folder_id)).execute(),)
         except Exception:
             logging.exception("delete_folder_by_pf_id")
             raise RuntimeError("Database error (File retrieval)!")
 
     @classmethod
     @DB.connection_context()
-    def get_file_count(cls, tenant_id):
-        files = cls.model.select(cls.model.id).where(cls.model.tenant_id == tenant_id)
+    def get_file_count(cls, scope_id):
+        files = cls.model.select(cls.model.id).where(cls.model.scope_id == scope_id)
         return len(files)
 
     @classmethod
@@ -405,14 +405,14 @@ class FileService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def add_file_from_kb(cls, doc, kb_folder_id, tenant_id):
+    def add_file_from_kb(cls, doc, kb_folder_id, scope_id):
         for _ in File2DocumentService.get_by_document_id(doc["id"]):
             return
         file = {
             "id": get_uuid(),
             "parent_id": kb_folder_id,
-            "tenant_id": tenant_id,
-            "created_by": tenant_id,
+            "scope_id": scope_id,
+            "created_by": scope_id,
             "name": doc["name"],
             "type": doc["type"],
             "size": doc["size"],
@@ -438,7 +438,7 @@ class FileService(CommonService):
         pf_id = root_folder["id"]
         self.init_knowledgebase_docs(pf_id, user_id)
         kb_root_folder = self.get_kb_folder(user_id)
-        kb_folder = self.new_a_file_from_kb(kb.tenant_id, kb.name, kb_root_folder["id"])
+        kb_folder = self.new_a_file_from_kb(kb.scope_id, kb.name, kb_root_folder["id"])
 
         safe_parent_path = sanitize_path(parent_path)
 
@@ -474,7 +474,7 @@ class FileService(CommonService):
                     incoming_fp = getattr(file, "fingerprint", None)
                     new_hash = incoming_fp or xxhash.xxh128(blob).hexdigest()
                     old_hash = doc.content_hash or ""
-                    settings.STORAGE_IMPL.put(kb.id, doc.location, blob, kb.tenant_id)
+                    settings.STORAGE_IMPL.put(kb.id, doc.location, blob, kb.scope_id)
                     doc.size = len(blob)
                     doc.content_hash = new_hash
                     doc = doc.to_dict()
@@ -486,7 +486,7 @@ class FileService(CommonService):
                     err.append(file.filename + ": " + str(exc))
                 continue
             try:
-                DocumentService.check_doc_health(kb.tenant_id, file.filename)
+                DocumentService.check_doc_health(kb.scope_id, file.filename)
                 filename = duplicate_name(DocumentService.query, name=file.filename, kb_id=kb.id)
                 filetype = filename_type(filename)
                 if filetype == FileType.OTHER.value:
@@ -527,7 +527,7 @@ class FileService(CommonService):
                 }
                 DocumentService.insert(doc)
 
-                FileService.add_file_from_kb(doc, kb_folder["id"], kb.tenant_id)
+                FileService.add_file_from_kb(doc, kb_folder["id"], kb.scope_id)
                 files.append((doc, blob))
             except Exception as e:
                 err.append(file.filename + ": " + str(e))
@@ -558,7 +558,7 @@ class FileService(CommonService):
         return "\n\n".join(res)
 
     @staticmethod
-    def parse(filename, blob, img_base64=True, tenant_id=None, layout_recognize=None):
+    def parse(filename, blob, img_base64=True, scope_id=None, layout_recognize=None):
         from rag.app import audio, email, naive, picture, presentation
         from api.apps import current_user
 
@@ -567,7 +567,7 @@ class FileService(CommonService):
 
         FACTORY = {ParserType.PRESENTATION.value: presentation, ParserType.PICTURE.value: picture, ParserType.AUDIO.value: audio, ParserType.EMAIL.value: email}
         parser_config = {"chunk_token_num": 16096, "delimiter": "\n!?;。；！？", "layout_recognize": layout_recognize or "Plain Text"}
-        kwargs = {"lang": "English", "callback": dummy, "parser_config": parser_config, "from_page": 0, "to_page": MAXIMUM_PAGE_NUMBER, "tenant_id": current_user.id if current_user else tenant_id}
+        kwargs = {"lang": "English", "callback": dummy, "parser_config": parser_config, "from_page": 0, "to_page": MAXIMUM_PAGE_NUMBER, "scope_id": current_user.id if current_user else scope_id}
         file_type = filename_type(filename)
         if img_base64 and file_type == FileType.VISUAL.value:
             return GptV4.image2base64(blob)
@@ -598,10 +598,10 @@ class FileService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def delete_docs(cls, doc_ids, tenant_id):
-        root_folder = FileService.get_root_folder(tenant_id)
+    def delete_docs(cls, doc_ids, scope_id):
+        root_folder = FileService.get_root_folder(scope_id)
         pf_id = root_folder["id"]
-        FileService.init_knowledgebase_docs(pf_id, tenant_id)
+        FileService.init_knowledgebase_docs(pf_id, scope_id)
         errors = ""
         kb_table_num_map = {}
         for doc_id in doc_ids:
@@ -609,14 +609,14 @@ class FileService(CommonService):
                 e, doc = DocumentService.get_by_id(doc_id)
                 if not e:
                     raise Exception("Document not found!")
-                tenant_id = DocumentService.get_tenant_id(doc_id)
-                if not tenant_id:
-                    raise Exception("Tenant not found!")
+                scope_id = DocumentService.get_scope_id(doc_id)
+                if not scope_id:
+                    raise Exception("Runtime scope not found!")
 
                 b, n = File2DocumentService.get_storage_address(doc_id=doc_id)
 
                 TaskService.filter_delete([Task.doc_id == doc_id])
-                if not DocumentService.remove_document(doc, tenant_id):
+                if not DocumentService.remove_document(doc, scope_id):
                     raise Exception("Database error (Document removal)!")
 
                 f2d = File2DocumentService.get_by_document_id(doc_id)

@@ -146,7 +146,7 @@ class RaptorService:
         if self._task_context.write_interceptor: # dry run mode
             dataset_methods = set()
         else:
-            dataset_methods = await self._get_raptor_chunk_methods(fake_doc_id, ctx.tenant_id, ctx.kb_id)
+            dataset_methods = await self._get_raptor_chunk_methods(fake_doc_id, ctx.scope_id, ctx.kb_id)
         remove_dataset_summaries = bool(dataset_methods)
         has_file_level_target = False
 
@@ -160,7 +160,7 @@ class RaptorService:
             if self._task_context.write_interceptor:
                 existing_methods = set()
             else:
-                existing_methods = await self._get_raptor_chunk_methods(doc_id, ctx.tenant_id, ctx.kb_id)
+                existing_methods = await self._get_raptor_chunk_methods(doc_id, ctx.scope_id, ctx.kb_id)
             if tree_builder in existing_methods:
                 has_file_level_target = True
                 if existing_methods != {tree_builder}:
@@ -224,7 +224,7 @@ class RaptorService:
             if self._task_context.write_interceptor:
                 existing_methods = set()
             else:
-                existing_methods = await self._get_raptor_chunk_methods(doc_id, ctx.tenant_id, ctx.kb_id)
+                existing_methods = await self._get_raptor_chunk_methods(doc_id, ctx.scope_id, ctx.kb_id)
             if existing_methods:
                 file_cleanup_doc_ids.append(doc_id)
                 migrated_file_docs += 1
@@ -237,7 +237,7 @@ class RaptorService:
         if self._task_context.write_interceptor:
             existing_methods = set()
         else:
-            existing_methods = await self._get_raptor_chunk_methods(fake_doc_id, ctx.tenant_id, ctx.kb_id)
+            existing_methods = await self._get_raptor_chunk_methods(fake_doc_id, ctx.scope_id, ctx.kb_id)
         if tree_builder in existing_methods:
             if existing_methods != {tree_builder}:
                 self._schedule_raptor_cleanup(
@@ -305,7 +305,7 @@ class RaptorService:
 
         fields = ["content_with_weight", vctr_nm]
         for d in settings.retriever.chunk_list(
-            doc_id, ctx.tenant_id, [str(ctx.kb_id)],
+            doc_id, ctx.scope_id, [str(ctx.kb_id)],
             fields=fields,
             sort_by_position=True
         ):
@@ -338,7 +338,7 @@ class RaptorService:
             if doc_id in skipped_doc_ids:
                 continue
             for d in settings.retriever.chunk_list(
-                doc_id, ctx.tenant_id, [str(ctx.kb_id)],
+                doc_id, ctx.scope_id, [str(ctx.kb_id)],
                 fields=fields,
                 sort_by_position=True
             ):
@@ -440,7 +440,7 @@ class RaptorService:
             cleanup_list.append(cleanup_plan)
 
     @classmethod
-    async def _get_raptor_chunk_methods(cls, doc_id: str, tenant_id: str, kb_id: str) -> Set[str]:
+    async def _get_raptor_chunk_methods(cls, doc_id: str, scope_id: str, kb_id: str) -> Set[str]:
         """Get RAPTOR chunk methods for a document."""
         from common.doc_store.doc_store_base import OrderByExpr
 
@@ -448,7 +448,7 @@ class RaptorService:
             res = await thread_pool_exec(
                 settings.docStoreConn.search,
                 fields, [], condition, [], order_by or OrderByExpr(),
-                0, 10000, search.index_name(tenant_id), [kb_id]
+                0, 10000, search.index_name(scope_id), [kb_id]
             )
             return settings.docStoreConn.get_fields(res, fields)
 

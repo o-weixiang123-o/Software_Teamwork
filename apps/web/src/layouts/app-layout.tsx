@@ -29,6 +29,8 @@ import { usePageTransitionStore } from '@/stores/page-transition-store'
 
 const pathLabels: Record<string, string> = {
   '/chat': '智能问答',
+  '/qa': '智能问答',
+  '/knowledge': '知识检索',
   '/reports': '报告生成',
   '/admin': '系统管理',
   '/profile': '个人资料',
@@ -37,10 +39,12 @@ const pathLabels: Record<string, string> = {
 
 const navItems: Array<{
   label: string
-  to: '/chat' | '/reports' | '/admin'
+  to: '/chat' | '/qa/retrieval-test' | '/knowledge/search' | '/reports' | '/admin'
   requirement?: PermissionRequirement
 }> = [
   { label: '问答', to: '/chat', requirement: { any: ['qa:use'] } },
+  { label: '检索', to: '/qa/retrieval-test', requirement: { any: ['qa:use'] } },
+  { label: '知识', to: '/knowledge/search', requirement: { any: ['knowledge:read'] } },
   {
     label: '报告',
     to: '/reports',
@@ -100,9 +104,13 @@ export function AppLayout({ children }: PropsWithChildren) {
   useEffect(() => {
     const id = pathname.startsWith('/chat')
       ? '/chat'
-      : pathname.startsWith('/reports')
-        ? '/reports'
-        : '/admin'
+      : pathname.startsWith('/qa/retrieval-test')
+        ? '/qa/retrieval-test'
+        : pathname.startsWith('/knowledge')
+          ? '/knowledge/search'
+          : pathname.startsWith('/reports')
+            ? '/reports'
+            : '/admin'
     const raf = requestAnimationFrame(() => {
       const el = navRefs.current[id]
       if (el) {
@@ -176,13 +184,13 @@ export function AppLayout({ children }: PropsWithChildren) {
 
         <nav
           aria-label="主导航"
-          className="relative flex items-center gap-1 rounded-lg bg-muted/50 p-1 text-sm"
+          className="relative flex items-center gap-1 rounded-lg border border-border/80 bg-muted/60 p-1 text-sm shadow-inner"
         >
           {/* Sliding pill — only visible when on a main nav item, not /profile */}
           {visibleNavItems.some((item) => pathname.startsWith(item.to)) && (
             <div
               aria-hidden
-              className="absolute top-1 h-[calc(100%-8px)] rounded-md bg-background shadow-sm transition-all duration-300 ease-out"
+              className="absolute top-1 h-[calc(100%-8px)] rounded-md border border-border/80 bg-muted/80 shadow-inner transition-all duration-300 ease-out"
               style={{ left: sliderStyle.left, width: sliderStyle.width }}
             />
           )}

@@ -136,6 +136,10 @@ func (s *Server) handleTestMCPConnection(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) requireSettingsPermission(w http.ResponseWriter, r *http.Request, required string) (string, bool) {
+	return s.requirePermission(w, r, required, "settings access is forbidden")
+}
+
+func (s *Server) requirePermission(w http.ResponseWriter, r *http.Request, required, message string) (string, bool) {
 	userID, ok := userIDFromRequest(w, r)
 	if !ok {
 		return "", false
@@ -151,6 +155,6 @@ func (s *Server) requireSettingsPermission(w http.ResponseWriter, r *http.Reques
 	if _, allowed := s.adminUserIDs[userID]; allowed {
 		return userID, true
 	}
-	writeError(w, r, service.NewError(service.CodeForbidden, "settings access is forbidden", nil))
+	writeError(w, r, service.NewError(service.CodeForbidden, message, nil))
 	return "", false
 }

@@ -121,6 +121,8 @@ def chunk(filename, binary=None, from_page=0, to_page=MAXIMUM_PAGE_NUMBER, lang=
         if not sections and not tables:
             return []
 
+        tbls = tables
+
         if name in ["tcadp", "docling", "mineru", "paddleocr"]:
             parser_config["chunk_token_num"] = 0
 

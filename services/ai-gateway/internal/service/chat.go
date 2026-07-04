@@ -152,6 +152,9 @@ func (s *Service) prepareChat(ctx context.Context, input ChatCompletionInput) (p
 	if err != nil {
 		return preparedChat{}, err
 	}
+	if err := validateChatModelForProfile(payload, profile); err != nil {
+		return preparedChat{}, err
+	}
 	credential, err := s.repo.GetActiveCredential(ctx, profile.ID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
@@ -204,9 +207,6 @@ func (s *Service) selectChatProfile(ctx context.Context, payload map[string]json
 
 func validateChatPayload(payload map[string]json.RawMessage) map[string]string {
 	fields := map[string]string{}
-	if strings.TrimSpace(rawString(payload["model"])) == "" {
-		fields["model"] = "is required"
-	}
 	messagesRaw, ok := payload["messages"]
 	if !ok {
 		fields["messages"] = "is required"
@@ -242,6 +242,21 @@ func validateChatPayload(payload map[string]json.RawMessage) map[string]string {
 		fields["profile_id"] = "must not be empty"
 	}
 	return fields
+}
+
+func validateChatModelForProfile(payload map[string]json.RawMessage, profile ModelProfile) error {
+	requestModel := strings.TrimSpace(rawString(payload["model"]))
+	if requestModel == "" {
+		return nil
+	}
+	profileModel := strings.TrimSpace(profile.Model)
+	if profileModel == "" {
+		return dependencyOpenAIError("model profile model is not configured", nil)
+	}
+	if requestModel != profileModel {
+		return validationOpenAIError("model must match selected model profile", "model")
+	}
+	return nil
 }
 
 func mergeChatPayload(profile ModelProfile, payload map[string]json.RawMessage) (map[string]json.RawMessage, error) {

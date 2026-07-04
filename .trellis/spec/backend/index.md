@@ -27,10 +27,10 @@ Infrastructure dependencies:
 
 - PostgreSQL for relational application data.
 - Redis for cache, sessions, lightweight queues, or short-lived coordination.
-- Qdrant remains part of the local infrastructure baseline, but the current
-  Knowledge Go adapter does not maintain a direct Qdrant client.
+- Elasticsearch is the active local Knowledge runtime doc engine. Retired
+  vector-store compatibility fields should not be restored.
 - MinIO for object storage.
-- `services/knowledge-runtime/` for Knowledge-owned RAGFlow parsing, chunking,
+- `services/knowledge-runtime/` for Knowledge-owned parsing, chunking,
   embedding, indexing, and retrieval support.
 
 The old standalone `services/parser/` runtime is retired. Do not restore it for

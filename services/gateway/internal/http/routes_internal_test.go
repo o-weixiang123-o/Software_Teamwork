@@ -203,7 +203,7 @@ func TestGatewayDoesNotImportBusinessInfrastructureClients(t *testing.T) {
 		"database/sql",
 		"github.com/jackc/pgx",
 		"github.com/minio/",
-		"github.com/qdrant/",
+		"github.com/elastic/",
 		"github.com/openai/",
 	}
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {

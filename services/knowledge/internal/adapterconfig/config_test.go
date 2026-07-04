@@ -32,6 +32,12 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.VendorRuntimeToken != "runtime-service-token" {
 		t.Fatalf("VendorRuntimeToken=%q", cfg.VendorRuntimeToken)
 	}
+	if cfg.MCPCallerID != "knowledge_mcp" {
+		t.Fatalf("MCPCallerID=%q", cfg.MCPCallerID)
+	}
+	if cfg.RuntimeReadinessMode != RuntimeReadinessModeIngestion {
+		t.Fatalf("RuntimeReadinessMode=%q", cfg.RuntimeReadinessMode)
+	}
 }
 
 func TestLoadRequiresServiceToken(t *testing.T) {
@@ -109,6 +115,29 @@ func TestLoadAutoStartIngestionDisabled(t *testing.T) {
 	}
 }
 
+func TestLoadRuntimeReadinessModeQuery(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("KNOWLEDGE_RUNTIME_READINESS_MODE", "query")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.RuntimeReadinessMode != RuntimeReadinessModeQuery {
+		t.Fatalf("RuntimeReadinessMode=%q", cfg.RuntimeReadinessMode)
+	}
+}
+
+func TestLoadRejectsUnknownRuntimeReadinessMode(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("KNOWLEDGE_RUNTIME_READINESS_MODE", "workerless")
+
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "KNOWLEDGE_RUNTIME_READINESS_MODE") {
+		t.Fatalf("Load() error = %v, want runtime readiness mode requirement", err)
+	}
+}
+
 func TestLoadCustomVendorURL(t *testing.T) {
 	setRequiredEnv(t)
 	t.Setenv("VENDOR_RUNTIME_URL", "http://knowledge-vendor:9380/")
@@ -119,5 +148,18 @@ func TestLoadCustomVendorURL(t *testing.T) {
 	}
 	if cfg.VendorRuntimeURL != "http://knowledge-vendor:9380" {
 		t.Fatalf("VendorRuntimeURL=%q", cfg.VendorRuntimeURL)
+	}
+}
+
+func TestLoadMCPCallerIDOverride(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("KNOWLEDGE_MCP_CALLER_ID", "knowledge_mcp_test")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.MCPCallerID != "knowledge_mcp_test" {
+		t.Fatalf("MCPCallerID=%q", cfg.MCPCallerID)
 	}
 }

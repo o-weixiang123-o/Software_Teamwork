@@ -36,6 +36,7 @@ import { isModelConfigurationError, MODEL_CONFIGURATION_HINT } from '@/lib/model
 import { AnimationFrameBatcher, StreamingTextController } from '@/lib/streaming-text'
 import type {
   QACitation,
+  QACitationDetail,
   QAMessage,
   QAMessageWithArtifacts,
   QAMessageWithReasoning,
@@ -283,42 +284,76 @@ function formatError(sseErr: {
   return sanitizeErrorMessage(sseErr.message)
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
 export function sanitizeCitation(raw: Record<string, unknown>): QACitation {
+  const payload = isRecord(raw.citation) ? raw.citation : raw
   const documentId =
-    typeof raw.documentId === 'string'
-      ? raw.documentId
-      : typeof raw.docId === 'string'
-        ? raw.docId
+    typeof payload.documentId === 'string'
+      ? payload.documentId
+      : typeof payload.docId === 'string'
+        ? payload.docId
         : undefined
   const documentName =
-    typeof raw.documentName === 'string'
-      ? raw.documentName
-      : typeof raw.docName === 'string'
-        ? raw.docName
+    typeof payload.documentName === 'string'
+      ? payload.documentName
+      : typeof payload.docName === 'string'
+        ? payload.docName
         : undefined
 
-  // Keep only display-safe fields per OpenAPI QACitation schema
-  return {
-    id: String(raw.id ?? ''),
-    messageId: String(raw.messageId ?? ''),
-    citationNo: typeof raw.citationNo === 'number' ? raw.citationNo : undefined,
-    chunkId: typeof raw.chunkId === 'string' ? raw.chunkId : undefined,
-    chunkType: typeof raw.chunkType === 'string' ? raw.chunkType : undefined,
-    context: typeof raw.context === 'string' ? raw.context : undefined,
-    docId: typeof raw.docId === 'string' ? raw.docId : documentId,
-    docName: typeof raw.docName === 'string' ? raw.docName : documentName,
+  const isSourceAvailable =
+    typeof payload.isSourceAvailable === 'boolean' ? payload.isSourceAvailable : undefined
+  const rawSource = isRecord(payload.source) ? payload.source : undefined
+  const sourceReason =
+    rawSource && typeof rawSource.reason === 'string'
+      ? rawSource.reason
+      : typeof payload.sourceUnavailableReason === 'string'
+        ? payload.sourceUnavailableReason
+        : undefined
+  const sourceDownloadEndpoint =
+    rawSource && typeof rawSource.downloadEndpoint === 'string'
+      ? rawSource.downloadEndpoint
+      : undefined
+  const sourceAvailable =
+    rawSource && typeof rawSource.available === 'boolean' ? rawSource.available : isSourceAvailable
+
+  // Keep only display-safe fields per OpenAPI QACitation schema. The backend
+  // may include QACitationDetail fields in citation.delta, so preserve the
+  // already-sanitized source snapshot for immediate streaming display.
+  const citation: QACitation & Pick<QACitationDetail, 'content' | 'source'> = {
+    id: String(payload.id ?? ''),
+    messageId: String(payload.messageId ?? ''),
+    citationNo: typeof payload.citationNo === 'number' ? payload.citationNo : undefined,
+    chunkId: typeof payload.chunkId === 'string' ? payload.chunkId : undefined,
+    chunkType: typeof payload.chunkType === 'string' ? payload.chunkType : undefined,
+    context: typeof payload.context === 'string' ? payload.context : undefined,
+    docId: typeof payload.docId === 'string' ? payload.docId : documentId,
+    docName: typeof payload.docName === 'string' ? payload.docName : documentName,
     documentName,
-    knowledgeBaseId: typeof raw.knowledgeBaseId === 'string' ? raw.knowledgeBaseId : undefined,
-    pageNumber: typeof raw.pageNumber === 'number' ? raw.pageNumber : undefined,
-    rerankScore: typeof raw.rerankScore === 'number' ? raw.rerankScore : undefined,
-    sectionPath: typeof raw.sectionPath === 'string' ? raw.sectionPath : undefined,
-    text: typeof raw.text === 'string' ? raw.text : undefined,
-    score: typeof raw.score === 'number' ? raw.score : undefined,
-    contentPreview: typeof raw.contentPreview === 'string' ? raw.contentPreview : undefined,
+    knowledgeBaseId:
+      typeof payload.knowledgeBaseId === 'string' ? payload.knowledgeBaseId : undefined,
+    pageNumber: typeof payload.pageNumber === 'number' ? payload.pageNumber : undefined,
+    rerankScore: typeof payload.rerankScore === 'number' ? payload.rerankScore : undefined,
+    sectionPath: typeof payload.sectionPath === 'string' ? payload.sectionPath : undefined,
+    text: typeof payload.text === 'string' ? payload.text : undefined,
+    score: typeof payload.score === 'number' ? payload.score : undefined,
+    contentPreview: typeof payload.contentPreview === 'string' ? payload.contentPreview : undefined,
     documentId,
-    isSourceAvailable:
-      typeof raw.isSourceAvailable === 'boolean' ? raw.isSourceAvailable : undefined,
-  } as QACitation
+    isSourceAvailable,
+  }
+  if (typeof payload.content === 'string') {
+    citation.content = payload.content
+  }
+  if (sourceAvailable !== undefined) {
+    citation.source = {
+      available: sourceAvailable,
+      downloadEndpoint: sourceDownloadEndpoint,
+      reason: sourceReason,
+    }
+  }
+  return citation as QACitation
 }
 
 function sanitizeToolName(raw: unknown): string {

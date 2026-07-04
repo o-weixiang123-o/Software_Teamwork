@@ -23,15 +23,24 @@ import (
 const testServiceToken = "test-service-token"
 
 type fakeVendorState struct {
-	mu          sync.Mutex
-	datasets    map[string]map[string]any
-	documents   map[string]map[string]any
-	parseCalls  []string
-	deleteCalls []deleteCall
-	failParse   bool
-	searchBody  []byte
-	createBody  []byte
-	createPath  string
+	mu                 sync.Mutex
+	datasets           map[string]map[string]any
+	documents          map[string]map[string]any
+	parseCalls         []string
+	deleteCalls        []deleteCall
+	listDatasetsCalls  int
+	listDocumentsCalls int
+	taskExecutorReady  bool
+	failParse          bool
+	searchStatus       int
+	searchResponse     map[string]any
+	searchBody         []byte
+	searchUserID       string
+	listUserIDs        []string
+	documentUserIDs    []string
+	createUserIDs      []string
+	createBody         []byte
+	createPath         string
 }
 
 type deleteCall struct {
@@ -41,8 +50,9 @@ type deleteCall struct {
 
 func newFakeVendorState() *fakeVendorState {
 	return &fakeVendorState{
-		datasets:  map[string]map[string]any{},
-		documents: map[string]map[string]any{},
+		datasets:          map[string]map[string]any{},
+		documents:         map[string]map[string]any{},
+		taskExecutorReady: true,
 	}
 }
 
@@ -57,7 +67,25 @@ func startFakeVendor(t *testing.T, state *fakeVendorState) *httptest.Server {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("pong"))
 			return
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/system/status":
+			heartbeats := map[string]any{}
+			if state.taskExecutorReady {
+				heartbeats["task_executor_common_1"] = []any{map[string]any{"now": time.Now().Format(time.RFC3339Nano)}}
+			}
+			writeVendorJSON(w, http.StatusOK, map[string]any{
+				"code": 0,
+				"data": map[string]any{
+					"doc_engine":               map[string]any{"status": "green"},
+					"storage":                  map[string]any{"status": "green"},
+					"database":                 map[string]any{"status": "green"},
+					"redis":                    map[string]any{"status": "green"},
+					"task_executor_heartbeats": heartbeats,
+				},
+			})
+			return
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/datasets":
+			state.listDatasetsCalls++
+			state.listUserIDs = append(state.listUserIDs, r.Header.Get("X-User-Id"))
 			items := make([]map[string]any, 0, len(state.datasets))
 			for _, item := range state.datasets {
 				items = append(items, item)
@@ -91,6 +119,7 @@ func startFakeVendor(t *testing.T, state *fakeVendorState) *httptest.Server {
 		case r.Method == http.MethodPost && (r.URL.Path == "/api/v1/datasets" || r.URL.Path == "/api/v1/internal/datasets"):
 			var body map[string]any
 			raw, _ := io.ReadAll(r.Body)
+			state.createUserIDs = append(state.createUserIDs, r.Header.Get("X-User-Id"))
 			state.createPath = r.URL.Path
 			state.createBody = append([]byte(nil), raw...)
 			_ = json.Unmarshal(raw, &body)
@@ -144,6 +173,8 @@ func startFakeVendor(t *testing.T, state *fakeVendorState) *httptest.Server {
 			writeVendorJSON(w, http.StatusOK, map[string]any{"code": 0, "data": doc})
 			return
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/v1/datasets/") && strings.HasSuffix(r.URL.Path, "/documents"):
+			state.listDocumentsCalls++
+			state.documentUserIDs = append(state.documentUserIDs, r.Header.Get("X-User-Id"))
 			kbID := strings.TrimPrefix(r.URL.Path, "/api/v1/datasets/")
 			kbID = strings.TrimSuffix(kbID, "/documents")
 			docs := make([]map[string]any, 0)
@@ -154,9 +185,43 @@ func startFakeVendor(t *testing.T, state *fakeVendorState) *httptest.Server {
 			}
 			writeVendorJSON(w, http.StatusOK, map[string]any{"code": 0, "data": map[string]any{"total": len(docs), "docs": docs}})
 			return
+		case r.Method == http.MethodPatch && strings.HasPrefix(r.URL.Path, "/api/v1/datasets/") && strings.Contains(r.URL.Path, "/documents/"):
+			trimmed := strings.TrimPrefix(r.URL.Path, "/api/v1/datasets/")
+			parts := strings.Split(trimmed, "/documents/")
+			if len(parts) != 2 {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			docID := parts[1]
+			doc, ok := state.documents[docID]
+			if !ok {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode update body: %v", err)
+			}
+			if meta, ok := body["meta_fields"].(map[string]any); ok {
+				doc["meta_fields"] = meta
+			}
+			response := map[string]any{}
+			for key, value := range doc {
+				if key == "meta_fields" {
+					continue
+				}
+				response[key] = value
+			}
+			writeVendorJSON(w, http.StatusOK, map[string]any{"code": 0, "data": response})
+			return
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/datasets/search":
 			raw, _ := io.ReadAll(r.Body)
 			state.searchBody = append([]byte(nil), raw...)
+			state.searchUserID = r.Header.Get("X-User-Id")
+			if state.searchStatus != 0 {
+				writeVendorJSON(w, state.searchStatus, state.searchResponse)
+				return
+			}
 			writeVendorJSON(w, http.StatusOK, map[string]any{
 				"code": 0,
 				"data": map[string]any{"total": 0, "chunks": []any{}},
@@ -264,6 +329,49 @@ func TestAdapterCreateKnowledgeBaseAppliesDefaultParserConfig(t *testing.T) {
 	}
 	if state.createPath != "/api/v1/datasets" {
 		t.Fatalf("create path=%s", state.createPath)
+	}
+}
+
+func TestAdapterKnowledgeBasesUseRuntimeScopeWithoutForwardingUserIdentity(t *testing.T) {
+	state := newFakeVendorState()
+	state.datasets["kb_fake_1"] = map[string]any{"id": "kb_fake_1", "name": "Boiler"}
+	vendor := startFakeVendor(t, state)
+	defer vendor.Close()
+
+	server := NewServer(adapterconfig.Config{
+		ServiceVersion:   "test",
+		VendorRuntimeURL: vendor.URL,
+		ServiceToken:     testServiceToken,
+	}, nil)
+
+	listReq := httptest.NewRequest(http.MethodGet, "/internal/v1/knowledge-bases", nil)
+	listReq.Header.Set("X-User-Id", "usr_standard")
+	listReq.Header.Set("X-Service-Token", testServiceToken)
+	listReq.Header.Set("X-User-Permissions", "knowledge:read")
+	listRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("list status=%d body=%s", listRec.Code, listRec.Body.String())
+	}
+
+	createReq := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-bases", strings.NewReader(`{"name":"Manuals"}`))
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq.Header.Set("X-User-Id", "usr_admin")
+	createReq.Header.Set("X-Service-Token", testServiceToken)
+	createReq.Header.Set("X-User-Permissions", "knowledge:write")
+	createRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", createRec.Code, createRec.Body.String())
+	}
+
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if len(state.listUserIDs) == 0 || state.listUserIDs[0] != "" {
+		t.Fatalf("list user ids=%v, want no forwarded runtime user identity", state.listUserIDs)
+	}
+	if len(state.createUserIDs) == 0 || state.createUserIDs[0] != "" {
+		t.Fatalf("create user ids=%v, want no forwarded runtime user identity", state.createUserIDs)
 	}
 }
 
@@ -390,8 +498,49 @@ func TestAdapterDocumentUploadStartsVendorIngestion(t *testing.T) {
 	}
 }
 
+func TestAdapterDocumentUploadQueuesIngestionWithoutRuntimeWorkerHeartbeat(t *testing.T) {
+	state := newFakeVendorState()
+	state.taskExecutorReady = false
+	vendor := startFakeVendor(t, state)
+	defer vendor.Close()
+
+	server := NewServer(adapterconfig.Config{
+		ServiceVersion:     "test",
+		VendorRuntimeURL:   vendor.URL,
+		ServiceToken:       testServiceToken,
+		AutoStartIngestion: true,
+	}, nil)
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	part, _ := writer.CreateFormFile("file", "notes.txt")
+	_, _ = io.WriteString(part, "hello")
+	_ = writer.Close()
+
+	uploadReq := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-bases/kb_fake_1/documents", body)
+	uploadReq.Header.Set("Content-Type", writer.FormDataContentType())
+	uploadReq.Header.Set("X-User-Id", "usr_test")
+	uploadReq.Header.Set("X-Service-Token", testServiceToken)
+	uploadReq.Header.Set("X-User-Permissions", "knowledge:write")
+	uploadRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(uploadRec, uploadReq)
+	if uploadRec.Code != http.StatusCreated {
+		t.Fatalf("upload status=%d body=%s", uploadRec.Code, uploadRec.Body.String())
+	}
+
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if len(state.parseCalls) != 1 || state.parseCalls[0] != "doc_fake_1" {
+		t.Fatalf("parseCalls=%v", state.parseCalls)
+	}
+	if len(state.deleteCalls) != 0 {
+		t.Fatalf("deleteCalls=%v want none", state.deleteCalls)
+	}
+}
+
 func TestAdapterDocumentUploadSkipsIngestionWhenDisabled(t *testing.T) {
 	state := newFakeVendorState()
+	state.taskExecutorReady = false
 	vendor := startFakeVendor(t, state)
 	defer vendor.Close()
 
@@ -464,6 +613,203 @@ func TestAdapterKnowledgeQueryForwardsDocumentIDs(t *testing.T) {
 	}
 }
 
+func TestAdapterKnowledgeQueryMapsRuntimeValidationError(t *testing.T) {
+	state := newFakeVendorState()
+	state.searchStatus = http.StatusBadRequest
+	state.searchResponse = map[string]any{
+		"code":    101,
+		"message": "Datasets use different embedding models.",
+	}
+	vendor := startFakeVendor(t, state)
+	defer vendor.Close()
+
+	server := NewServer(adapterconfig.Config{
+		ServiceVersion:   "test",
+		VendorRuntimeURL: vendor.URL,
+		ServiceToken:     testServiceToken,
+	}, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-queries", strings.NewReader(`{"query":"maintenance","knowledgeBaseIds":["kb_1","kb_2"]}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-Id", "usr_test")
+	req.Header.Set("X-Service-Token", testServiceToken)
+	req.Header.Set("X-User-Permissions", "knowledge:read")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if body.Error.Code != string(service.CodeValidation) {
+		t.Fatalf("error code=%q", body.Error.Code)
+	}
+}
+
+func TestAdapterKnowledgeQueryMapsRuntimeNotFoundError(t *testing.T) {
+	state := newFakeVendorState()
+	state.searchStatus = http.StatusNotFound
+	state.searchResponse = map[string]any{
+		"code":    404,
+		"message": "Dataset not found.",
+	}
+	vendor := startFakeVendor(t, state)
+	defer vendor.Close()
+
+	server := NewServer(adapterconfig.Config{
+		ServiceVersion:   "test",
+		VendorRuntimeURL: vendor.URL,
+		ServiceToken:     testServiceToken,
+	}, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-queries", strings.NewReader(`{"query":"maintenance","knowledgeBaseIds":["kb_missing"]}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-Id", "usr_test")
+	req.Header.Set("X-Service-Token", testServiceToken)
+	req.Header.Set("X-User-Permissions", "knowledge:read")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if body.Error.Code != string(service.CodeNotFound) {
+		t.Fatalf("error code=%q", body.Error.Code)
+	}
+}
+
+func TestAdapterKnowledgeQueryExpandsAccessibleKnowledgeBasesWhenOmitted(t *testing.T) {
+	state := newFakeVendorState()
+	state.datasets["kb_fake_1"] = map[string]any{"id": "kb_fake_1", "name": "Boiler", "chunk_count": 1}
+	state.datasets["kb_fake_2"] = map[string]any{"id": "kb_fake_2", "name": "Transformer", "chunk_count": 1}
+	vendor := startFakeVendor(t, state)
+	defer vendor.Close()
+
+	server := NewServer(adapterconfig.Config{
+		ServiceVersion:   "test",
+		VendorRuntimeURL: vendor.URL,
+		ServiceToken:     testServiceToken,
+	}, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-queries", strings.NewReader(`{"query":"maintenance"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-Id", "usr_test")
+	req.Header.Set("X-Service-Token", testServiceToken)
+	req.Header.Set("X-User-Permissions", "knowledge:read")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("query status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	var payload map[string]any
+	if err := json.Unmarshal(state.searchBody, &payload); err != nil {
+		t.Fatalf("decode search body: %v", err)
+	}
+	datasetIDs, _ := payload["dataset_ids"].([]any)
+	if len(datasetIDs) != 2 || datasetIDs[0] != "kb_fake_1" || datasetIDs[1] != "kb_fake_2" {
+		t.Fatalf("dataset_ids=%v", payload["dataset_ids"])
+	}
+	if len(state.listUserIDs) == 0 || state.listUserIDs[0] != "" {
+		t.Fatalf("list user ids=%v, want no forwarded runtime user identity", state.listUserIDs)
+	}
+	if state.searchUserID != "" {
+		t.Fatalf("search user id=%q, want no forwarded runtime user identity", state.searchUserID)
+	}
+}
+
+func TestAdapterTrustedQAKnowledgeQueryUsesRuntimeScopeWithoutKnowledgeRead(t *testing.T) {
+	state := newFakeVendorState()
+	state.datasets["kb_fake_1"] = map[string]any{"id": "kb_fake_1", "name": "Boiler", "chunk_count": 1}
+	state.datasets["kb_fake_2"] = map[string]any{"id": "kb_fake_2", "name": "Transformer", "chunk_count": 1}
+	vendor := startFakeVendor(t, state)
+	defer vendor.Close()
+
+	server := NewServer(adapterconfig.Config{
+		ServiceVersion:   "test",
+		VendorRuntimeURL: vendor.URL,
+		ServiceToken:     testServiceToken,
+	}, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-queries", strings.NewReader(`{"query":"maintenance"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-Id", "usr_without_knowledge_permission")
+	req.Header.Set("X-Service-Token", testServiceToken)
+	req.Header.Set("X-Caller-Service", "qa")
+	req.Header.Set(retrievalScopeHeader, retrievalScopeProject)
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("query status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	var payload map[string]any
+	if err := json.Unmarshal(state.searchBody, &payload); err != nil {
+		t.Fatalf("decode search body: %v", err)
+	}
+	datasetIDs, _ := payload["dataset_ids"].([]any)
+	if len(datasetIDs) != 2 || datasetIDs[0] != "kb_fake_1" || datasetIDs[1] != "kb_fake_2" {
+		t.Fatalf("dataset_ids=%v", payload["dataset_ids"])
+	}
+	if len(state.listUserIDs) == 0 || state.listUserIDs[0] != "" {
+		t.Fatalf("list user ids=%v, want no forwarded runtime user identity", state.listUserIDs)
+	}
+	if state.searchUserID != "" {
+		t.Fatalf("search user id=%q, want no forwarded runtime user identity", state.searchUserID)
+	}
+}
+
+func TestAdapterTrustedQAGetDocumentStillRequiresKnowledgeRead(t *testing.T) {
+	state := newFakeVendorState()
+	state.datasets["kb_fake_1"] = map[string]any{"id": "kb_fake_1", "name": "Boiler"}
+	state.documents["doc_fake_1"] = map[string]any{"id": "doc_fake_1", "kb_id": "kb_fake_1", "dataset_id": "kb_fake_1", "name": "guide.md"}
+	vendor := startFakeVendor(t, state)
+	defer vendor.Close()
+
+	server := NewServer(adapterconfig.Config{
+		ServiceVersion:   "test",
+		VendorRuntimeURL: vendor.URL,
+		ServiceToken:     testServiceToken,
+	}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/internal/v1/documents/doc_fake_1?knowledgeBaseId=kb_fake_1", nil)
+	req.Header.Set("X-User-Id", "usr_without_knowledge_permission")
+	req.Header.Set("X-Service-Token", testServiceToken)
+	req.Header.Set("X-Caller-Service", "qa")
+	req.Header.Set(retrievalScopeHeader, retrievalScopeProject)
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if len(state.listUserIDs) != 0 {
+		t.Fatalf("list user ids=%v, want none", state.listUserIDs)
+	}
+	if len(state.documentUserIDs) != 0 {
+		t.Fatalf("document user ids=%v, want none", state.documentUserIDs)
+	}
+}
+
 func TestAdapterReadRoutesRequireKnowledgeReadPermission(t *testing.T) {
 	state := newFakeVendorState()
 	vendor := startFakeVendor(t, state)
@@ -520,10 +866,10 @@ func TestAdapterReadRoutesRequireKnowledgeReadPermission(t *testing.T) {
 	}
 }
 
-func TestAdapterKnowledgeStatisticsUsesTenantScopedRuntimeTotals(t *testing.T) {
+func TestAdapterKnowledgeStatisticsUsesRuntimeTotals(t *testing.T) {
 	state := newFakeVendorState()
-	state.datasets["kb_fake_1"] = map[string]any{"id": "kb_fake_1", "name": "Boiler"}
-	state.datasets["kb_fake_2"] = map[string]any{"id": "kb_fake_2", "name": "Transformer"}
+	state.datasets["kb_fake_1"] = map[string]any{"id": "kb_fake_1", "name": "Boiler", "doc_num": 2}
+	state.datasets["kb_fake_2"] = map[string]any{"id": "kb_fake_2", "name": "Transformer", "doc_num": 1}
 	state.documents["doc_fake_1"] = map[string]any{"id": "doc_fake_1", "kb_id": "kb_fake_1", "dataset_id": "kb_fake_1"}
 	state.documents["doc_fake_2"] = map[string]any{"id": "doc_fake_2", "kb_id": "kb_fake_1", "dataset_id": "kb_fake_1"}
 	state.documents["doc_fake_3"] = map[string]any{"id": "doc_fake_3", "kb_id": "kb_fake_2", "dataset_id": "kb_fake_2"}
@@ -556,6 +902,84 @@ func TestAdapterKnowledgeStatisticsUsesTenantScopedRuntimeTotals(t *testing.T) {
 	}
 	if body.Data.KnowledgeBaseCount != 2 || body.Data.DocumentCount != 3 {
 		t.Fatalf("stats=(%d,%d), want (2,3)", body.Data.KnowledgeBaseCount, body.Data.DocumentCount)
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.listDocumentsCalls != 0 {
+		t.Fatalf("listDocumentsCalls=%d, want no per-KB document scan", state.listDocumentsCalls)
+	}
+}
+
+func TestAdapterUpdateDocumentPreservesTagsInImmediateResponse(t *testing.T) {
+	state := newFakeVendorState()
+	state.documents["doc_fake_1"] = map[string]any{
+		"id": "doc_fake_1", "kb_id": "kb_fake_1", "dataset_id": "kb_fake_1", "name": "notes.txt",
+	}
+	vendor := startFakeVendor(t, state)
+	defer vendor.Close()
+
+	server := NewServer(adapterconfig.Config{
+		ServiceVersion:   "test",
+		VendorRuntimeURL: vendor.URL,
+		ServiceToken:     testServiceToken,
+	}, nil)
+
+	req := httptest.NewRequest(http.MethodPatch, "/internal/v1/documents/doc_fake_1?knowledgeBaseId=kb_fake_1", strings.NewReader(`{"tags":["锅炉","检修"]}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-Id", "usr_test")
+	req.Header.Set("X-Service-Token", testServiceToken)
+	req.Header.Set("X-User-Permissions", "knowledge:write")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Data struct {
+			Tags []string `json:"tags"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body.Data.Tags) != 2 || body.Data.Tags[0] != "锅炉" || body.Data.Tags[1] != "检修" {
+		t.Fatalf("tags=%v", body.Data.Tags)
+	}
+}
+
+func TestAdapterRejectsOversizedJSONBody(t *testing.T) {
+	state := newFakeVendorState()
+	vendor := startFakeVendor(t, state)
+	defer vendor.Close()
+
+	server := NewServer(adapterconfig.Config{
+		ServiceVersion:   "test",
+		VendorRuntimeURL: vendor.URL,
+		ServiceToken:     testServiceToken,
+	}, nil)
+
+	oversizedName := strings.Repeat("a", int(defaultMaxJSONBodyBytes)+1)
+	req := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-bases", strings.NewReader(`{"name":"`+oversizedName+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-Id", "usr_test")
+	req.Header.Set("X-Service-Token", testServiceToken)
+	req.Header.Set("X-User-Permissions", "knowledge:write")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Error struct {
+			Code   string            `json:"code"`
+			Fields map[string]string `json:"fields"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if body.Error.Code != string(service.CodeValidation) || body.Error.Fields["body"] != "exceeds maximum JSON body size" {
+		t.Fatalf("error=%+v", body.Error)
 	}
 }
 
@@ -628,7 +1052,7 @@ func TestAdapterDeleteDocumentUsesDatasetScopedRuntimeRoute(t *testing.T) {
 		ServiceToken:     testServiceToken,
 	}, nil)
 
-	req := httptest.NewRequest(http.MethodDelete, "/internal/v1/documents/doc_fake_1", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/internal/v1/documents/doc_fake_1?knowledgeBaseId=kb_fake_1", nil)
 	req.Header.Set("X-User-Id", "usr_test")
 	req.Header.Set("X-Service-Token", testServiceToken)
 	req.Header.Set("X-User-Permissions", "knowledge:write")
@@ -648,7 +1072,7 @@ func TestAdapterDeleteDocumentUsesDatasetScopedRuntimeRoute(t *testing.T) {
 	}
 }
 
-func TestAdapterDeleteDocumentFindsDocumentAfterFirstDatasetPage(t *testing.T) {
+func TestAdapterDocumentRoutesRequireKnowledgeBaseIDWithoutScanningDatasets(t *testing.T) {
 	state := newFakeVendorState()
 	for i := 1; i <= 101; i++ {
 		kbID := fmt.Sprintf("kb_%03d", i)
@@ -672,13 +1096,28 @@ func TestAdapterDeleteDocumentFindsDocumentAfterFirstDatasetPage(t *testing.T) {
 	req.Header.Set("X-User-Permissions", "knowledge:write")
 	rec := httptest.NewRecorder()
 	server.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusNoContent {
+	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("delete status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Error struct {
+			Code   string            `json:"code"`
+			Fields map[string]string `json:"fields"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if body.Error.Code != string(service.CodeValidation) || body.Error.Fields["knowledgeBaseId"] == "" {
+		t.Fatalf("error=%+v", body.Error)
 	}
 
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	if len(state.deleteCalls) != 1 || state.deleteCalls[0] != (deleteCall{datasetID: "kb_101", documentID: "doc_late_page"}) {
+	if state.listDatasetsCalls != 0 {
+		t.Fatalf("listDatasetsCalls=%d, want no all-KB scan", state.listDatasetsCalls)
+	}
+	if len(state.deleteCalls) != 0 {
 		t.Fatalf("deleteCalls=%v", state.deleteCalls)
 	}
 }

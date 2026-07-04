@@ -1,0 +1,10 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend pre-development checklist and service ownership rules."}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "PostgreSQL, MinIO, and durable metadata constraints."}
+{"file": ".trellis/spec/backend/api-contracts.md", "reason": "Internal HTTP contracts, response envelopes, and context headers."}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Stable error codes for validation, unauthorized, forbidden, dependency errors."}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Sensitive file and storage detail logging constraints."}
+{"file": "docs/architecture/service-boundaries.md", "reason": "File service boundary and owner-service split."}
+{"file": "docs/architecture/technology-decisions.md", "reason": "MinIO, PostgreSQL, and Go backend technology baseline."}
+{"file": "docs/services/file/README.md", "reason": "File service target contract and operational rules."}
+{"file": "docs/services/file/docs/implementation.md", "reason": "Current File implementation state and known gaps."}
+{"file": "docs/services/file/docs/permission-matrix.md", "reason": "Internal caller authorization expectations."}

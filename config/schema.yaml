@@ -1,0 +1,51 @@
+version: 1
+profileContract:
+  requiredTopLevelKeys:
+    - version
+    - profile
+    - env
+  profileNames:
+    - base
+    - dev
+    - staging
+    - production
+  mergeOrder:
+    - code defaults
+    - config/base.yaml
+    - config/{profile}.yaml
+    - untracked dotenv secret files
+    - process environment
+    - explicit script flags
+envEntry:
+  value:
+    type: string
+    policy: committed non-sensitive value
+  fromEnv:
+    type: string
+    policy: environment variable or secret reference name
+  required:
+    type: boolean
+    default: false
+  sensitive:
+    type: boolean
+    default: false
+  description:
+    type: string
+secretPolicy:
+  forbiddenCommittedValueKeys:
+    - PASSWORD
+    - TOKEN
+    - SECRET
+    - API_KEY
+    - PRIVATE_KEY
+    - CREDENTIAL
+    - DSN
+    - DATABASE_URL
+  allowedSensitiveMechanisms:
+    - fromEnv
+    - CI/CD masked variables
+    - Kubernetes Secret
+    - Vault
+    - SOPS
+    - External Secrets Operator
+    - cloud secret manager

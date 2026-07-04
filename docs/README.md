@@ -36,7 +36,7 @@
 | [File 实现说明](services/file/docs/implementation.md) | `services/file/` 当前实现状态、契约对齐、缺口和最近检查记录。 |
 | [Knowledge 服务接口文档](services/knowledge/README.md) | 知识库、文档处理状态、切片、向量索引和检索接口契约。 |
 | [Knowledge 权限矩阵](services/knowledge/docs/permission-matrix.md) | 知识库、文档、检索和 parser config 的角色/权限矩阵。 |
-| [Knowledge 数据模型文档](services/knowledge/docs/data-models.md) | Knowledge 模块知识库、文档、处理任务、切片、Qdrant payload 和运行时配置逻辑模型。 |
+| [Knowledge 数据模型文档](services/knowledge/docs/data-models.md) | Knowledge 模块知识库、文档、处理任务、切片、runtime doc engine payload 和运行时配置逻辑模型。 |
 | [Knowledge 实现说明](services/knowledge/docs/implementation.md) | `services/knowledge/` 当前实现状态、契约对齐、缺口和最近检查记录。 |
 | [QA 服务接口文档](services/qa/README.md) | 智能问答 Agent Host、会话、消息、ReAct 循环、MCP 工具调用、SSE、引用、配置、检索测试和统计接口说明。 |
 | [QA 权限矩阵](services/qa/docs/permission-matrix.md) | QA 会话、消息、回答运行、引用、配置、检索测试、指标和工具调用的权限边界。 |

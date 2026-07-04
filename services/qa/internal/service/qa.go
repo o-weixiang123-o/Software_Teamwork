@@ -34,12 +34,12 @@ const (
 )
 
 var (
-	reasoningInternalHTTPURLPattern = regexp.MustCompile(`(?i)\bhttps?://(?:localhost|127\.0\.0\.1|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|[a-z0-9-]+(?:\.[a-z0-9-]+)*(?:\.internal|\.svc(?:\.cluster\.local)?|\.cluster\.local|\.local|\.consul)|(?:ai-gateway|gateway|auth|file|knowledge|document|qa|redis|postgres|postgresql|qdrant|minio|knowledge-vendor|document-mcp|knowledge-runtime|knowledge-api))(?:[/:?#][^\s]*)?`)
+	reasoningInternalHTTPURLPattern = regexp.MustCompile(`(?i)\bhttps?://(?:localhost|127\.0\.0\.1|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|[a-z0-9-]+(?:\.[a-z0-9-]+)*(?:\.internal|\.svc(?:\.cluster\.local)?|\.cluster\.local|\.local|\.consul)|(?:ai-gateway|gateway|auth|file|knowledge|document|qa|redis|postgres|postgresql|elasticsearch|minio|knowledge-vendor|document-mcp|knowledge-runtime|knowledge-api))(?:[/:?#][^\s]*)?`)
 	reasoningInternalHostURLPattern = regexp.MustCompile(`(?i)\bhttps?://[a-z0-9.-]*internal[a-z0-9.-]*(?::\d{1,5})?(?:[/?#][^\s]*)?`)
 	reasoningNonHTTPURLPattern      = regexp.MustCompile(`(?i)\b[a-z][a-z0-9+.-]*://[^\s]+`)
-	reasoningHostPortPattern        = regexp.MustCompile(`(?i)\b(?:localhost|127\.0\.0\.1|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|(?:ai-gateway|gateway|auth|file|knowledge|document|qa|redis|postgres|postgresql|qdrant|minio|knowledge-vendor|document-mcp|knowledge-runtime|knowledge-api)|[a-z0-9-]+(?:\.[a-z0-9-]+)*(?:\.internal|\.svc(?:\.cluster\.local)?|\.cluster\.local|\.local|\.consul)|[a-z][a-z0-9]*(?:-[a-z0-9]+)+):\d{2,5}\b`)
-	reasoningEnvConnectionPattern   = regexp.MustCompile(`(?i)\b(?:database_url|postgres(?:ql)?_url|redis_url|qdrant_url|minio_endpoint|connection_string|conn_string|dsn)\s*[:=]\s*\S+`)
-	reasoningKVHostPattern          = regexp.MustCompile(`(?i)\b(?:host|server|addr|address|endpoint)\s*=\s*(?:localhost|127\.0\.0\.1|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|(?:ai-gateway|gateway|auth|file|knowledge|document|qa|redis|postgres|postgresql|qdrant|minio|knowledge-vendor|document-mcp|knowledge-runtime|knowledge-api)|[a-z][a-z0-9]*(?:-[a-z0-9]+)+)\b`)
+	reasoningHostPortPattern        = regexp.MustCompile(`(?i)\b(?:localhost|127\.0\.0\.1|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|(?:ai-gateway|gateway|auth|file|knowledge|document|qa|redis|postgres|postgresql|elasticsearch|minio|knowledge-vendor|document-mcp|knowledge-runtime|knowledge-api)|[a-z0-9-]+(?:\.[a-z0-9-]+)*(?:\.internal|\.svc(?:\.cluster\.local)?|\.cluster\.local|\.local|\.consul)|[a-z][a-z0-9]*(?:-[a-z0-9]+)+):\d{2,5}\b`)
+	reasoningEnvConnectionPattern   = regexp.MustCompile(`(?i)\b(?:database_url|postgres(?:ql)?_url|redis_url|elasticsearch_url|minio_endpoint|connection_string|conn_string|dsn)\s*[:=]\s*\S+`)
+	reasoningKVHostPattern          = regexp.MustCompile(`(?i)\b(?:host|server|addr|address|endpoint)\s*=\s*(?:localhost|127\.0\.0\.1|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|(?:ai-gateway|gateway|auth|file|knowledge|document|qa|redis|postgres|postgresql|elasticsearch|minio|knowledge-vendor|document-mcp|knowledge-runtime|knowledge-api)|[a-z][a-z0-9]*(?:-[a-z0-9]+)+)\b`)
 )
 
 type AppError struct {
@@ -425,20 +425,8 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 			return AskResult{}, err
 		}
 	}
-
-	if runtime.DefaultKnowledgeBaseIDs != nil {
-		if len(input.KnowledgeBaseIDs) > 0 {
-			allowed := make(map[string]struct{}, len(runtime.DefaultKnowledgeBaseIDs))
-			for _, id := range runtime.DefaultKnowledgeBaseIDs {
-				allowed[id] = struct{}{}
-			}
-			for _, id := range input.KnowledgeBaseIDs {
-				if _, ok := allowed[id]; !ok {
-					return AskResult{}, NewError(CodeValidation, "one or more requested knowledge bases are not accessible", nil)
-				}
-			}
-		}
-	}
+	input.AttachmentIDs = attachmentIDs
+	input.KnowledgeBaseIDs = normalizeIDList(input.KnowledgeBaseIDs)
 
 	run, err := s.repository.AppendMessages(ctx, userID, conversationID, ResponseRunStart{
 		RequestID:          RequestIDFromContext(ctx),
@@ -1095,11 +1083,19 @@ func requestDirective(input AskInput) string {
 	if input.Mode != "" && input.Mode != "unknown" {
 		parts = append(parts, "The requested QA mode is "+input.Mode+".")
 	}
-	if input.Mode == "report_generation" {
-		parts = append(parts, "For report generation, use search_session_attachments with include_report_source=true when the user uploaded files, then pass report_source_excerpt as content to document__generate_report_from_content. You may also call available Document report tools such as document__generate_report_outline, document__generate_report_text, document__get_generation_status, document__export_report_docx, and document__get_report_result. Treat accepted, pending, or running jobs as asynchronous work and avoid long blocking waits.")
+	attachmentIDs := normalizeIDList(input.AttachmentIDs)
+	knowledgeBaseIDs := normalizeIDList(input.KnowledgeBaseIDs)
+	if input.Mode == "knowledge_qa" {
+		parts = append(parts, "For knowledge QA, use long-term knowledge-base retrieval with search_knowledge or knowledge__search when the answer depends on approved domain facts.")
 	}
-	if len(input.KnowledgeBaseIDs) > 0 {
-		parts = append(parts, "When a knowledge tool supports knowledge-base filtering, restrict it to: "+strings.Join(input.KnowledgeBaseIDs, ", ")+".")
+	if len(attachmentIDs) > 0 {
+		parts = append(parts, "The current message has ready session attachments. Use search_session_attachments to retrieve relevant attachment chunks when they may help answer the user. Session attachments are temporary context and do not replace long-term knowledge-base RAG; when the question may need approved knowledge-base facts, also use search_knowledge or knowledge__search if those tools are available.")
+	}
+	if input.Mode == "report_generation" {
+		parts = append(parts, "For report generation, use search_session_attachments with include_report_source=true when the user uploaded files, then pass report_source_excerpt as content to document__generate_report_from_content. Use long-term knowledge-base retrieval as an additional source when the report needs approved domain facts. You may also call available Document report tools such as document__generate_report_outline, document__generate_report_text, document__get_generation_status, document__export_report_docx, and document__get_report_result. Treat accepted, pending, or running jobs as asynchronous work and avoid long blocking waits.")
+	}
+	if len(knowledgeBaseIDs) > 0 {
+		parts = append(parts, "When a knowledge tool supports knowledge-base filtering, restrict it to: "+strings.Join(knowledgeBaseIDs, ", ")+".")
 	}
 	return strings.Join(parts, " ")
 }

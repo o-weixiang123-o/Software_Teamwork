@@ -149,7 +149,7 @@ class TestPostProcessorInsertTocChunk:
         """Test successful TOC chunk insertion."""
         ctx = MagicMock()
         ctx.id = "task_1"
-        ctx.tenant_id = "tenant_1"
+        ctx.scope_id = "scope_1"
         ctx.kb_id = "kb_1"
         ctx.has_canceled_func = MagicMock(return_value=False)
         service = PostProcessor(ctx=ctx)
@@ -160,14 +160,14 @@ class TestPostProcessorInsertTocChunk:
         result = await service.insert_toc_chunk(toc_chunk, chunk_service)
 
         assert result is True
-        chunk_service.insert_chunks.assert_called_once_with("task_1", "tenant_1", "kb_1", [toc_chunk])
+        chunk_service.insert_chunks.assert_called_once_with("task_1", "scope_1", "kb_1", [toc_chunk])
 
     @pytest.mark.asyncio
     async def test_handles_insert_failure(self):
         """Test handling of insert failure."""
         ctx = MagicMock()
         ctx.id = "task_1"
-        ctx.tenant_id = "tenant_1"
+        ctx.scope_id = "scope_1"
         ctx.kb_id = "kb_1"
         ctx.has_canceled_func = MagicMock(return_value=False)
         service = PostProcessor(ctx=ctx)

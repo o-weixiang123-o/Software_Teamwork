@@ -11,22 +11,16 @@ from pathlib import Path
 
 
 SCAN_ROOTS = ("deploy", "services", "apps")
-KNOWN_IMAGE_OVERRIDE_VARS = {
-    "POSTGRES_IMAGE": "docker.m.daocloud.io/library/postgres:16-alpine",
-    "REDIS_IMAGE": "docker.m.daocloud.io/library/redis:7-alpine",
-    "QDRANT_IMAGE": "docker.m.daocloud.io/qdrant/qdrant:v1.18.2",
-    "MINIO_IMAGE": "docker.m.daocloud.io/minio/minio:RELEASE.2025-09-07T16-13-09Z",
-    "MINIO_MC_IMAGE": "docker.m.daocloud.io/minio/mc:RELEASE.2025-08-13T08-35-41Z",
-}
 EXPECTED_IMAGE_DEFAULTS = {
     "POSTGRES_IMAGE": "postgres:16-alpine",
     "REDIS_IMAGE": "redis:7-alpine",
-    "QDRANT_IMAGE": "qdrant/qdrant:v1.18.2",
     "MINIO_IMAGE": "minio/minio:RELEASE.2025-09-07T16-13-09Z",
     "MINIO_MC_IMAGE": "minio/mc:RELEASE.2025-08-13T08-35-41Z",
+    "KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE": "docker.elastic.co/elasticsearch/elasticsearch:8.15.3",
 }
 LOCAL_COMPOSE_FILE = Path("deploy/docker-compose.yml")
-ALLOWED_DEFAULT_COMPOSE_SERVICES = ("postgres", "redis", "qdrant", "minio", "minio-init")
+ALLOWED_DEFAULT_COMPOSE_SERVICES = ("postgres", "redis", "minio", "minio-init", "elasticsearch")
+ALLOWED_PROFILE_COMPOSE_SERVICES: dict[str, tuple[str, ...]] = {}
 DISALLOWED_DEFAULT_COMPOSE_SERVICES = (
     "migrate-auth",
     "migrate-file",
@@ -203,7 +197,9 @@ def collect_arg_defaults(content: str) -> dict[str, str]:
 def parse_full_image_arg(image: str) -> str | None:
     match = re.match(r"^\$\{([A-Z0-9_]+)\}$", image)
     if not match:
-        return None
+        match = re.match(r"^\$\{IMAGE_REGISTRY_PREFIX\}\$\{([A-Z0-9_]+)\}$", image)
+        if not match:
+            return None
     return match.group(1)
 
 
@@ -346,32 +342,51 @@ def validate_local_compose(rel: str, content: str) -> list[str]:
 
 def extract_compose_services(content: str) -> dict[str, tuple[str, ...]]:
     services: dict[str, tuple[str, ...]] = {}
-    lines = content.splitlines()
+    for service, block in extract_compose_service_blocks(content).items():
+        services[service] = extract_profiles_from_block(block)
+    return services
+
+
+def extract_compose_service_blocks(content: str) -> dict[str, list[tuple[int, str]]]:
+    services: dict[str, list[tuple[int, str]]] = {}
     in_services = False
     current_service: str | None = None
-    current_indent: int | None = None
-    for line in lines:
+    for line_no, line in enumerate(content.splitlines(), start=1):
         if re.match(r"^services:\s*$", line):
             in_services = True
             current_service = None
-            current_indent = None
             continue
         if in_services and re.match(r"^[A-Za-z0-9_.-]+:\s*$", line):
             break
         if not in_services:
             continue
-        service_match = re.match(r"^(  )([A-Za-z0-9_.-]+):\s*$", line)
+        service_match = re.match(r"^  ([A-Za-z0-9_.-]+):\s*$", line)
         if service_match:
-            current_service = service_match.group(2)
-            current_indent = len(service_match.group(1))
-            services[current_service] = ()
+            current_service = service_match.group(1)
+            services[current_service] = []
             continue
-        if current_service is None or current_indent is None:
-            continue
-        profile_match = re.match(rf"^ {{{current_indent + 2}}}profiles:\s*(.+?)\s*$", line)
-        if profile_match:
-            services[current_service] = parse_profiles(profile_match.group(1))
+        if current_service is not None:
+            services[current_service].append((line_no, line))
     return services
+
+
+def extract_profiles_from_block(block: list[tuple[int, str]]) -> tuple[str, ...]:
+    for index, (_line_no, line) in enumerate(block):
+        profile_match = re.match(r"^    profiles:\s*(.*?)\s*$", line)
+        if not profile_match:
+            continue
+        inline_profiles = profile_match.group(1)
+        if inline_profiles:
+            return parse_profiles(inline_profiles)
+        profiles: list[str] = []
+        for _child_line_no, child in block[index + 1 :]:
+            if re.match(r"^    [A-Za-z0-9_.-]+:", child):
+                break
+            list_match = re.match(r"^      -\s*(.+?)\s*$", child)
+            if list_match:
+                profiles.append(list_match.group(1).strip().strip("'\""))
+        return tuple(profiles)
+    return ()
 
 
 def parse_profiles(raw: str) -> tuple[str, ...]:
@@ -387,25 +402,42 @@ def parse_profiles(raw: str) -> tuple[str, ...]:
 
 
 def validate_env_example(root: Path) -> list[str]:
-    env_file = root / "deploy" / ".env.example"
-    if not env_file.exists():
-        return ["deploy/.env.example is required for local startup defaults"]
-
-    content = env_file.read_text(encoding="utf-8")
-    values = parse_env_file(content)
+    env_file = root / ".env.example"
+    config_file = root / "config" / "base.yaml"
     issues: list[str] = []
+    if not env_file.exists():
+        issues.append(".env.example is required as the local secret template")
+    if not config_file.exists():
+        issues.append("config/base.yaml is required for committed local startup defaults")
+    if issues:
+        return issues
 
-    for key in KNOWN_IMAGE_OVERRIDE_VARS:
-        if key in values:
+    template_content = env_file.read_text(encoding="utf-8")
+    template_values = parse_env_file(template_content)
+    config_content = config_file.read_text(encoding="utf-8")
+    config_values = parse_config_env_values(config_content)
+
+    for key, expected_default in EXPECTED_IMAGE_DEFAULTS.items():
+        value = config_values.get(key)
+        if value != expected_default:
             issues.append(
-                f"deploy/.env.example: `{key}` must not be active by default under the official-by-default source policy; use ./scripts/local/dev-up.sh --china or local deploy/.env overrides"
+                f"config/base.yaml: `{key}` must default to official pinned `{expected_default}` under the official-by-default source policy; use ./scripts/local/dev-up.sh --china or local .env.local overrides"
             )
 
-    for key, value in values.items():
+    for key, value in config_values.items():
         if key.endswith("_IMAGE") and uses_latest_tag(value):
-            issues.append(f"deploy/.env.example: `{key}` must not use latest")
-    if values.get("GO_DOCKER_GOSUMDB") == "off":
-        issues.append("deploy/.env.example: must not disable Go checksum verification")
+            issues.append(f"config/base.yaml: `{key}` must not use latest")
+    for key, value in template_values.items():
+        if key.endswith("_IMAGE") and uses_latest_tag(value):
+            issues.append(f".env.example: `{key}` must not use latest")
+        if value.startswith("docker.m.daocloud.io/"):
+            issues.append(f".env.example: `{key}` must not enable third-party registry rewrite by default")
+    if config_values.get("HF_ENDPOINT") == "https://hf-mirror.com" or template_values.get("HF_ENDPOINT") == "https://hf-mirror.com":
+        issues.append(
+            ".env.example/config/base.yaml: `HF_ENDPOINT=https://hf-mirror.com` must not be active by default; use run-knowledge-parse-stack.sh --china or local .env.local overrides"
+        )
+    if template_values.get("GO_DOCKER_GOSUMDB") == "off" or config_values.get("GO_DOCKER_GOSUMDB") == "off" or config_values.get("GOSUMDB") == "off":
+        issues.append(".env.example/config/base.yaml: must not disable Go checksum verification")
 
     return issues
 
@@ -418,6 +450,25 @@ def parse_env_file(content: str) -> dict[str, str]:
             continue
         key, value = stripped.split("=", 1)
         values[key.strip()] = value.strip().strip("'\"")
+    return values
+
+
+def parse_config_env_values(content: str) -> dict[str, str]:
+    values: dict[str, str] = {}
+    current_key = ""
+    for line in content.splitlines():
+        key_match = re.match(r"^  ([A-Z][A-Z0-9_]*):\s*$", line)
+        if key_match:
+            current_key = key_match.group(1)
+            continue
+        if not current_key:
+            continue
+        value_match = re.match(r"^    value:\s*(.*?)\s*$", line)
+        if value_match:
+            values[current_key] = value_match.group(1).strip().strip("'\"")
+            continue
+        if re.match(r"^  [A-Za-z0-9_]+:\s*$", line):
+            current_key = ""
     return values
 
 

@@ -128,6 +128,37 @@ describe('gateway API client', () => {
     expect(localStorage.getItem('auth_token')).toBeNull()
   })
 
+  it('keeps the local development bypass token when real gateway endpoints reject it', async () => {
+    apiClient.setToken('dev-token-bypass')
+    const onUnauthorized = vi.fn()
+    apiClient.setUnauthorizedHandler(onUnauthorized)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(
+        jsonResponse(
+          {
+            error: {
+              code: 'unauthorized',
+              message: 'invalid development token',
+              requestId: 'req-dev-bypass',
+            },
+          },
+          { status: 401 },
+        ),
+      ),
+    )
+
+    await expect(gatewayRequest('/knowledge-bases')).rejects.toMatchObject({
+      code: 'unauthorized',
+      message: 'invalid development token',
+      requestId: 'req-dev-bypass',
+      status: 401,
+    })
+    expect(apiClient.getToken()).toBe('dev-token-bypass')
+    expect(onUnauthorized).not.toHaveBeenCalled()
+    expect(localStorage.getItem('auth_token')).toBe('dev-token-bypass')
+  })
+
   it('does not force JSON content-type for FormData uploads', async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
       jsonResponse({

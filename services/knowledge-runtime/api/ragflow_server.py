@@ -14,7 +14,7 @@
 #  limitations under the License.
 #
 
-print("Start RAGFlow server...")
+print("Start Knowledge runtime API...")
 
 import time
 start_ts = time.time()
@@ -39,7 +39,7 @@ from common.file_utils import get_project_base_directory
 from common import settings
 from api.db.db_models import init_database_tables
 from api.db.init_data import init_runtime_data
-from common.versions import get_ragflow_version
+from common.versions import get_runtime_version
 from common.config_utils import show_configs
 from common.mcp_tool_call_conn import shutdown_all_mcp_sessions
 from common.log_utils import init_root_logger
@@ -47,7 +47,7 @@ from rag.utils.redis_conn import RedisDistributedLock
 
 stop_event = threading.Event()
 
-RAGFLOW_DEBUGPY_LISTEN = int(os.environ.get('RAGFLOW_DEBUGPY_LISTEN', "0"))
+KNOWLEDGE_RUNTIME_DEBUGPY_LISTEN = int(os.environ.get("KNOWLEDGE_RUNTIME_DEBUGPY_LISTEN", "0"))
 
 def update_progress():
     lock_value = str(uuid.uuid4())
@@ -76,17 +76,10 @@ def signal_handler(sig, frame):
 
 if __name__ == '__main__':
     faulthandler.enable()
-    init_root_logger("ragflow_server")
-    logging.info(r"""
-        ____   ___    ______ ______ __
-       / __ \ /   |  / ____// ____// /____  _      __
-      / /_/ // /| | / / __ / /_   / // __ \| | /| / /
-     / _, _// ___ |/ /_/ // __/  / // /_/ /| |/ |/ /
-    /_/ |_|/_/  |_|\____//_/    /_/ \____/ |__/|__/
-
-    """)
+    init_root_logger("knowledge_runtime_api")
+    logging.info("Knowledge runtime API starting")
     logging.info(
-        f'RAGFlow version: {get_ragflow_version()}'
+        f"Knowledge runtime version: {get_runtime_version()}"
     )
     logging.info(
         f'project base: {get_project_base_directory()}'
@@ -95,10 +88,10 @@ if __name__ == '__main__':
     settings.init_settings()
     settings.print_rag_settings()
 
-    if RAGFLOW_DEBUGPY_LISTEN > 0:
-        logging.info(f"debugpy listen on {RAGFLOW_DEBUGPY_LISTEN}")
+    if KNOWLEDGE_RUNTIME_DEBUGPY_LISTEN > 0:
+        logging.info(f"debugpy listen on {KNOWLEDGE_RUNTIME_DEBUGPY_LISTEN}")
         import debugpy
-        debugpy.listen(("0.0.0.0", RAGFLOW_DEBUGPY_LISTEN))
+        debugpy.listen(("0.0.0.0", KNOWLEDGE_RUNTIME_DEBUGPY_LISTEN))
 
     # init db
     init_database_tables()
@@ -108,14 +101,14 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--version", default=False, help="RAGFlow version", action="store_true"
+        "--version", default=False, help="Knowledge runtime version", action="store_true"
     )
     parser.add_argument(
         "--debug", default=False, help="debug mode", action="store_true"
     )
     args = parser.parse_args()
     if args.version:
-        print(get_ragflow_version())
+        print(get_runtime_version())
         sys.exit(0)
 
     RuntimeConfig.DEBUG = args.debug
@@ -141,7 +134,7 @@ if __name__ == '__main__':
 
     # start http server
     try:
-        logging.info(f"RAGFlow server is ready after {time.time() - start_ts}s initialization.")
+        logging.info(f"Knowledge runtime API is ready after {time.time() - start_ts}s initialization.")
         app.run(host=settings.HOST_IP, port=settings.HOST_PORT, use_reloader=RuntimeConfig.DEBUG, debug=False)
     except Exception as e:
         logging.exception(f"Unhandled exception: {e}")

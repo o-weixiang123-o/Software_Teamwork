@@ -36,27 +36,27 @@ LOCALHOST_NO_PROXY_ENTRIES = ("localhost", "127.0.0.1", "::1")
 CHINA_IMAGES = {
     "postgres": "docker.m.daocloud.io/library/postgres:16-alpine",
     "redis": "docker.m.daocloud.io/library/redis:7-alpine",
-    "qdrant": "docker.m.daocloud.io/qdrant/qdrant:v1.18.2",
     "minio server": "docker.m.daocloud.io/minio/minio:RELEASE.2025-09-07T16-13-09Z",
     "minio mc": "docker.m.daocloud.io/minio/mc:RELEASE.2025-08-13T08-35-41Z",
+    "elasticsearch": "docker.m.daocloud.io/docker.elastic.co/elasticsearch/elasticsearch:8.15.3",
     "ragflow deps": "docker.m.daocloud.io/infiniflow/ragflow_deps:51ce6aab",
 }
 
 DEFAULT_IMAGES = {
     "postgres": "postgres:16-alpine",
     "redis": "redis:7-alpine",
-    "qdrant": "qdrant/qdrant:v1.18.2",
     "minio server": "minio/minio:RELEASE.2025-09-07T16-13-09Z",
     "minio mc": "minio/mc:RELEASE.2025-08-13T08-35-41Z",
+    "elasticsearch": "docker.elastic.co/elasticsearch/elasticsearch:8.15.3",
     "ragflow deps": "infiniflow/ragflow_deps:51ce6aab",
 }
 
 DOCKER_HUB_DIRECT_IMAGES = {
     "postgres": "registry-1.docker.io/library/postgres:16-alpine",
     "redis": "registry-1.docker.io/library/redis:7-alpine",
-    "qdrant": "registry-1.docker.io/qdrant/qdrant:v1.18.2",
     "minio server": "registry-1.docker.io/minio/minio:RELEASE.2025-09-07T16-13-09Z",
     "minio mc": "registry-1.docker.io/minio/mc:RELEASE.2025-08-13T08-35-41Z",
+    "elasticsearch": "docker.elastic.co/elasticsearch/elasticsearch:8.15.3",
     "ragflow deps": "registry-1.docker.io/infiniflow/ragflow_deps:51ce6aab",
 }
 

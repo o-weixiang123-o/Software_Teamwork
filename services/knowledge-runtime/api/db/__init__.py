@@ -20,18 +20,6 @@ from enum import StrEnum
 from common.constants import PipelineTaskType
 
 
-class UserTenantRole(StrEnum):
-    OWNER = 'owner'
-    ADMIN = 'admin'
-    NORMAL = 'normal'
-    INVITE = 'invite'
-
-
-class TenantPermission(StrEnum):
-    ME = 'me'
-    TEAM = 'team'
-
-
 class SerializedType(IntEnum):
     PICKLE = 1
     JSON = 2

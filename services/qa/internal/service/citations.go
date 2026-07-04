@@ -12,6 +12,7 @@ import (
 const (
 	maxCitationSnapshotTextRunes    = 2000
 	maxCitationSnapshotContextRunes = 4000
+	knowledgeRetrievalStopDirective = "Knowledge retrieval already returned relevant source results. Do not call Knowledge retrieval tools again for this user request. Write the final answer now using the retrieved facts and citation numbers."
 )
 
 func citationsFromAgentMessages(messageID, runID string, messages []agent.Message) []Citation {
@@ -61,6 +62,72 @@ func isCitationToolName(name string) bool {
 		strings.HasSuffix(name, ".get_citation_source") ||
 		strings.HasSuffix(name, "__knowledge_query") ||
 		strings.HasSuffix(name, ".knowledge_query")
+}
+
+func NewKnowledgeRetrievalStopPolicy(knowledgeMCPAlias string) agent.ToolResultPolicy {
+	alias := strings.TrimSpace(strings.ToLower(knowledgeMCPAlias))
+	return func(observation agent.ToolObservation) agent.ToolResultPolicyDecision {
+		return knowledgeRetrievalStopPolicy(observation, alias)
+	}
+}
+
+func KnowledgeRetrievalStopPolicy(observation agent.ToolObservation) agent.ToolResultPolicyDecision {
+	return knowledgeRetrievalStopPolicy(observation, "knowledge")
+}
+
+func knowledgeRetrievalStopPolicy(observation agent.ToolObservation, knowledgeMCPAlias string) agent.ToolResultPolicyDecision {
+	if observation.Type != agent.EventToolCompleted {
+		return agent.ToolResultPolicyDecision{}
+	}
+	name := strings.TrimSpace(strings.ToLower(observation.ToolName))
+	if !isKnowledgeRetrievalToolName(name, knowledgeMCPAlias) {
+		return agent.ToolResultPolicyDecision{}
+	}
+	if len(extractCitationsFromToolResult(observation.Result, 1)) == 0 {
+		return agent.ToolResultPolicyDecision{}
+	}
+	decision := agent.ToolResultPolicyDecision{
+		SuppressToolNames:   []string{"search_knowledge", "get_citation_source", "knowledge_query"},
+		AppendSystemMessage: knowledgeRetrievalStopDirective,
+	}
+	if prefix := knowledgeMCPToolPrefix(name, knowledgeMCPAlias); prefix != "" {
+		decision.SuppressToolPrefixes = append(decision.SuppressToolPrefixes, prefix)
+	}
+	if knowledgeMCPAlias != "" && knowledgeMCPAlias != "knowledge" {
+		decision.SuppressToolPrefixes = append(decision.SuppressToolPrefixes, knowledgeMCPAlias+"__")
+	}
+	decision.SuppressToolPrefixes = append(decision.SuppressToolPrefixes, "knowledge__")
+	return decision
+}
+
+func isKnowledgeRetrievalToolName(name string, knowledgeMCPAlias string) bool {
+	switch strings.TrimSpace(strings.ToLower(name)) {
+	case "search_knowledge", "get_citation_source", "knowledge_query":
+		return true
+	}
+	prefix := knowledgeMCPToolPrefix(name, knowledgeMCPAlias)
+	if prefix == "" {
+		return false
+	}
+	tool := strings.TrimPrefix(name, prefix)
+	switch tool {
+	case "search", "get_chunk", "get_document", "list_documents", "search_knowledge", "get_citation_source", "knowledge_query":
+		return true
+	default:
+		return false
+	}
+}
+
+func knowledgeMCPToolPrefix(name string, knowledgeMCPAlias string) string {
+	name = strings.TrimSpace(strings.ToLower(name))
+	knowledgeMCPAlias = strings.TrimSpace(strings.ToLower(knowledgeMCPAlias))
+	if knowledgeMCPAlias != "" && strings.HasPrefix(name, knowledgeMCPAlias+"__") {
+		return knowledgeMCPAlias + "__"
+	}
+	if strings.HasPrefix(name, "knowledge__") {
+		return "knowledge__"
+	}
+	return ""
 }
 
 func collectCitationRecords(value any) []map[string]any {

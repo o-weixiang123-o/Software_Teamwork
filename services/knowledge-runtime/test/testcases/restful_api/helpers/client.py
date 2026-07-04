@@ -18,12 +18,12 @@ from dataclasses import dataclass
 from typing import Any
 
 import requests
-from configs import HOST_ADDRESS, VERSION
+from configs import HOST_ADDRESS, RUNTIME_SERVICE_TOKEN, VERSION
 
 
 @dataclass
 class RestClient:
-    token: str | None = None
+    token: str | None = RUNTIME_SERVICE_TOKEN
     timeout: int = 30
 
     @property
@@ -34,8 +34,8 @@ class RestClient:
         merged: dict[str, str] = {"Content-Type": "application/json"}
         if headers:
             merged.update(headers)
-        if self.token and "X-Tenant-Id" not in merged:
-            merged["X-Tenant-Id"] = self.token
+        if self.token and "X-Service-Token" not in merged:
+            merged["X-Service-Token"] = self.token
         return merged
 
     def request(

@@ -173,7 +173,7 @@ class Xinference(Base):
 
     @staticmethod
     def _xinference_model_type_to_llm_type(model_type_str):
-        """Map Xinference model type strings to RAGFlow LLMType values."""
+        """Map Xinference model type strings to runtime LLMType values."""
         mapping = {
             "LLM": LLMType.CHAT.value,
             "chat": LLMType.CHAT.value,

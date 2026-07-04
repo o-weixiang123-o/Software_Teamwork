@@ -148,7 +148,7 @@ class KGSearch(Dealer):
         return self._ent_info_from_(es_res, 0)
 
     async def retrieval(self, question: str,
-               tenant_ids: str | list[str],
+               scope_ids: str | list[str],
                kb_ids: list[str],
                emb_mdl,
                llm,
@@ -162,12 +162,12 @@ class KGSearch(Dealer):
                ):
         qst = question
         filters = self.get_filters({"kb_ids": kb_ids})
-        if isinstance(tenant_ids, str):
-            tenant_ids = tenant_ids.split(",")
-        idxnms = [index_name(tid) for tid in tenant_ids]
+        if isinstance(scope_ids, str):
+            scope_ids = scope_ids.split(",")
+        idxnms = [index_name(tid) for tid in scope_ids]
         ty_kwds = []
         try:
-            ty_kwds, ents = await self.query_rewrite(llm, qst, [index_name(tid) for tid in tenant_ids], kb_ids)
+            ty_kwds, ents = await self.query_rewrite(llm, qst, [index_name(tid) for tid in scope_ids], kb_ids)
             logging.info(f"Q: {qst}, Types: {ty_kwds}, Entities: {ents}")
         except Exception as e:
             logging.exception(e)
@@ -251,7 +251,7 @@ class KGSearch(Dealer):
 
         for (f, t), rel in rels_from_txt:
             if not rel.get("description"):
-                for tid in tenant_ids:
+                for tid in scope_ids:
                     rela = await get_relation(tid, kb_ids, f, t)
                     if rela:
                         break
@@ -328,23 +328,23 @@ if __name__ == "__main__":
     from common.constants import LLMType
     from api.db.services.knowledgebase_service import KnowledgebaseService
     from api.db.services.llm_service import LLMBundle
-    from api.db.joint_services.tenant_model_service import get_tenant_default_model_by_type, get_model_config_from_provider_instance
+    from api.db.joint_services.runtime_model_service import get_runtime_default_model_by_type, get_model_config_from_provider_instance
     from rag.nlp import search
 
     settings.init_settings()
     parser = argparse.ArgumentParser()
-    parser.add_argument('-t', '--tenant_id', default=False, help="Tenant ID", action='store', required=True)
+    parser.add_argument('-t', '--scope_id', default=False, help="Runtime scope ID", action='store', required=True)
     parser.add_argument('-d', '--kb_id', default=False, help="Knowledge base ID", action='store', required=True)
     parser.add_argument('-q', '--question', default=False, help="Question", action='store', required=True)
     args = parser.parse_args()
 
     kb_id = args.kb_id
-    llm_config = get_tenant_default_model_by_type(args.tenant_id, LLMType.CHAT)
-    llm_bdl = LLMBundle(args.tenant_id, llm_config)
+    llm_config = get_runtime_default_model_by_type(args.scope_id, LLMType.CHAT)
+    llm_bdl = LLMBundle(args.scope_id, llm_config)
     _, kb = KnowledgebaseService.get_by_id(kb_id)
-    embd_model_config = get_model_config_from_provider_instance(args.tenant_id, LLMType.EMBEDDING, kb.embd_id)
-    embed_bdl = LLMBundle(args.tenant_id, embd_model_config)
+    embd_model_config = get_model_config_from_provider_instance(args.scope_id, LLMType.EMBEDDING, kb.embd_id)
+    embed_bdl = LLMBundle(args.scope_id, embd_model_config)
 
     kg = KGSearch(settings.docStoreConn)
     print(asyncio.run(kg.retrieval({"question": args.question, "kb_ids": [kb_id]},
-                    search.index_name(kb.tenant_id), [kb_id], embed_bdl, llm_bdl)))
+                    search.index_name(kb.scope_id), [kb_id], embed_bdl, llm_bdl)))

@@ -19,6 +19,9 @@ func TestLoadAcceptsLocalStorageBackend(t *testing.T) {
 	if cfg.StorageBackend != "local" || cfg.LocalStorageDir == "" {
 		t.Fatalf("config = %+v", cfg)
 	}
+	if cfg.Env != "local" {
+		t.Fatalf("Env = %q", cfg.Env)
+	}
 }
 
 func TestLoadAcceptsMinIOStorageBackend(t *testing.T) {
@@ -109,10 +112,67 @@ func TestLoadAcceptsSharedServiceTokenFallback(t *testing.T) {
 	}
 }
 
+func TestLoadParsesFilePolicies(t *testing.T) {
+	clearFileEnv(t)
+	t.Setenv("FILE_ALLOWED_CONTENT_TYPES", " application/pdf, text/plain ,,")
+	t.Setenv("FILE_ALLOWED_CREATE_CALLERS", "document, qa")
+	t.Setenv("FILE_ALLOWED_READ_CALLERS", " document ")
+	t.Setenv("FILE_ALLOWED_DELETE_CALLERS", "qa")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	assertSliceEqual(t, cfg.AllowedContentTypes, []string{"application/pdf", "text/plain"})
+	assertSliceEqual(t, cfg.AllowedCreateCallers, []string{"document", "qa"})
+	assertSliceEqual(t, cfg.AllowedReadCallers, []string{"document"})
+	assertSliceEqual(t, cfg.AllowedDeleteCallers, []string{"qa"})
+}
+
+func TestLoadUsesEnvFallbackForRuntimeEnv(t *testing.T) {
+	clearFileEnv(t)
+	t.Setenv("ENV", "test")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Env != "test" {
+		t.Fatalf("Env = %q", cfg.Env)
+	}
+}
+
+func TestLoadRejectsMemoryStorageInNonLocalEnv(t *testing.T) {
+	clearFileEnv(t)
+	t.Setenv("FILE_ENV", "production")
+	t.Setenv("FILE_STORAGE_BACKEND", "memory")
+	t.Setenv("FILE_DATABASE_URL", "postgres://file:file@localhost:5432/file?sslmode=disable")
+	t.Setenv("FILE_INTERNAL_SERVICE_TOKEN", "file-token")
+
+	_, err := config.Load()
+	if err == nil || !strings.Contains(err.Error(), "FILE_STORAGE_BACKEND=memory") {
+		t.Fatalf("Load() error = %v, want memory backend guard", err)
+	}
+}
+
+func TestLoadRejectsMemoryMetadataInNonLocalEnv(t *testing.T) {
+	clearFileEnv(t)
+	t.Setenv("FILE_ENV", "production")
+	t.Setenv("FILE_STORAGE_BACKEND", "local")
+	t.Setenv("FILE_LOCAL_STORAGE_DIR", t.TempDir())
+
+	_, err := config.Load()
+	if err == nil || !strings.Contains(err.Error(), "FILE_DATABASE_URL") {
+		t.Fatalf("Load() error = %v, want database guard", err)
+	}
+}
+
 func clearFileEnv(t *testing.T) {
 	t.Helper()
 	for _, key := range []string{
 		"FILE_HTTP_ADDR",
+		"FILE_ENV",
+		"ENV",
 		"FILE_MAX_UPLOAD_BYTES",
 		"FILE_STORAGE_BACKEND",
 		"FILE_LOCAL_STORAGE_DIR",
@@ -126,8 +186,24 @@ func clearFileEnv(t *testing.T) {
 		"FILE_DATABASE_URL",
 		"FILE_INTERNAL_SERVICE_TOKEN",
 		"INTERNAL_SERVICE_TOKEN",
+		"FILE_ALLOWED_CONTENT_TYPES",
+		"FILE_ALLOWED_CREATE_CALLERS",
+		"FILE_ALLOWED_READ_CALLERS",
+		"FILE_ALLOWED_DELETE_CALLERS",
 		"FILE_SHUTDOWN_TIMEOUT",
 	} {
 		t.Setenv(key, "")
+	}
+}
+
+func assertSliceEqual(t *testing.T, got []string, want []string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("slice length = %d, want %d: got=%v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("slice[%d] = %q, want %q: got=%v", i, got[i], want[i], got)
+		}
 	}
 }

@@ -83,13 +83,14 @@ type StoredLLMConfig struct {
 
 type LLMSettings struct {
 	Provider         string  `json:"provider"`
-	APIEndpoint      string  `json:"apiEndpoint"`
+	ProfileID        string  `json:"profileId,omitempty"`
+	APIEndpoint      string  `json:"apiEndpoint,omitempty"`
 	Model            string  `json:"model"`
 	TimeoutSeconds   int     `json:"timeoutSeconds"`
 	Temperature      float64 `json:"temperature"`
 	MaxTokens        int     `json:"maxTokens"`
-	TokenHeader      string  `json:"tokenHeader"`
-	APIKeyConfigured bool    `json:"apiKeyConfigured"`
+	TokenHeader      string  `json:"tokenHeader,omitempty"`
+	APIKeyConfigured bool    `json:"apiKeyConfigured,omitempty"`
 	APIKeyLast4      string  `json:"apiKeyLast4,omitempty"`
 }
 
@@ -101,7 +102,8 @@ type QASettings struct {
 }
 
 type LLMUpdate struct {
-	APIEndpoint    string  `json:"apiEndpoint"`
+	ProfileID      string  `json:"profileId,omitempty"`
+	APIEndpoint    string  `json:"apiEndpoint,omitempty"`
 	APIKey         *string `json:"apiKey,omitempty"`
 	Model          string  `json:"model"`
 	TimeoutSeconds int     `json:"timeoutSeconds"`

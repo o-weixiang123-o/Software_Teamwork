@@ -17,14 +17,6 @@
 import base64
 import json
 import re
-from selenium import webdriver
-from selenium.common.exceptions import TimeoutException
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.expected_conditions import staleness_of
-from selenium.webdriver.support.ui import WebDriverWait
-from webdriver_manager.chrome import ChromeDriverManager
 
 
 CONTENT_TYPE_MAP = {
@@ -139,6 +131,15 @@ def __send_devtools(driver, cmd, params={}):
 
 
 def __get_pdf_from_html(path: str, timeout: int, install_driver: bool, print_options: dict):
+    from selenium import webdriver
+    from selenium.common.exceptions import TimeoutException
+    from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.chrome.service import Service
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.expected_conditions import staleness_of
+    from selenium.webdriver.support.ui import WebDriverWait
+    from webdriver_manager.chrome import ChromeDriverManager
+
     webdriver_options = Options()
     webdriver_prefs = {}
     webdriver_options.add_argument("--headless")

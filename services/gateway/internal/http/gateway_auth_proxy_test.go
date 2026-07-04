@@ -256,6 +256,44 @@ func TestKnowledgeQueriesRouteProxiesToKnowledge(t *testing.T) {
 	}
 }
 
+func TestKnowledgeWriteRouteRejectsReadOnlyUserBeforeProxy(t *testing.T) {
+	hasher := testHasher(t)
+	store := newMemorySessionStore()
+	accessToken := "valid-token"
+	store.putToken(t, hasher, accessToken, service.SessionCacheEntry{
+		SessionID:   "sess_1",
+		UserID:      "usr_reader",
+		Username:    "reader",
+		Roles:       []string{"standard"},
+		Permissions: []string{"knowledge:read"},
+		TokenType:   "Bearer",
+		ExpiresAt:   time.Now().Add(time.Hour).UTC(),
+	})
+
+	downstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("downstream should not be called for a read-only knowledge user")
+	}))
+	defer downstream.Close()
+
+	server := newGatewayTestServer(t, gatewayDeps{
+		store:         store,
+		hasher:        hasher,
+		ownerBaseURLs: map[string]string{"knowledge": downstream.URL},
+		serviceToken:  "svc-token",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/knowledge-bases", strings.NewReader(`{"name":"Docs"}`))
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Request-Id", "req_kb_write_readonly")
+	res := httptest.NewRecorder()
+
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+}
+
 func TestAdminUsersRouteProxiesToAuthWithActorContext(t *testing.T) {
 	hasher := testHasher(t)
 	store := newMemorySessionStore()

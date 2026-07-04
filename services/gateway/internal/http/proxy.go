@@ -159,7 +159,7 @@ func containsSensitiveValidationText(value string) bool {
 		"postgres",
 		"mysql",
 		"minio",
-		"qdrant",
+		"elasticsearch",
 		"object key",
 		"object_key",
 		"bucket",

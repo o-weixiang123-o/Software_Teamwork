@@ -237,19 +237,20 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
 ### 2. Signatures
 
 - Compose entrypoint:
-  - `docker compose -f deploy/docker-compose.yml --env-file deploy/.env.example config --quiet`
-  - `docker compose -f deploy/docker-compose.yml --env-file deploy/.env.example config --services`
+  - `CONFIG_SECRET_FILE=.env.example ./scripts/config/load-profile.sh --print-compose-env`
+  - `docker compose -f deploy/docker-compose.yml --env-file .local/config/dev.env config --quiet`
+  - `docker compose -f deploy/docker-compose.yml --env-file .local/config/dev.env config --services`
 - Runtime entrypoint:
-  - `cp deploy/.env.example deploy/.env`
+  - `cp .env.example .env.local`
   - `./scripts/local/dev-up.sh`
   - `./scripts/local/run-backend.sh`
   - `cd apps/web && bun install && bun run dev`
-- Allowed Compose services:
+- Default Compose services:
   - `postgres`
   - `redis`
-  - `qdrant`
   - `minio`
   - `minio-init`
+  - `elasticsearch`
 - Public browser/API entrypoint after host-run services start:
   - `http://localhost:8080` through gateway.
 - Operational routes:
@@ -259,20 +260,29 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
 ### 3. Contracts
 
 - The root local Compose path stays infrastructure-only. Business services and
-  the RAGFlow Knowledge runtime API/worker run on the host.
+  the Knowledge runtime API/worker run on the host. Local Elasticsearch is part
+  of the default Compose infrastructure for Knowledge runtime doc-engine
+  support.
 - Docs must provide host-run commands for Auth, File, Knowledge, AI Gateway,
   QA, Document, Gateway, and frontend.
 - Frontend and browser-facing documentation must route traffic through gateway;
   internal service ports may be exposed only for local debugging.
+- `config/` is the single default local configuration source for committed
+  non-sensitive defaults and profile overrides. Root `.env.example` is the
+  local secret template; `.env.local` is untracked local input.
 - `.env.example` values must be local placeholders and must not contain real
   provider keys, tokens, passwords, or production credentials.
-- `deploy/.env.example` is the single default local configuration source.
-  Startup scripts may load `deploy/.env`, but must not duplicate service env
-  defaults or print long `export` blocks in user-facing docs.
+- Startup scripts must use `config/ctl` through `scripts/config/load-profile.sh`
+  to render `.local/config/<profile>.env` and `.env.sh` from the selected
+  profile and untracked local secret file.
+- Knowledge runtime worker timeout decorators must stay active in the default
+  host-run profile with `ENABLE_TIMEOUT_ASSERTION=1` in `config/base.yaml`.
+  Do not remove this default unless the worker timeout mechanism is replaced
+  and the runbook documents the accepted risk or replacement behavior.
 - `run-backend.sh` must not prepare or start the retired standalone Parser.
-  Knowledge parsing runs through the RAGFlow runtime API/worker path.
+  Knowledge parsing runs through the Knowledge runtime API/worker path.
 - Host-run uv package downloads should use `UV_DEFAULT_INDEX` from
-  `deploy/.env.example`, with official PyPI as the committed default. Mainland
+  `config/base.yaml`, with official PyPI as the committed default. Mainland
   China mirror usage must be explicit, preferably through `dev-up.sh --china`
   which prepares Knowledge runtime dependencies/artifacts, or through local
   untracked env overrides. `ragflow_deps/download_deps.py --china` remains the
@@ -281,8 +291,15 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
   Docker policy.
 - Runtime Python dependency changes belong under `services/knowledge-runtime`;
   the default local backend startup path must not depend on `services/parser`.
+- `run-knowledge-parse-stack.sh` must not run direct `docker build` or
+  `docker run` for Elasticsearch. Local Elasticsearch lifecycle belongs to the
+  default root Compose infrastructure started by `dev-up.sh`.
+- `HF_ENDPOINT=https://hf-mirror.com` must not be active in committed defaults
+  or forced by runtime scripts in official-default mode. Mainland China runtime
+  model download mirrors are explicit through
+  `run-knowledge-parse-stack.sh --china` or local untracked env overrides.
 - Host-run Go module downloads should use `GOPROXY` and `GOSUMDB` from
-  `deploy/.env.example`, with official upstream values as the committed
+  `config/base.yaml`, with official upstream values as the committed
   default. Mainland China mirror usage must be explicit through
   `dev-up.sh --china`, `run-backend.sh --china`, or local untracked env
   overrides. This covers `dev-up.sh` goose migrations and `run-backend.sh` Go
@@ -292,8 +309,8 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
   migrations, and `run-backend.sh` should preflight Go module downloads with
   `go mod download` for each host-run Go service before forking background
   processes. If `--china` is passed, scripts may use mainland China mirrors for
-  the current process without rewriting `deploy/.env`. If an old `deploy/.env`
-  still contains mirror values while `--china` was not passed, scripts should
+  the current process without rewriting `config/` or `.env.local`. If `.env.local`
+  contains mirror values while `--china` was not passed, scripts should
   warn but respect the user's local config. If module download still fails, the
   script must fail in the terminal with the current effective values and
   remediation hints instead of only writing `go run` errors to
@@ -316,26 +333,20 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
   running host migrations or seed SQL. One-shot infrastructure jobs such as
   `minio-init` must run separately and use their own exit code so a normal
   `Exited (0)` does not skip migrations or seed.
-- `dev-up.sh` may create or verify a legacy/test-only Qdrant collection when
-  `QDRANT_URL` is configured. The collection dimension must match
-  `EMBEDDING_DIMENSION`, and the default distance is `Cosine`. Current
-  Knowledge ingestion uses RAGFlow runtime and its configured doc engine;
-  startup scripts must not make old Go Qdrant collection setup a required
-  Knowledge default. If legacy or test-only `QDRANT_URL` support remains, it
-  must be clearly documented as non-primary.
+- `dev-up.sh` must not initialize retired vector-store collections. Current
+  Knowledge ingestion uses Knowledge runtime and its configured doc engine.
 - Compose must include practical health checks for infrastructure containers.
 - PostgreSQL health checks must probe TCP readiness, e.g.
   `pg_isready -h localhost -U postgres -d postgres`.
-- Qdrant health checks must use commands available inside `qdrant/qdrant`; do
-  not assume `curl` or `wget` exists.
 - Compose infrastructure images must keep explicit pinned defaults. If a local
   or enterprise registry is required, expose it through image variables such as
-  `POSTGRES_IMAGE`, `REDIS_IMAGE`, `QDRANT_IMAGE`, `MINIO_IMAGE`, and
-  `MINIO_MC_IMAGE`; do not replace pinned defaults with `latest`.
+  `POSTGRES_IMAGE`, `REDIS_IMAGE`, `MINIO_IMAGE`,
+  `MINIO_MC_IMAGE`, and `KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE`; do not replace
+  pinned defaults with `latest`.
 - For mainland China Docker usage, prefer explicit `dev-up.sh --china`
   registry rewrite or local untracked `*_IMAGE` overrides over daemon mirrors
   and proxies. Do not make third-party registries active defaults in
-  `deploy/.env.example`. Existing daemon mirrors or proxies are acceptable only
+  committed config. Existing daemon mirrors or proxies are acceptable only
   after `python3 scripts/check_docker_environment.py --profile all --clean-env`
   proves their manifest path is healthy.
 - Local Docker image tags must stay pinned and version-aligned across Compose,
@@ -356,26 +367,38 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
 - Seeded local AI Gateway model profiles must use a host-resolvable base URL,
   currently `http://localhost:11434/v1`; do not use container-only names such as
   `host.docker.internal` in the host-run default path.
+- Optional real-provider local AI Gateway bootstrap is controlled only by
+  `AI_GATEWAY_LOCAL_SEED_ENABLED=true` plus `AI_GATEWAY_LOCAL_PROVIDER`,
+  `AI_GATEWAY_LOCAL_PROVIDER_BASE_URL`, `AI_GATEWAY_LOCAL_PROVIDER_API_KEY`,
+  `AI_GATEWAY_LOCAL_CHAT_MODEL`, `AI_GATEWAY_LOCAL_EMBEDDING_MODEL`,
+  `AI_GATEWAY_LOCAL_EMBEDDING_DIMENSIONS`, `AI_GATEWAY_LOCAL_RERANK_MODEL`, and
+  `AI_GATEWAY_LOCAL_RERANK_TOP_N` in untracked `.env.local`. The bootstrap must
+  encrypt provider credentials with the same AES-GCM/HMAC contract as
+  `services/ai-gateway/internal/service/crypto.go`, update the three default AI
+  Gateway profiles, and append/activate a matching QA `llm_config_versions` row
+  so QA requests do not keep sending the placeholder chat model.
 
 ### 4. Validation & Error Matrix
 
 | Condition | Required handling |
 | --- | --- |
 | Compose YAML or env interpolation is invalid | `docker compose ... config --quiet` must fail before merge. |
-| Default Compose service list includes business services or profile services | Remove the service or update policy only if the team explicitly changes the Docker boundary. |
+| Default Compose service list includes anything other than `postgres`, `redis`, `minio`, `minio-init`, or `elasticsearch` | Remove the service or update policy only if the team explicitly changes the Docker boundary. |
 | Host migrations or seed run before PostgreSQL/init scripts are ready | Add or restore an infra health wait in `scripts/local/dev-up.sh`; do not rely on plain `docker compose up -d`. Run one-shot init jobs separately from `up --wait` and fail visibly if they exit non-zero. |
-| `QDRANT_URL` is set for a legacy/test-only path but the requested collection is not created | Add or restore guarded Qdrant collection initialization in `scripts/local/dev-up.sh`; do not document it as the default Knowledge ingestion path. |
 | Knowledge runtime/doc-engine env is configured but required runtime provisioning is missing | Fix the runtime dependency guard, startup docs, or smoke setup; do not restore the old Go adapter Qdrant bootstrap as the default Knowledge path. |
-| Compose contains `build:` | Remove it; repository Docker must stay pull-only infra. |
+| Compose contains `build:` | Remove it; repository root Compose must stay pull-only infrastructure. |
 | Docker policy checker fails | Fix the Compose/docs/script regression or update `scripts/check_docker_policy.py` and the runbook in the same PR when the policy intentionally changes. |
 | Retired parser paths or env keys reappear in startup scripts | Remove the parser dependency and route document parsing through `services/knowledge-runtime`. |
 | Local startup script exits without a success or failure summary | Add or restore explicit command-line status output in the script and local seed contract checker. |
-| Go module preflight, migration, or service startup shows `Get "https://proxy.golang.org/...": i/o timeout` | Confirm the copied `deploy/.env` contains the repository `GOPROXY` / `GOSUMDB` defaults; if missing, local scripts should use the repository default for the current process and print that decision. If the mirror is unavailable, override only local `deploy/.env` or enterprise shell config. The startup script should surface failures in the terminal and exit non-zero. |
+| Go module preflight, migration, or service startup shows `Get "https://proxy.golang.org/...": i/o timeout` | Confirm `config/base.yaml` contains the repository `GOPROXY` / `GOSUMDB` defaults and `.env.local` has not overridden them unexpectedly. If the mirror is unavailable, override only local `.env.local` or enterprise shell config. The startup script should surface failures in the terminal and exit non-zero. |
+| `ENABLE_TIMEOUT_ASSERTION` is missing or disabled in the default local profile | Restore `ENABLE_TIMEOUT_ASSERTION=1` in `config/base.yaml` or document the replacement timeout mechanism and accepted risk in the Knowledge runtime runbook. |
 | `stop-backend.sh` only kills the wrapper PID | Start host services in a managed process group and stop the whole group; verify the script does not leave `go run` or `uv run` child services bound to ports. |
 | Seeded local AI Gateway profile uses `host.docker.internal` | Replace it with `http://localhost:11434/v1` for the host-run default path. |
+| `AI_GATEWAY_LOCAL_SEED_ENABLED=true` updates AI Gateway profiles but QA still sends `local-placeholder-chat` | Update the same overlay to append/activate a QA `llm_config_versions` row for `provider='ai-gateway'`, `profile_id='default-chat'`, and `model_name=AI_GATEWAY_LOCAL_CHAT_MODEL`. |
+| Generated provider credential decrypts in SQL but AI Gateway invocation fails with credential decrypt errors | Regenerate credentials with the service crypto contract: `SHA-256(AI_GATEWAY_CREDENTIAL_ENCRYPTION_KEY)` as AES-GCM key and keyed HMAC fingerprint derived from `ai-gateway credential fingerprint v1`; do not invent a bash/OpenSSL-only format. |
 | Required Docker image is unavailable locally | Document `docker compose pull <service>` commands and report Docker runtime validation as skipped. |
 | Same component appears with multiple Docker tags | Use the documented baseline or record the reason in the implementation document. |
-| Compose infrastructure image pull is slow or blocked | Prefer `./scripts/local/dev-up.sh --china`, which applies pinned DaoCloud `*_IMAGE` values for that run, or local untracked `deploy/.env` overrides; if using daemon mirror, prove it with `scripts/check_docker_environment.py`; use Docker daemon proxy only when registry rewrite and mirror paths are unavailable. |
+| Compose infrastructure image pull is slow or blocked | Prefer `./scripts/local/dev-up.sh --china`, which applies pinned DaoCloud `*_IMAGE` values for that run, or local untracked `.env.local` overrides; if using daemon mirror, prove it with `scripts/check_docker_environment.py`; use Docker daemon proxy only when registry rewrite and mirror paths are unavailable. |
 | File calls return `401 unauthorized` while `file /readyz` is healthy | Verify `FILE_INTERNAL_SERVICE_TOKEN` on file and matching `KNOWLEDGE_SERVICE_TOKEN`, `DOCUMENT_FILE_SERVICE_TOKEN`, or propagated `X-Service-Token` on callers. |
 | Gateway readiness fails | Check Redis and Auth first, then search logs by `X-Request-Id`. |
 | Auth/document/ai-gateway readiness fails | Inspect PostgreSQL, host-run migration status, and service logs. |
@@ -384,9 +407,10 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
 
 ### 5. Good/Base/Bad Cases
 
-- Good: `deploy/README.md` documents infra pulls, host-run migrations, host-run
-  services, seed data, request-id troubleshooting, and common dependency
-  failures; Compose config parses and lists only the five infra services.
+- Good: `deploy/README.md` documents infra pulls, default Compose
+  Elasticsearch startup, host-run migrations, host-run services, seed data,
+  request-id troubleshooting, and common dependency failures; default Compose
+  config parses and lists only the five infra services.
 - Base: Docker runtime smoke tests are skipped when images are missing, but the
   exact image pull commands and skipped validation are reported.
 - Bad: documentation tells new contributors to run business services through
@@ -396,8 +420,8 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
 ### 6. Tests Required
 
 - Run Compose config parsing for the infra baseline.
-- Run `docker compose ... config --services` and confirm only the five infra
-  services are present.
+- Run `docker compose ... config --services` and confirm only the five default
+  infra services are present, including `elasticsearch`.
 - Run `bash -n scripts/local/dev-up.sh scripts/local/run-backend.sh scripts/local/stop-backend.sh`
   when local startup scripts change.
 - Run `python3 scripts/check_docker_policy.py` and the policy/environment unit
@@ -405,6 +429,9 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
 - Run the local seed contract checker and its unit tests when seed SQL, seed
   docs, startup scripts, Knowledge runtime startup defaults, or host-run Go
   module proxy defaults change.
+- For AI Gateway local provider overlay changes, test disabled overlay output,
+  enabled overlay SQL redaction/no raw key leakage, missing env validation, and
+  `dev-up.sh` piping the generated SQL into `psql`.
 - Search Docker and docs for duplicate image tags such as `redis:7` vs
   `redis:7-alpine`, and MinIO server/client tags before declaring version
   cleanup complete.
@@ -423,20 +450,22 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
 
 ```text
 frontend -> http://localhost:8083/internal/v1/knowledge-bases
-deploy/.env.example -> real provider API key
+.env.example -> real provider API key
 document worker -> file /internal/v1/files without X-Service-Token
 seed SQL -> inserts model_profiles before ai-gateway migrations
-root Compose -> business service or build entry
+AI_GATEWAY_LOCAL_* seed -> updates default-chat only; QA active LLM remains local-placeholder-chat
+root Compose -> business service or unapproved build entry
 ```
 
 #### Correct
 
 ```text
 frontend -> gateway http://localhost:8080/api/v1/knowledge-bases
-deploy/.env.example -> local placeholder secrets only
+config/base.yaml + .env.example -> non-sensitive defaults plus local placeholder secrets only
 document worker -> file /internal/v1/files with DOCUMENT_FILE_SERVICE_TOKEN
 seed SQL -> idempotent local/demo data after host-run service migrations
-root Compose -> postgres, redis, qdrant, minio, minio-init only
+AI_GATEWAY_LOCAL_* overlay -> updates chat/embedding/rerank profiles and activates matching QA LLM config
+root Compose -> postgres, redis, minio, minio-init, elasticsearch only
 ```
 
 ---
@@ -788,7 +817,7 @@ fingerprint := hmacSHA256(fingerprintKey, []byte(apiKey))
 
 - Root-level Go module used to build all microservices together.
 - Cross-service imports from `services/<other-service>/internal/...`.
-- HTTP handlers that contain business rules, SQL, Qdrant queries, or MinIO object logic.
+- HTTP handlers that contain business rules, SQL, runtime doc-engine queries, or MinIO object logic.
 - Unbounded goroutines without cancellation.
 - HTTP clients without timeouts.
 - SQL built by concatenating user input.
@@ -855,7 +884,7 @@ Reviewers should check:
 - [ ] Are errors classified and returned through the standard error shape?
 - [ ] Is sensitive data excluded from logs and responses?
 - [ ] Are database changes represented by service-owned migrations?
-- [ ] Are Redis/Qdrant/MinIO responsibilities owned by the correct service?
+- [ ] Are Redis/runtime doc-engine/MinIO responsibilities owned by the correct service?
 - [ ] Are timeouts and context cancellation handled for external calls?
 - [ ] Do tests cover the changed behavior?
 - [ ] Can the service still run `go test ./...` and `go build ./cmd/server` independently?

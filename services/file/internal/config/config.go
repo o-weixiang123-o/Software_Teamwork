@@ -9,6 +9,7 @@ import (
 )
 
 const (
+	DefaultEnv             = "local"
 	DefaultHTTPAddr        = ":8082"
 	DefaultMaxUploadBytes  = int64(32 << 20)
 	DefaultStorageBackend  = "memory"
@@ -18,6 +19,7 @@ const (
 )
 
 type Config struct {
+	Env                  string
 	HTTPAddr             string
 	MaxUploadBytes       int64
 	StorageBackend       string
@@ -31,13 +33,18 @@ type Config struct {
 	MinIOTimeout         time.Duration
 	DatabaseURL          string
 	InternalServiceToken string
+	AllowedContentTypes  []string
+	AllowedCreateCallers []string
+	AllowedReadCallers   []string
+	AllowedDeleteCallers []string
 	ShutdownTimeout      time.Duration
 }
 
 func Load() (Config, error) {
 	cfg := Config{
+		Env:             firstValue(os.Getenv("FILE_ENV"), os.Getenv("ENV"), DefaultEnv),
 		HTTPAddr:        stringValue("FILE_HTTP_ADDR", DefaultHTTPAddr),
-		StorageBackend:  stringValue("FILE_STORAGE_BACKEND", DefaultStorageBackend),
+		StorageBackend:  strings.ToLower(strings.TrimSpace(stringValue("FILE_STORAGE_BACKEND", DefaultStorageBackend))),
 		LocalStorageDir: stringValue("FILE_LOCAL_STORAGE_DIR", DefaultLocalStorageDir),
 		MinIOEndpoint:   stringValue("FILE_MINIO_ENDPOINT", ""),
 		MinIOAccessKey:  stringValue("FILE_MINIO_ACCESS_KEY", ""),
@@ -49,9 +56,13 @@ func Load() (Config, error) {
 			os.Getenv("FILE_INTERNAL_SERVICE_TOKEN"),
 			os.Getenv("INTERNAL_SERVICE_TOKEN"),
 		),
-		MaxUploadBytes:  DefaultMaxUploadBytes,
-		MinIOTimeout:    DefaultMinIOTimeout,
-		ShutdownTimeout: DefaultShutdownTimeout,
+		AllowedContentTypes:  splitCSV(os.Getenv("FILE_ALLOWED_CONTENT_TYPES")),
+		AllowedCreateCallers: splitCSV(os.Getenv("FILE_ALLOWED_CREATE_CALLERS")),
+		AllowedReadCallers:   splitCSV(os.Getenv("FILE_ALLOWED_READ_CALLERS")),
+		AllowedDeleteCallers: splitCSV(os.Getenv("FILE_ALLOWED_DELETE_CALLERS")),
+		MaxUploadBytes:       DefaultMaxUploadBytes,
+		MinIOTimeout:         DefaultMinIOTimeout,
+		ShutdownTimeout:      DefaultShutdownTimeout,
 	}
 
 	if raw := os.Getenv("FILE_MAX_UPLOAD_BYTES"); raw != "" {
@@ -113,6 +124,15 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("FILE_STORAGE_BACKEND=%q is not implemented; supported values: memory, local, minio", cfg.StorageBackend)
 	}
 
+	if !isLocalLikeEnv(cfg.Env) {
+		if cfg.StorageBackend == "memory" {
+			return Config{}, fmt.Errorf("FILE_STORAGE_BACKEND=memory is not allowed when FILE_ENV=%s", cfg.Env)
+		}
+		if cfg.DatabaseURL == "" {
+			return Config{}, fmt.Errorf("FILE_DATABASE_URL must be set when FILE_ENV=%s", cfg.Env)
+		}
+	}
+
 	if cfg.DatabaseURL != "" && strings.TrimSpace(cfg.InternalServiceToken) == "" {
 		return Config{}, fmt.Errorf("FILE_INTERNAL_SERVICE_TOKEN or INTERNAL_SERVICE_TOKEN is required when FILE_DATABASE_URL is set")
 	}
@@ -121,10 +141,31 @@ func Load() (Config, error) {
 }
 
 func stringValue(key string, fallback string) string {
-	if value := os.Getenv(key); value != "" {
+	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
 		return value
 	}
 	return fallback
+}
+
+func splitCSV(value string) []string {
+	parts := strings.Split(value, ",")
+	items := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			items = append(items, trimmed)
+		}
+	}
+	return items
+}
+
+func isLocalLikeEnv(env string) bool {
+	switch strings.ToLower(strings.TrimSpace(env)) {
+	case "", "local", "test", "development":
+		return true
+	default:
+		return false
+	}
 }
 
 func joinNames(names []string) string {

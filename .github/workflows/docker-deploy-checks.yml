@@ -6,6 +6,8 @@ on:
     paths:
       - 'README.md'
       - 'AGENTS.md'
+      - '.env.example'
+      - 'config/**'
       - 'services/**'
       - 'deploy/**'
       - 'docs/README.md'
@@ -32,6 +34,8 @@ on:
     paths:
       - 'README.md'
       - 'AGENTS.md'
+      - '.env.example'
+      - 'config/**'
       - 'services/**'
       - 'deploy/**'
       - 'docs/README.md'
@@ -78,7 +82,7 @@ jobs:
               /^deploy\/.*docker-compose[^/]*\.ya?ml$/u;
             const rootDeployComposeFile = 'deploy/docker-compose.yml';
             const rootDeployComposeDependencyPattern =
-              /^deploy\/(?:\.env\.example|postgres\/init\/.+|seeds\/.+)$/u;
+              /^(?:\.env\.example|config\/(?:.*\.ya?ml|ctl\/.+)|deploy\/(?:postgres\/init\/.+|seeds\/.+))$/u;
             const workflowPath = '.github/workflows/docker-deploy-checks.yml';
             const localStartupScriptPattern = /^scripts\/local\/[^/]+\.sh$/u;
             const dockerArtifactPattern =
@@ -86,6 +90,13 @@ jobs:
             const dockerPolicyPaths = new Set([
               'README.md',
               'AGENTS.md',
+              '.env.example',
+              'config/README.md',
+              'config/schema.yaml',
+              'config/base.yaml',
+              'config/dev.yaml',
+              'config/staging.yaml',
+              'config/production.yaml',
               'deploy/README.md',
               'docs/README.md',
               'docs/runbooks/local-integration.md',
@@ -229,13 +240,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache-dependency-path: config/ctl/go.mod
+
       - name: Validate Compose config
         env:
           COMPOSE_FILE: ${{ matrix.compose-file }}
         run: |
           compose_file="$COMPOSE_FILE"
           if [ "$compose_file" = "deploy/docker-compose.yml" ]; then
-            docker compose -f "$compose_file" --env-file deploy/.env.example config --quiet
+            CONFIG_SECRET_FILE=.env.example ./scripts/config/load-profile.sh --print-compose-env
+            docker compose -f "$compose_file" --env-file .local/config/dev.env config --quiet
           else
             docker compose -f "$compose_file" config --quiet
           fi

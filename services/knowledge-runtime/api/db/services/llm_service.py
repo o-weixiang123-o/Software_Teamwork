@@ -24,7 +24,7 @@ from typing import Generator
 
 from api.db.db_models import LLM
 from api.db.services.common_service import CommonService
-from api.db.services.tenant_llm_service import LLM4Tenant
+from api.db.services.runtime_llm_service import RuntimeLLMBundle
 from common.token_utils import num_tokens_from_string
 
 
@@ -32,9 +32,9 @@ class LLMService(CommonService):
     model = LLM
 
 
-class LLMBundle(LLM4Tenant):
-    def __init__(self, tenant_id: str, model_config: dict, lang="Chinese", **kwargs):
-        super().__init__(tenant_id, model_config, lang, **kwargs)
+class LLMBundle(RuntimeLLMBundle):
+    def __init__(self, scope_id: str, model_config: dict, lang="Chinese", **kwargs):
+        super().__init__(scope_id, model_config, lang, **kwargs)
 
     def close(self):
         """Release resources held by this LLMBundle instance."""

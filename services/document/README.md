@@ -35,6 +35,7 @@ Optional variables:
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `DOCUMENT_HTTP_ADDR` | `:8085` | HTTP listen address. |
+| `DOCUMENT_AI_GATEWAY_MODEL` | empty | Optional compatibility label. Leave empty to let AI Gateway derive the provider model from `DOCUMENT_AI_GATEWAY_PROFILE_ID`. If set, it must exactly match the selected profile model. |
 | `DOCUMENT_AI_GATEWAY_SERVICE_TOKEN` | empty | Service token sent to AI Gateway profile validation APIs. Falls back to `INTERNAL_SERVICE_TOKEN` when empty. |
 | `DOCUMENT_KNOWLEDGE_SERVICE_URL` | empty | Optional internal Knowledge service base URL. When empty, report generation skips Knowledge retrieval and uses only report/template/request context. |
 | `DOCUMENT_KNOWLEDGE_SERVICE_TOKEN` | empty | Optional service token sent to Knowledge. Falls back to `INTERNAL_SERVICE_TOKEN` when empty. Required when `DOCUMENT_KNOWLEDGE_SERVICE_URL` is set. |
@@ -52,13 +53,14 @@ For normal local development, start repository infra, migrations, seed, and all
 host-run backend services from the repository root:
 
 ```bash
-cp deploy/.env.example deploy/.env
+cp .env.example .env.local
 ./scripts/local/dev-up.sh
 ./scripts/local/run-backend.sh
 ```
 
 For Document-only code changes, run service checks from `services/document`.
-The root `deploy/.env` values are the default local configuration source.
+默认配置来源是根目录 `config/` 和未跟踪的 `.env.local`；完整配置层说明见
+[`../../config/README.md`](../../config/README.md)。
 
 Operational routes:
 
@@ -147,7 +149,7 @@ The adapter accepts a trusted `RequestContext`, validates JSON-object
 arguments, calls existing Document services, returns only safe summaries and
 business IDs, and records operation logs with `requestSource=mcp` and
 `toolName=<tool>`. It does not directly access repositories, File object keys,
-MinIO, Qdrant, or model providers.
+MinIO, runtime doc engines, or model providers.
 
 `export_report_docx` uses the current basic DOCX report-file path. It must not
 be treated as Pandoc/LibreOffice rich DOCX support. Exact schemas, runtime

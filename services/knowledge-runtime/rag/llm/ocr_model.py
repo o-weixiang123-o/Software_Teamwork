@@ -18,10 +18,6 @@ import logging
 import os
 from typing import Any, Optional
 
-from deepdoc.parser.mineru_parser import MinerUParser
-from deepdoc.parser.opendataloader_parser import OpenDataLoaderParser
-from deepdoc.parser.paddleocr_parser import PaddleOCRParser
-
 
 class Base:
     def __init__(self, key: str | dict, model_name: str, **kwargs):
@@ -31,7 +27,25 @@ class Base:
         raise NotImplementedError("Please implement parse_pdf!")
 
 
-class MinerUOcrModel(Base, MinerUParser):
+def _load_mineru_parser_cls():
+    from deepdoc.parser.mineru_parser import MinerUParser
+
+    return MinerUParser
+
+
+def _load_paddleocr_parser_cls():
+    from deepdoc.parser.paddleocr_parser import PaddleOCRParser
+
+    return PaddleOCRParser
+
+
+def _load_opendataloader_parser_cls():
+    from deepdoc.parser.opendataloader_parser import OpenDataLoaderParser
+
+    return OpenDataLoaderParser
+
+
+class MinerUOcrModel(Base):
     _FACTORY_NAME = "MinerU"
 
     def __init__(self, key: str | dict, model_name: str, **kwargs):
@@ -68,20 +82,20 @@ class MinerUOcrModel(Base, MinerUParser):
                 redacted_config[k] = v
         logging.info(f"Parsed MinerU config (sensitive fields redacted): {redacted_config}")
 
-        MinerUParser.__init__(self, mineru_api=self.mineru_api, mineru_server_url=self.mineru_server_url)
+        parser_cls = _load_mineru_parser_cls()
+        self._parser = parser_cls(mineru_api=self.mineru_api, mineru_server_url=self.mineru_server_url)
 
     def check_available(self, backend: Optional[str] = None, server_url: Optional[str] = None) -> tuple[bool, str]:
         backend = backend or self.mineru_backend
         server_url = server_url or self.mineru_server_url
-        return self.check_installation(backend=backend, server_url=server_url)
+        return self._parser.check_installation(backend=backend, server_url=server_url)
 
     def parse_pdf(self, filepath: str, binary=None, callback=None, parse_method: str = "raw", **kwargs):
         ok, reason = self.check_available()
         if not ok:
             raise RuntimeError(f"MinerU server not accessible: {reason}")
 
-        sections, tables = MinerUParser.parse_pdf(
-            self,
+        sections, tables = self._parser.parse_pdf(
             filepath=filepath,
             binary=binary,
             callback=callback,
@@ -95,7 +109,7 @@ class MinerUOcrModel(Base, MinerUParser):
         return sections, tables
 
 
-class PaddleOCROcrModel(Base, PaddleOCRParser):
+class PaddleOCROcrModel(Base):
     _FACTORY_NAME = "PaddleOCR"
 
     def __init__(self, key: str | dict, model_name: str, **kwargs):
@@ -120,6 +134,11 @@ class PaddleOCROcrModel(Base, PaddleOCRParser):
         self.paddleocr_base_url = _resolve_config("paddleocr_base_url", "PADDLEOCR_BASE_URL", "") or _resolve_config("paddleocr_api_url", "PADDLEOCR_API_URL", "")
         self.paddleocr_algorithm = _resolve_config("paddleocr_algorithm", "PADDLEOCR_ALGORITHM", "PaddleOCR-VL")
         self.paddleocr_access_token = _resolve_config("paddleocr_access_token", "PADDLEOCR_ACCESS_TOKEN", None)
+        self.paddleocr_auth_scheme = str(_resolve_config("paddleocr_auth_scheme", "PADDLEOCR_AUTH_SCHEME", "token") or "token").strip().lower()
+        try:
+            self.paddleocr_request_timeout = int(_resolve_config("paddleocr_request_timeout", "PADDLEOCR_REQUEST_TIMEOUT", "600") or "600")
+        except (TypeError, ValueError):
+            self.paddleocr_request_timeout = 600
 
         # Redact sensitive config keys before logging
         redacted_config = {}
@@ -130,22 +149,24 @@ class PaddleOCROcrModel(Base, PaddleOCRParser):
                 redacted_config[k] = v
         logging.info(f"Parsed PaddleOCR config (sensitive fields redacted): {redacted_config}")
 
-        PaddleOCRParser.__init__(
-            self,
+        parser_cls = _load_paddleocr_parser_cls()
+        self._parser = parser_cls(
             base_url=self.paddleocr_base_url or None,
             access_token=self.paddleocr_access_token,
             algorithm=self.paddleocr_algorithm,
+            request_timeout=self.paddleocr_request_timeout,
+            auth_scheme=self.paddleocr_auth_scheme,
         )
 
     def check_available(self) -> tuple[bool, str]:
-        return self.check_installation()
+        return self._parser.check_installation()
 
     def parse_pdf(self, filepath: str, binary=None, callback=None, parse_method: str = "raw", **kwargs):
         ok, reason = self.check_available()
         if not ok:
             raise RuntimeError(f"PaddleOCR server not accessible: {reason}")
 
-        sections, tables = PaddleOCRParser.parse_pdf(self, filepath=filepath, binary=binary, callback=callback, parse_method=parse_method, **kwargs)
+        sections, tables = self._parser.parse_pdf(filepath=filepath, binary=binary, callback=callback, parse_method=parse_method, **kwargs)
         return sections, tables
 
     def parse_image(self, filepath: str, binary=None, callback=None, **kwargs) -> str:
@@ -154,12 +175,12 @@ class PaddleOCROcrModel(Base, PaddleOCRParser):
             raise RuntimeError(f"PaddleOCR server not accessible: {reason}")
 
         logging.info(f"PaddleOCR parse_image start: {filepath}")
-        result = PaddleOCRParser.parse_image(self, filepath=filepath, binary=binary, callback=callback, **kwargs)
+        result = self._parser.parse_image(filepath=filepath, binary=binary, callback=callback, **kwargs)
         logging.info(f"PaddleOCR parse_image done: {filepath}, text length: {len(result)}")
         return result
 
 
-class OpenDataLoaderOcrModel(Base, OpenDataLoaderParser):
+class OpenDataLoaderOcrModel(Base):
     _FACTORY_NAME = "OpenDataLoader"
 
     def __init__(self, key: str | dict, model_name: str, **kwargs):
@@ -186,7 +207,8 @@ class OpenDataLoaderOcrModel(Base, OpenDataLoaderParser):
                 redacted_config[k] = v
         logging.info(f"Parsed OpenDataLoader config (sensitive fields redacted): {redacted_config}")
 
-        OpenDataLoaderParser.__init__(self)
+        parser_cls = _load_opendataloader_parser_cls()
+        self._parser = parser_cls()
         self.api_url = _resolve_config("opendataloader_apiserver", "OPENDATALOADER_APISERVER", "").rstrip("/")
         self.api_key = _resolve_config("opendataloader_api_key", "OPENDATALOADER_API_KEY", "").strip()
         timeout_val = _resolve_config("opendataloader_timeout", "OPENDATALOADER_TIMEOUT", "600") or "600"
@@ -194,9 +216,12 @@ class OpenDataLoaderOcrModel(Base, OpenDataLoaderParser):
             self.timeout = int(timeout_val)
         except (TypeError, ValueError):
             self.timeout = 600
+        self._parser.api_url = self.api_url
+        self._parser.api_key = self.api_key
+        self._parser.timeout = self.timeout
 
     def check_available(self) -> tuple[bool, str]:
-        ok = self.check_installation()
+        ok = self._parser.check_installation()
         return ok, "" if ok else "OpenDataLoader service not reachable"
 
     def parse_pdf(self, filepath: str, binary=None, callback=None, parse_method: str = "raw", **kwargs):
@@ -204,8 +229,7 @@ class OpenDataLoaderOcrModel(Base, OpenDataLoaderParser):
         if not ok:
             raise RuntimeError(f"OpenDataLoader service not accessible: {reason}")
 
-        sections, tables = OpenDataLoaderParser.parse_pdf(
-            self,
+        sections, tables = self._parser.parse_pdf(
             filepath=filepath,
             binary=binary,
             callback=callback,

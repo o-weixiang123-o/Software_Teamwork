@@ -25,11 +25,12 @@ import shutil
 import subprocess
 import tempfile
 import urllib.request
+from urllib.parse import quote
 from pathlib import Path
 from typing import Union
 
 from nltk.downloader import Downloader
-from huggingface_hub import snapshot_download
+from huggingface_hub import HfApi, snapshot_download
 
 GITHUB_PROXY_PREFIX = "https://gh-proxy.com/"
 HF_MIRROR_ENDPOINT = "https://hf-mirror.com"
@@ -82,13 +83,51 @@ def knowledge_runtime_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
+def model_local_directory(repository_id: str) -> Path:
+    root = knowledge_runtime_root()
+    if repository_id in {"InfiniFlow/deepdoc", "InfiniFlow/text_concat_xgb_v1.0"}:
+        return root / "rag" / "res" / "deepdoc"
+    return root / "ragflow_deps" / "huggingface.co" / repository_id
+
+
 def download_model(repository_id):
-    local_directory = os.path.abspath(os.path.join("huggingface.co", repository_id))
+    local_directory = model_local_directory(repository_id)
     os.makedirs(local_directory, exist_ok=True)
     endpoint = os.environ.get("HF_ENDPOINT")
     if not endpoint and os.environ.get("RAGFLOW_USE_CHINA_MIRRORS") == "1":
         endpoint = HF_MIRROR_ENDPOINT
-    snapshot_download(repo_id=repository_id, local_dir=local_directory, endpoint=endpoint)
+    try:
+        snapshot_download(repo_id=repository_id, local_dir=str(local_directory), endpoint=endpoint)
+    except Exception as exc:
+        print(f"snapshot_download failed for {repository_id}: {exc}")
+        print("Falling back to direct file downloads...")
+        download_model_files(repository_id, local_directory, endpoint)
+
+
+def download_model_files(repository_id: str, local_directory: Path, endpoint: str | None):
+    endpoint = (endpoint or "https://huggingface.co").rstrip("/")
+    api = HfApi(endpoint=endpoint)
+    info = api.model_info(repository_id, files_metadata=True)
+    for sibling in info.siblings:
+        filename = sibling.rfilename
+        if not filename or filename.endswith("/"):
+            continue
+        target = local_directory / filename
+        expected_size = getattr(sibling, "size", None)
+        if target.exists() and (not expected_size or target.stat().st_size == expected_size):
+            print(f"Using cached {target}")
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        encoded = quote(filename, safe="/")
+        url = f"{endpoint}/{repository_id}/resolve/{info.sha}/{encoded}"
+        print(f"Downloading {filename} from {url}...")
+        temp_target = target.with_name(target.name + ".tmp")
+        try:
+            urllib.request.urlretrieve(url, temp_target)
+            os.replace(temp_target, target)
+        finally:
+            if temp_target.exists():
+                temp_target.unlink()
 
 
 def rewrite_text_for_china_mirrors(text: str) -> str:

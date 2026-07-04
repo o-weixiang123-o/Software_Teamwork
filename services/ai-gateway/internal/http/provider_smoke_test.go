@@ -20,9 +20,14 @@ func chatProfileBody(baseURL string) string {
 	return `{"name":"default-chat","purpose":"chat","provider":"openai_compatible","baseUrl":"` + baseURL + `/v1","model":"provider-model","apiKey":"sk-smoke-secret","enabled":true,"isDefault":true,"supportsStreaming":true}`
 }
 
-// embeddingProfileBody creates a JSON body for registering an embedding profile.
+// embeddingProfileBody creates a JSON body for registering an OpenAI-compatible embedding profile.
 func embeddingProfileBody(baseURL string) string {
-	return `{"name":"default-embedding","purpose":"embedding","provider":"siliconflow","baseUrl":"` + baseURL + `/v1","model":"BAAI/bge-m3","apiKey":"sk-smoke-secret","enabled":true,"isDefault":true,"dimensions":1024}`
+	return `{"name":"default-embedding","purpose":"embedding","provider":"openai_compatible","baseUrl":"` + baseURL + `/v1","model":"BAAI/bge-m3","apiKey":"sk-smoke-secret","enabled":true,"isDefault":true,"dimensions":1024}`
+}
+
+// siliconFlowEmbeddingProfileBody creates a JSON body for registering a SiliconFlow embedding profile.
+func siliconFlowEmbeddingProfileBody(baseURL string) string {
+	return `{"name":"siliconflow-embedding","purpose":"embedding","provider":"siliconflow","baseUrl":"` + baseURL + `/v1","model":"BAAI/bge-m3","apiKey":"sk-smoke-secret","enabled":true,"isDefault":true,"dimensions":1024}`
 }
 
 // rerankProfileBody creates a JSON body for registering a rerank profile.
@@ -340,7 +345,7 @@ func TestEmbeddingSmoke_ControlledProviderOpenAIShapeRecordsSummary(t *testing.T
 	server, repo := newTestServerWithProvidersAndRepo(t, nil, provider.NewHTTPClient(fakeProvider.Client()))
 	registerProfile(t, server, embeddingProfileBody(fakeProvider.URL))
 
-	req := authedRequest(http.MethodPost, "/internal/v1/embeddings", strings.NewReader(`{"model":"BAAI/bge-m3","input":["transformer secret text","second chunk"],"user":"knowledge-smoke"}`))
+	req := authedRequest(http.MethodPost, "/internal/v1/embeddings", strings.NewReader(`{"input":["transformer secret text","second chunk"],"user":"knowledge-smoke"}`))
 	req.Header.Set("X-Caller-Service", "knowledge")
 	req.Header.Set("X-Request-Id", "embedding-smoke-req-01")
 	rec := httptest.NewRecorder()
@@ -404,6 +409,57 @@ func TestEmbeddingSmoke_ControlledProviderOpenAIShapeRecordsSummary(t *testing.T
 		t.Fatalf("ProviderStatusCode = %#v, want 200", invocation.ProviderStatusCode)
 	}
 	assertInvocationDoesNotContain(t, invocation, "sk-smoke-secret", "transformer secret text", "0.11", "0.12")
+}
+
+// TestEmbeddingSmoke_SiliconFlowOmitsProviderDimensionsRecordsSummary verifies the
+// production SiliconFlow adapter shape: AI Gateway keeps configured dimensions in
+// invocation records but does not send the unsupported dimensions field upstream.
+func TestEmbeddingSmoke_SiliconFlowOmitsProviderDimensionsRecordsSummary(t *testing.T) {
+	var providerRequest map[string]any
+	fakeProvider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/embeddings" {
+			t.Errorf("unexpected provider path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&providerRequest); err != nil {
+			t.Errorf("decode provider request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"object":"list","data":[{"object":"embedding","index":0,"embedding":[0.31,0.32]}],"model":"BAAI/bge-m3","usage":{"prompt_tokens":3,"total_tokens":3}}`))
+	}))
+	defer fakeProvider.Close()
+
+	server, repo := newTestServerWithProvidersAndRepo(t, nil, provider.NewHTTPClient(fakeProvider.Client()))
+	registerProfile(t, server, siliconFlowEmbeddingProfileBody(fakeProvider.URL))
+
+	req := authedRequest(http.MethodPost, "/internal/v1/embeddings", strings.NewReader(`{"input":["siliconflow text"]}`))
+	req.Header.Set("X-Caller-Service", "knowledge")
+	req.Header.Set("X-Request-Id", "embedding-siliconflow-smoke-req-01")
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if _, ok := providerRequest["dimensions"]; ok {
+		t.Fatalf("siliconflow provider request included dimensions: %#v", providerRequest)
+	}
+	if providerRequest["model"] != "BAAI/bge-m3" {
+		t.Fatalf("provider model = %#v, want BAAI/bge-m3", providerRequest["model"])
+	}
+	if len(repo.invocations) != 1 {
+		t.Fatalf("invocations = %d, want 1", len(repo.invocations))
+	}
+	invocation := repo.invocations[0]
+	if invocation.Provider != service.ProviderSiliconFlow || invocation.Operation != service.OperationEmbedding || invocation.Status != service.InvocationSucceeded {
+		t.Fatalf("invocation = %+v, want successful siliconflow embedding", invocation)
+	}
+	if invocation.EmbeddingDimensions == nil || *invocation.EmbeddingDimensions != 1024 {
+		t.Fatalf("EmbeddingDimensions = %#v, want 1024", invocation.EmbeddingDimensions)
+	}
+	if invocation.ProviderStatusCode == nil || *invocation.ProviderStatusCode != http.StatusOK {
+		t.Fatalf("ProviderStatusCode = %#v, want 200", invocation.ProviderStatusCode)
+	}
+	assertInvocationDoesNotContain(t, invocation, "sk-smoke-secret", "siliconflow text", "0.31", "0.32")
 }
 
 // TestEmbeddingSmoke_Provider429NormalizesRateLimit verifies that a 429 from the
@@ -511,7 +567,7 @@ func TestRerankSmoke_ControlledProviderResultsShapeRecordsSummary(t *testing.T) 
 	server, repo := newTestServerWithProvidersAndRepo(t, nil, provider.NewHTTPClient(fakeProvider.Client()))
 	registerProfile(t, server, rerankProfileBody(fakeProvider.URL))
 
-	reqBody := `{"model":"BAAI/bge-reranker-v2-m3","query":"protection relay settings","documents":[{"id":"chunk-1","text":"first sensitive chunk"},{"id":"chunk-2","text":"best matching transformer chunk"},{"id":"chunk-3","text":"third chunk"}],"top_n":2,"metadata":{"knowledgeBaseId":"kb-smoke"}}`
+	reqBody := `{"query":"protection relay settings","documents":[{"id":"chunk-1","text":"first sensitive chunk"},{"id":"chunk-2","text":"best matching transformer chunk"},{"id":"chunk-3","text":"third chunk"}],"top_n":2,"metadata":{"knowledgeBaseId":"kb-smoke"}}`
 	req := authedRequest(http.MethodPost, "/internal/v1/rerankings", strings.NewReader(reqBody))
 	req.Header.Set("X-Caller-Service", "knowledge")
 	req.Header.Set("X-Request-Id", "rerank-smoke-req-01")

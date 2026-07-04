@@ -28,6 +28,7 @@
 | 文档状态 | active | README、数据模型和内部 OpenAPI 存在。 |
 | 代码状态 | partial | Go service、PostgreSQL repository、`pgx/v5@v5.9.2`、model profile CRUD、credential encryption、service-token auth、chat completions、embeddings、rerankings、provider invocation 记录和 usage aggregate 已实现；provider adapter 已有受控 fake 回归样本、adapter regression smokes 和默认跳过的真实 provider smoke 入口，DB smoke 仍缺。 |
 | 契约对齐 | partial | `/internal/v1/model-profiles/**`、`/internal/v1/chat/completions`、`/internal/v1/embeddings` 和 `/internal/v1/rerankings` 已按当前 OpenAPI 落地；前端仍不得直接调用本服务。 |
+| 统一出口治理 | active | `docs/services/ai-gateway/docs/model-provider-exit-inventory.md` 盘点 QA、Document、Knowledge runtime、Gateway、config 和脚本中的模型/provider 调用路径；`scripts/check_ai_gateway_provider_policy.py` 防止新增非 allowlist 的 direct provider 出口。 |
 | 数据持久化 | postgres | runtime 使用 PostgreSQL 和 AES-GCM 加密列保存 provider credentials；migrations `0001`-`0006` 覆盖 profile、credential、revision、invocation、attempt 和 usage aggregate。 |
 | 测试状态 | partial | config/service/http/middleware/provider tests 覆盖 profile、安全、非流式 chat、流式 chat、embedding、rerank、受控 fake provider 成功路径、脱敏、响应映射和失败记录；真实 provider smoke 有 env-gated 入口但缺实际凭证运行记录，DB smoke 仍缺。 |
 | 建议动作 | 集成验证 / 回写文档 | 补真实 provider smoke 运行记录、Knowledge/QA/Document 跨服务接入验证、配额/指标和 profile 运维文档。 |
@@ -97,6 +98,7 @@
 | 真实 provider smoke | `AI_GATEWAY_REAL_PROVIDER_SMOKE=1 ... go test ./internal/http -run TestRealProviderSmoke_ExplicitEnvOnly -count=1 -v` | available / not run by default | 需要真实 provider base URL、API key 和至少一个模型环境变量。 |
 | 集成测试 | goose apply + profile CRUD against DB | missing | 需要 PostgreSQL。 |
 | 契约测试 | HTTP tests for profile、chat completion、streaming、embedding、rerank routes | partial | 未从 OpenAPI 自动校验完整 schema。 |
+| 统一出口 policy | `python3 scripts/check_ai_gateway_provider_policy.py` | pass（2026-07-04） | Knowledge runtime direct provider factories 仍是显式 local/emergency fallback allowlist。 |
 | 手工 smoke | Gateway admin model profile CRUD + chat/embedding/rerank model calls | not run | 需要 gateway/auth/Redis/ai-gateway/provider。 |
 
 ## 9. 建议任务
@@ -117,3 +119,4 @@
 | 2026-06-29 | Codex docs PR | `065b3f4` rebased on `51045a1` | 本文从旧实现状态更新到 #225 后的当前能力，并新增 provider adapter、本地联调、能力矩阵和测试策略文档。 |
 | 2026-06-30 | Codex issue #287 | `b02de67` | 增加 embedding/rerank 受控 fake provider 成功回归样本、env-gated 真实 provider smoke 入口和 seed runbook；普通 CI 不依赖外部模型服务。 |
 | 2026-06-30 | Codex full-day audit | `develop@92d3afc` | 复核今日 PR/issue：#320 provider adapter regression smokes、#313 `pgx/v5@v5.9.2` 和安全依赖更新已在 develop；真实 provider smoke、DB smoke 和 Knowledge/QA/Document 跨服务接入验证仍待补齐。 |
+| 2026-07-04 | Codex unified-exit cleanup | `L1nggTeam/refactor/ai-gateway-unified-exit` | 明确本任务只治理 AI 模型/provider 调用出口，非 public Gateway 路由改造；补统一出口 inventory、policy check，并把 QA legacy LLM settings 写入/展示收敛为 `ai-gateway` profile 语义。 |

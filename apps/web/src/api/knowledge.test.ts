@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { apiClient, ApiError } from './client'
 import {
   getDocumentContent,
+  getDocumentContentFromEndpoint,
   listChunks,
   listDocuments,
   listKnowledgeBases,
@@ -144,10 +145,10 @@ describe('knowledge gateway API', () => {
       )
     vi.stubGlobal('fetch', fetchMock)
 
-    await expect(listChunks('doc-1', { page: 1, pageSize: 50 })).resolves.toMatchObject({
+    await expect(listChunks('doc-1', 'kb-1', { page: 1, pageSize: 50 })).resolves.toMatchObject({
       items: [{ chunkIndex: 0, content: 'chunk', id: 'chunk-1' }],
     })
-    await expect((await getDocumentContent('doc-1')).text()).resolves.toBe('raw-content')
+    await expect((await getDocumentContent('doc-1', 'kb-1')).text()).resolves.toBe('raw-content')
 
     const chunkRequest = fetchMock.mock.calls[0]?.[0]
     const contentRequest = fetchMock.mock.calls[1]?.[0]
@@ -157,10 +158,35 @@ describe('knowledge gateway API', () => {
       throw new Error('expected Request instances')
     }
     expect(chunkRequest.url).toBe(
-      'http://gateway.test/api/v1/documents/doc-1/chunks?page=1&pageSize=50',
+      'http://gateway.test/api/v1/documents/doc-1/chunks?knowledgeBaseId=kb-1&page=1&pageSize=50',
     )
-    expect(contentRequest.url).toBe('http://gateway.test/api/v1/documents/doc-1/content')
+    expect(contentRequest.url).toBe(
+      'http://gateway.test/api/v1/documents/doc-1/content?knowledgeBaseId=kb-1',
+    )
     expect(contentRequest.headers.get('Accept')).toContain('application/octet-stream')
+  })
+
+  it('downloads citation sources from QA-provided Gateway endpoints', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response('citation-source', {
+        headers: { 'Content-Type': 'application/octet-stream' },
+        status: 200,
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      (
+        await getDocumentContentFromEndpoint('/api/v1/documents/doc-1/content?knowledgeBaseId=kb-1')
+      ).text(),
+    ).resolves.toBe('citation-source')
+
+    const request = fetchMock.mock.calls[0]?.[0]
+    expect(request).toBeInstanceOf(Request)
+    if (!(request instanceof Request)) throw new Error('expected Request')
+    expect(request.url).toBe(
+      'http://gateway.test/api/v1/documents/doc-1/content?knowledgeBaseId=kb-1',
+    )
   })
 
   it('posts knowledge-queries and preserves Gateway error details on failure', async () => {
@@ -178,7 +204,6 @@ describe('knowledge gateway API', () => {
                 embeddingModel: 'bge',
                 embeddingProvider: 'ai-gateway',
                 hitCount: 0,
-                qdrantCollection: 'knowledge',
                 rerank: false,
                 searchTopK: 10,
                 scoreThreshold: 0,

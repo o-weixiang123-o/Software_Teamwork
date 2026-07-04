@@ -25,12 +25,9 @@ from datetime import datetime
 from enum import Enum
 from functools import wraps
 
-from quart_auth import AuthUser
 from peewee import (
-    fn,
     InterfaceError,
     OperationalError,
-    ProgrammingError,
     BigIntegerField,
     BooleanField,
     CharField,
@@ -44,7 +41,6 @@ from peewee import (
     TextField,
     PrimaryKeyField,
 )
-from playhouse.migrate import MySQLMigrator, PostgresqlMigrator, migrate
 from playhouse.pool import PooledMySQLDatabase, PooledPostgresqlDatabase
 
 from api import utils
@@ -486,12 +482,6 @@ class PooledDatabase(Enum):
     POSTGRES = RetryingPooledPostgresqlDatabase
 
 
-class DatabaseMigrator(Enum):
-    MYSQL = MySQLMigrator
-    OCEANBASE = MySQLMigrator
-    POSTGRES = PostgresqlMigrator
-
-
 @singleton
 class BaseDataBase:
     def __init__(self):
@@ -670,14 +660,11 @@ class DataBaseModel(BaseModel):
 
 @DB.connection_context()
 @DB.lock("init_database_tables", 60)
-def init_database_tables(alter_fields=[]):
+def init_database_tables():
     members = inspect.getmembers(sys.modules[__name__], inspect.isclass)
-    table_objs = []
     create_failed_list = []
     for name, obj in members:
         if obj != DataBaseModel and issubclass(obj, DataBaseModel):
-            table_objs.append(obj)
-
             if not obj.table_exists():
                 logging.debug(f"start create table {obj.__name__}")
                 try:
@@ -692,7 +679,6 @@ def init_database_tables(alter_fields=[]):
     if create_failed_list:
         logging.error(f"create tables failed: {create_failed_list}")
         raise Exception(f"create tables failed: {create_failed_list}")
-    migrate_db()
 
 
 def fill_db_model_object(model_object, human_model_dict):
@@ -701,97 +687,6 @@ def fill_db_model_object(model_object, human_model_dict):
         if hasattr(model_object.__class__, attr_name):
             setattr(model_object, attr_name, v)
     return model_object
-
-
-class User(DataBaseModel, AuthUser):
-    SENSITIVE_FIELDS = {"password", "access_token", "email"}
-
-    id = CharField(max_length=32, primary_key=True)
-    access_token = CharField(max_length=255, null=True, index=True)
-    nickname = CharField(max_length=100, null=False, help_text="nicky name", index=True)
-    password = CharField(max_length=255, null=True, help_text="password", index=True)
-    email = CharField(max_length=255, null=False, help_text="email", unique=True)
-    avatar = TextField(null=True, help_text="avatar base64 string")
-    language = CharField(max_length=32, null=True, help_text="English|Chinese", default="Chinese" if "zh_CN" in os.getenv("LANG", "") else "English", index=True)
-    color_schema = CharField(max_length=32, null=True, help_text="Bright|Dark", default="Bright", index=True)
-    timezone = CharField(max_length=64, null=True, help_text="Timezone", default="UTC+8\tAsia/Shanghai", index=True)
-    last_login_time = DateTimeField(null=True, index=True)
-    is_authenticated = CharField(max_length=1, null=False, default="1", index=True)
-    is_active = CharField(max_length=1, null=False, default="1", index=True)
-    is_anonymous = CharField(max_length=1, null=False, default="0", index=True)
-    login_channel = CharField(null=True, help_text="from which user login", index=True)
-    status = CharField(max_length=1, null=True, help_text="is it validate(0: wasted, 1: validate)", default="1", index=True)
-    is_superuser = BooleanField(null=True, help_text="is root", default=False, index=True)
-
-    def __str__(self):
-        return self.email
-
-    def get_id(self):
-        return str(self.id)
-
-    def to_safe_dict(self, *, for_self: bool = False):
-        """Return a dict with sensitive fields stripped for API responses.
-
-        Email is treated as sensitive in generic serialization. Pass for_self=True
-        when returning the authenticated user's own record (login, profile, etc.).
-        """
-        result = {k: v for k, v in self.to_dict().items() if k not in self.SENSITIVE_FIELDS}
-        if for_self:
-            result["email"] = self.email
-        logging.debug("User %s serialized safely, filtered fields: %s", self.id, self.SENSITIVE_FIELDS)
-        return result
-
-    class Meta:
-        db_table = "user"
-
-
-class Tenant(DataBaseModel):
-    id = CharField(max_length=32, primary_key=True)
-    name = CharField(max_length=100, null=True, help_text="Tenant name", index=True)
-    public_key = CharField(max_length=255, null=True, index=True)
-    llm_id = CharField(max_length=128, null=False, help_text="default llm ID", index=True)
-    tenant_llm_id = IntegerField(null=True, help_text="id in tenant_llm", index=True)
-    embd_id = CharField(max_length=128, null=False, help_text="default embedding model ID", index=True)
-    tenant_embd_id = IntegerField(null=True, help_text="id in tenant_llm", index=True)
-    asr_id = CharField(max_length=128, null=False, help_text="default ASR model ID", index=True)
-    tenant_asr_id = IntegerField(null=True, help_text="id in tenant_llm", index=True)
-    img2txt_id = CharField(max_length=128, null=False, help_text="default image to text model ID", index=True)
-    tenant_img2txt_id = IntegerField(null=True, help_text="id in tenant_llm", index=True)
-    rerank_id = CharField(max_length=128, null=False, help_text="default rerank model ID", index=True)
-    tenant_rerank_id = IntegerField(null=True, help_text="id in tenant_llm", index=True)
-    tts_id = CharField(max_length=256, null=True, help_text="default tts model ID", index=True)
-    tenant_tts_id = IntegerField(null=True, help_text="id in tenant_llm", index=True)
-    ocr_id = CharField(max_length=256, null=True, help_text="default OCR model ID", index=True)
-    parser_ids = CharField(max_length=256, null=False, help_text="document processors", index=True)
-    credit = IntegerField(default=512, index=True)
-    status = CharField(max_length=1, null=True, help_text="is it validate(0: wasted, 1: validate)", default="1", index=True)
-
-    class Meta:
-        db_table = "tenant"
-
-
-class UserTenant(DataBaseModel):
-    id = CharField(max_length=32, primary_key=True)
-    user_id = CharField(max_length=32, null=False, index=True)
-    tenant_id = CharField(max_length=32, null=False, index=True)
-    role = CharField(max_length=32, null=False, help_text="UserTenantRole", index=True)
-    invited_by = CharField(max_length=32, null=False, index=True)
-    status = CharField(max_length=1, null=True, help_text="is it validate(0: wasted, 1: validate)", default="1", index=True)
-
-    class Meta:
-        db_table = "user_tenant"
-
-
-class InvitationCode(DataBaseModel):
-    id = CharField(max_length=32, primary_key=True)
-    code = CharField(max_length=32, null=False, index=True)
-    visit_time = DateTimeField(null=True, index=True)
-    user_id = CharField(max_length=32, null=True, index=True)
-    tenant_id = CharField(max_length=32, null=True, index=True)
-    status = CharField(max_length=1, null=True, help_text="is it validate(0: wasted, 1: validate)", default="1", index=True)
-
-    class Meta:
-        db_table = "invitation_code"
 
 
 class LLMFactories(DataBaseModel):
@@ -827,9 +722,9 @@ class LLM(DataBaseModel):
         db_table = "llm"
 
 
-class TenantLLM(DataBaseModel):
+class RuntimeLLM(DataBaseModel):
     id = PrimaryKeyField()
-    tenant_id = CharField(max_length=32, null=False, index=True)
+    scope_id = CharField(max_length=32, null=False, index=True)
     llm_factory = CharField(max_length=128, null=False, help_text="LLM factory name", index=True)
     model_type = CharField(max_length=128, null=True, help_text="LLM, Text Embedding, Image2Text, ASR", index=True)
     llm_name = CharField(max_length=128, null=True, help_text="LLM name", default="", index=True)
@@ -843,21 +738,21 @@ class TenantLLM(DataBaseModel):
         return self.llm_name
 
     class Meta:
-        db_table = "tenant_llm"
+        db_table = "runtime_llm"
         indexes = (
-            (("tenant_id", "llm_factory", "llm_name"), True),
+            (("scope_id", "llm_factory", "llm_name"), True),
         )
 
 
 class Knowledgebase(DataBaseModel):
     id = CharField(max_length=32, primary_key=True)
     avatar = TextField(null=True, help_text="avatar base64 string")
-    tenant_id = CharField(max_length=32, null=False, index=True)
+    scope_id = CharField(max_length=32, null=False, index=True)
     name = CharField(max_length=128, null=False, help_text="KB name", index=True)
     language = CharField(max_length=32, null=True, default="Chinese" if "zh_CN" in os.getenv("LANG", "") else "English", help_text="English|Chinese", index=True)
     description = TextField(null=True, help_text="KB description")
     embd_id = CharField(max_length=128, null=False, help_text="default embedding model ID", index=True)
-    tenant_embd_id = IntegerField(null=True, help_text="id in tenant_llm", index=True)
+    runtime_embd_id = IntegerField(null=True, help_text="id in runtime_llm", index=True)
     permission = CharField(max_length=16, null=False, help_text="me|team", default="me", index=True)
     created_by = CharField(max_length=32, null=False, index=True)
     doc_num = IntegerField(default=0, index=True)
@@ -920,7 +815,7 @@ class Document(DataBaseModel):
 class File(DataBaseModel):
     id = CharField(max_length=32, primary_key=True)
     parent_id = CharField(max_length=32, null=False, help_text="parent folder id", index=True)
-    tenant_id = CharField(max_length=32, null=False, help_text="tenant id", index=True)
+    scope_id = CharField(max_length=32, null=False, help_text="scope id", index=True)
     created_by = CharField(max_length=32, null=False, help_text="who created it", index=True)
     name = CharField(max_length=255, null=False, help_text="file name or folder name", index=True)
     location = CharField(max_length=255, null=True, help_text="where dose it store", index=True)
@@ -959,34 +854,10 @@ class Task(DataBaseModel):
     chunk_ids = LongTextField(null=True, help_text="chunk ids", default="")
 
 
-class APIToken(DataBaseModel):
-    tenant_id = CharField(max_length=32, null=False, index=True)
-    token = CharField(max_length=255, null=False, index=True)
-    beta = CharField(max_length=255, null=True, index=True)
-
-    class Meta:
-        db_table = "api_token"
-        primary_key = CompositeKey("tenant_id", "token")
-
-
-class MCPServer(DataBaseModel):
-    id = CharField(max_length=32, primary_key=True)
-    name = CharField(max_length=255, null=False, help_text="MCP Server name")
-    tenant_id = CharField(max_length=32, null=False, index=True)
-    url = CharField(max_length=2048, null=False, help_text="MCP Server URL")
-    server_type = CharField(max_length=32, null=False, help_text="MCP Server type")
-    description = TextField(null=True, help_text="MCP Server description")
-    variables = JSONField(null=True, default=dict, help_text="MCP Server variables")
-    headers = JSONField(null=True, default=dict, help_text="MCP Server additional request headers")
-
-    class Meta:
-        db_table = "mcp_server"
-
-
 class PipelineOperationLog(DataBaseModel):
     id = CharField(max_length=32, primary_key=True)
     document_id = CharField(max_length=32, index=True)
-    tenant_id = CharField(max_length=32, null=False, index=True)
+    scope_id = CharField(max_length=32, null=False, index=True)
     kb_id = CharField(max_length=32, null=False, index=True)
     pipeline_id = CharField(max_length=32, null=True, help_text="Pipeline ID", index=True)
     pipeline_title = CharField(max_length=32, null=True, help_text="Pipeline title", index=True)
@@ -1017,18 +888,18 @@ class SystemSettings(DataBaseModel):
     class Meta:
         db_table = "system_settings"
 
-class TenantModelProvider(DataBaseModel):
+class RuntimeModelProvider(DataBaseModel):
     id = CharField(max_length=32, primary_key=True)
     provider_name = CharField(max_length=128, null=False, index=False, help_text="LLM provider name")
-    tenant_id = CharField(max_length=32, null=False, index=True)
+    scope_id = CharField(max_length=32, null=False, index=True)
 
     class Meta:
-        db_table = "tenant_model_provider"
+        db_table = "runtime_model_provider"
         indexes = (
-            (("tenant_id", "provider_name"), True),
+            (("scope_id", "provider_name"), True),
         )
 
-class TenantModelInstance(DataBaseModel):
+class RuntimeModelInstance(DataBaseModel):
     id = CharField(max_length=32, primary_key=True)
     instance_name = CharField(max_length=128, null=False, index=False, help_text="Model instance name")
     provider_id = CharField(max_length=32, null=False, index=False)
@@ -1037,10 +908,10 @@ class TenantModelInstance(DataBaseModel):
     extra = CharField(max_length=512, default="{}", index=False)
 
     class Meta:
-        db_table = "tenant_model_instance"
+        db_table = "runtime_model_instance"
 
 
-class TenantModel(DataBaseModel):
+class RuntimeModel(DataBaseModel):
     id = CharField(max_length=32, primary_key=True)
     model_name = CharField(max_length=128, null=True, index=False, help_text="Model name")
     provider_id = CharField(max_length=32, null=False, index=False)
@@ -1050,347 +921,4 @@ class TenantModel(DataBaseModel):
     extra = CharField(max_length=1024, default="{}", index=False)
 
     class Meta:
-        db_table = "tenant_model"
-
-
-class TenantModelGroup(DataBaseModel):
-    id = CharField(max_length=32, primary_key=True)
-    group_type = CharField(max_length=32, null=False, index=False, help_text="Group type")
-    model_name = CharField(max_length=128, null=True, index=False, help_text="Model name")
-    strategy = CharField(max_length=32, default="weighted", index=False, help_text="Routing strategy")
-
-    class Meta:
-        db_table = "tenant_model_group"
-
-class TenantModelGroupMapping(DataBaseModel):
-    group_id = CharField(max_length=32, null=False, index=True, help_text="Group ID")
-    provider_id = CharField(max_length=32, null=False, index=False)
-    instance_id = CharField(max_length=32, null=False, index=False)
-    model_id = CharField(max_length=32, null=False, index=True)
-    weight = IntegerField(default=100, index=False, help_text="Routing weight")
-    status = CharField(max_length=32, default="active", index=False)
-
-    class Meta:
-        db_table = "tenant_model_group_mapping"
-        primary_key = CompositeKey("group_id", "provider_id", "instance_id", "model_id")
-
-
-def alter_db_add_column(migrator, table_name, column_name, column_type):
-    try:
-        migrate(migrator.add_column(table_name, column_name, column_type))
-    except OperationalError as ex:
-        error_codes = [1060]
-        error_messages = ['Duplicate column name']
-
-        should_skip_error = (
-                (hasattr(ex, 'args') and ex.args and ex.args[0] in error_codes) or
-                (str(ex) in error_messages)
-        )
-
-        if not should_skip_error:
-            logging.critical(f"Failed to add {settings.DATABASE_TYPE.upper()}.{table_name} column {column_name}, operation error: {ex}")
-
-    except Exception as ex:
-        logging.critical(f"Failed to add {settings.DATABASE_TYPE.upper()}.{table_name} column {column_name}, error: {ex}")
-        pass
-
-def alter_db_column_type(migrator, table_name, column_name, new_column_type):
-    try:
-        migrate(migrator.alter_column_type(table_name, column_name, new_column_type))
-    except Exception as ex:
-        logging.critical(f"Failed to alter {settings.DATABASE_TYPE.upper()}.{table_name} column {column_name} type, error: {ex}")
-        pass
-
-def alter_db_rename_column(migrator, table_name, old_column_name, new_column_name):
-    try:
-        migrate(migrator.rename_column(table_name, old_column_name, new_column_name))
-    except Exception:
-        # rename fail will lead to a weired error.
-        # logging.critical(f"Failed to rename {settings.DATABASE_TYPE.upper()}.{table_name} column {old_column_name} to {new_column_name}, error: {ex}")
-        pass
-
-def migrate_add_unique_email(migrator):
-    """Deduplicates user emails and add UNIQUE constraint to email column (idempotent)"""
-    # step 0: check existing index state on user.email and prepare for unique constraint
-    try:
-        if settings.DATABASE_TYPE.upper() == "POSTGRES":
-            cursor = DB.execute_sql("""
-                SELECT COUNT(*)
-                FROM pg_indexes
-                WHERE tablename = 'user'
-                  AND indexname = 'user_email'
-            """)
-            result = cursor.fetchone()
-            if result and result[0] > 0:
-                logging.info("UNIQUE index on user.email already exists, skipping migration")
-                return
-        else:
-            # Fetch the first index on email: tells us both the name and whether it's unique.
-            # non_unique=0 means unique, non_unique=1 means non-unique.
-            cursor = DB.execute_sql("""
-                SELECT index_name, non_unique
-                FROM information_schema.statistics
-                WHERE table_schema = DATABASE()
-                  AND table_name = 'user'
-                  AND column_name = 'email'
-                LIMIT 1
-            """)
-            row = cursor.fetchone()
-            if row:
-                index_name, non_unique = row
-                if non_unique == 0:
-                    logging.info("UNIQUE index on user.email already exists, skipping migration")
-                    return
-                # Non-unique index exists (e.g. from old peewee index=True); drop it so
-                # the upcoming ADD UNIQUE INDEX does not hit MySQL error 1061 "Duplicate key name".
-                DB.execute_sql(f"ALTER TABLE `user` DROP INDEX `{index_name}`")
-                logging.info(f"Dropped non-unique index '{index_name}' on user.email before adding unique index")
-    except Exception as ex:
-        logging.warning(f"Failed to check/prepare email index on user table: {ex}, continuing with migration")
-
-    # step 1: rename duplicate rows so the UNIQUE constraint can be applied
-    try:
-        duplicates = User.select(User.email).group_by(User.email).having(fn.COUNT(User.id) > 1).tuples()
-        for (dup_email,) in duplicates:
-            # Keep the superuser row, or the oldest row if there is no superuser
-            rows = list(
-                User
-                    .select(User.id)
-                    .where(User.email == dup_email)
-                    .order_by(User.is_superuser.desc(), User.create_time.asc())
-                    .tuples()
-            )
-            for (uid,) in rows[1:]:
-                new_email = f"{dup_email}_DUPLICATE_{uid[:8]}"
-                User.update(email=new_email).where(User.id == uid).execute()
-                logging.warning("Renamed duplicate user %s email to %s during migration", uid, new_email)
-    except Exception as ex:
-        logging.critical("Failed to deduplicate user.email before adding UNIQUE constraint: %s", ex)
-        return
-
-    # step 2: add UNIQUE index via migrator
-    try:
-        migrate(migrator.add_index("user", ("email",), unique=True))
-    except (OperationalError, ProgrammingError) as ex:
-        msg = str(ex)
-        # MySQL 1061 "Duplicate key name" or PostgreSQL "already exists" -> already migrated
-        if "1061" in msg or "Duplicate key name" in msg or "already exists" in msg.lower():
-            pass
-        else:
-            logging.critical("Failed to add UNIQUE constraint on user.email: %s", ex)
-    except Exception as ex:
-        logging.critical("Failed to add UNIQUE constraint on user.email: %s", ex)
-
-
-
-def update_tenant_llm_to_id_primary_key():
-    """Add ID and set to primary key step by step."""
-    if settings.DATABASE_TYPE.upper() == "POSTGRES":
-        _update_tenant_llm_to_id_primary_key_postgres()
-    else:
-        _update_tenant_llm_to_id_primary_key_mysql()
-
-
-def _update_tenant_llm_to_id_primary_key_mysql():
-    """MySQL implementation: Add ID column and set as AUTO_INCREMENT primary key."""
-    try:
-        with DB.atomic():
-            # 0. Check if 'id' column already exists
-            cursor = DB.execute_sql("""
-                            SELECT COLUMN_NAME
-                            FROM INFORMATION_SCHEMA.COLUMNS
-                            WHERE TABLE_SCHEMA = DATABASE()
-                            AND TABLE_NAME = 'tenant_llm'
-                            AND COLUMN_NAME = 'id'
-                        """)
-            if cursor.rowcount > 0:
-                return
-
-            # 1. Add nullable column
-            DB.execute_sql("ALTER TABLE tenant_llm ADD COLUMN temp_id INT NULL")
-
-            # 2. Set ID using MySQL user variables
-            DB.execute_sql("SET @row = 0;")
-            DB.execute_sql("UPDATE tenant_llm SET temp_id = (@row := @row + 1) ORDER BY tenant_id, llm_factory, llm_name;")
-
-            # 3. Drop old primary key
-            DB.execute_sql("ALTER TABLE tenant_llm DROP PRIMARY KEY")
-
-            # 4. Update ID column to primary key with AUTO_INCREMENT
-            DB.execute_sql("""
-            ALTER TABLE tenant_llm
-            MODIFY COLUMN temp_id INT NOT NULL AUTO_INCREMENT PRIMARY KEY
-            """)
-
-            # 5. Add unique key
-            DB.execute_sql("""
-                ALTER TABLE tenant_llm
-                ADD CONSTRAINT uk_tenant_llm UNIQUE (tenant_id, llm_factory, llm_name)
-            """)
-
-            # 6. rename
-            DB.execute_sql("ALTER TABLE tenant_llm RENAME COLUMN temp_id TO id")
-
-            logging.info("Successfully updated tenant_llm to id primary key.")
-
-    except Exception as e:
-        logging.error(str(e))
-        cursor = DB.execute_sql("""
-                                    SELECT COLUMN_NAME
-                                    FROM INFORMATION_SCHEMA.COLUMNS
-                                    WHERE TABLE_SCHEMA = DATABASE()
-                                    AND TABLE_NAME = 'tenant_llm'
-                                    AND COLUMN_NAME = 'temp_id'
-                                """)
-        if cursor.rowcount > 0:
-            DB.execute_sql("ALTER TABLE tenant_llm DROP COLUMN temp_id")
-
-
-def _update_tenant_llm_to_id_primary_key_postgres():
-    """PostgreSQL implementation: Add SERIAL primary key column to tenant_llm."""
-    try:
-        with DB.atomic():
-            # 0. Check if 'id' column already exists
-            cursor = DB.execute_sql("""
-                            SELECT column_name
-                            FROM information_schema.columns
-                            WHERE table_catalog = current_database()
-                            AND table_name = 'tenant_llm'
-                            AND column_name = 'id'
-                        """)
-            if cursor.rowcount > 0:
-                return
-
-            # 1. Add nullable integer column
-            DB.execute_sql("ALTER TABLE tenant_llm ADD COLUMN temp_id INTEGER NULL")
-
-            # 2. Assign sequential row numbers ordered consistently
-            DB.execute_sql("""
-                UPDATE tenant_llm
-                SET temp_id = subq.rn
-                FROM (
-                    SELECT ctid,
-                           ROW_NUMBER() OVER (ORDER BY tenant_id, llm_factory, llm_name) AS rn
-                    FROM tenant_llm
-                ) AS subq
-                WHERE tenant_llm.ctid = subq.ctid
-            """)
-
-            # 3. Drop old composite primary key constraint
-            cursor = DB.execute_sql("""
-                SELECT constraint_name
-                FROM information_schema.table_constraints
-                WHERE table_catalog = current_database()
-                  AND table_name = 'tenant_llm'
-                  AND constraint_type = 'PRIMARY KEY'
-            """)
-            row = cursor.fetchone()
-            if row:
-                DB.execute_sql(f'ALTER TABLE tenant_llm DROP CONSTRAINT "{row[0]}"')
-
-            # 4. Make temp_id NOT NULL and create a sequence for it
-            DB.execute_sql("ALTER TABLE tenant_llm ALTER COLUMN temp_id SET NOT NULL")
-            DB.execute_sql("CREATE SEQUENCE IF NOT EXISTS tenant_llm_id_seq")
-            DB.execute_sql("""
-                SELECT setval('tenant_llm_id_seq', COALESCE((SELECT MAX(temp_id) FROM tenant_llm), 0))
-            """)
-            DB.execute_sql("ALTER TABLE tenant_llm ALTER COLUMN temp_id SET DEFAULT nextval('tenant_llm_id_seq')")
-            DB.execute_sql("ALTER SEQUENCE tenant_llm_id_seq OWNED BY tenant_llm.temp_id")
-            DB.execute_sql("ALTER TABLE tenant_llm ADD PRIMARY KEY (temp_id)")
-
-            # 5. Add unique constraint
-            DB.execute_sql("""
-                ALTER TABLE tenant_llm
-                ADD CONSTRAINT uk_tenant_llm UNIQUE (tenant_id, llm_factory, llm_name)
-            """)
-
-            # 6. Rename temp_id to id
-            DB.execute_sql("ALTER TABLE tenant_llm RENAME COLUMN temp_id TO id")
-
-            logging.info("Successfully updated tenant_llm to id primary key (PostgreSQL).")
-
-    except Exception as e:
-        logging.error(str(e))
-        cursor = DB.execute_sql("""
-                                    SELECT column_name
-                                    FROM information_schema.columns
-                                    WHERE table_catalog = current_database()
-                                    AND table_name = 'tenant_llm'
-                                    AND column_name = 'temp_id'
-                                """)
-        if cursor.rowcount > 0:
-            DB.execute_sql("ALTER TABLE tenant_llm DROP COLUMN temp_id")
-
-
-def migrate_db():
-    logging.disable(logging.ERROR)
-    migrator = DatabaseMigrator[settings.DATABASE_TYPE.upper()].value(DB)
-    alter_db_add_column(migrator, "file", "source_type", CharField(max_length=128, null=False, default="", help_text="where dose this document come from", index=True))
-    alter_db_add_column(migrator, "tenant", "rerank_id", CharField(max_length=128, null=False, default="BAAI/bge-reranker-v2-m3", help_text="default rerank model ID"))
-    alter_db_add_column(migrator, "tenant_llm", "api_key", CharField(max_length=2048, null=True, help_text="API KEY", index=True))
-    alter_db_add_column(migrator, "tenant", "tts_id", CharField(max_length=256, null=True, help_text="default tts model ID", index=True))
-    alter_db_add_column(migrator, "task", "retry_count", IntegerField(default=0))
-    alter_db_add_column(migrator, "tenant_llm", "max_tokens", IntegerField(default=8192, index=True))
-    alter_db_add_column(migrator, "knowledgebase", "pagerank", IntegerField(default=0, index=False))
-    alter_db_add_column(migrator, "api_token", "beta", CharField(max_length=255, null=True, index=True))
-    alter_db_add_column(migrator, "task", "digest", TextField(null=True, help_text="task digest", default=""))
-    alter_db_add_column(migrator, "task", "chunk_ids", LongTextField(null=True, help_text="chunk ids", default=""))
-    alter_db_add_column(migrator, "task", "task_type", CharField(max_length=32, null=False, default=""))
-    alter_db_add_column(migrator, "task", "priority", IntegerField(default=0))
-    alter_db_add_column(migrator, "llm", "is_tools", BooleanField(null=False, help_text="support tools", default=False))
-    alter_db_add_column(migrator, "mcp_server", "variables", JSONField(null=True, help_text="MCP Server variables", default=dict))
-    alter_db_rename_column(migrator, "task", "process_duation", "process_duration")
-    alter_db_rename_column(migrator, "document", "process_duation", "process_duration")
-    alter_db_add_column(migrator, "document", "suffix", CharField(max_length=32, null=False, default="", help_text="The real file extension suffix", index=True))
-    alter_db_add_column(migrator, "knowledgebase", "pipeline_id", CharField(max_length=32, null=True, help_text="Pipeline ID", index=True))
-    alter_db_add_column(migrator, "document", "pipeline_id", CharField(max_length=32, null=True, help_text="Pipeline ID", index=True))
-    alter_db_add_column(migrator, "knowledgebase", "graphrag_task_id", CharField(max_length=32, null=True, help_text="Gragh RAG task ID", index=True))
-    alter_db_add_column(migrator, "knowledgebase", "raptor_task_id", CharField(max_length=32, null=True, help_text="RAPTOR task ID", index=True))
-    alter_db_add_column(migrator, "knowledgebase", "graphrag_task_finish_at", DateTimeField(null=True))
-    alter_db_add_column(migrator, "knowledgebase", "raptor_task_finish_at", CharField(null=True))
-    alter_db_add_column(migrator, "knowledgebase", "mindmap_task_id", CharField(max_length=32, null=True, help_text="Mindmap task ID", index=True))
-    alter_db_add_column(migrator, "knowledgebase", "mindmap_task_finish_at", CharField(null=True))
-    alter_db_column_type(migrator, "tenant_llm", "api_key", TextField(null=True, help_text="API KEY"))
-    alter_db_add_column(migrator, "tenant_llm", "status", CharField(max_length=1, null=False, help_text="is it validate(0: wasted, 1: validate)", default="1", index=True))
-    alter_db_add_column(migrator, "llm_factories", "rank", IntegerField(default=0, index=False))
-    # Migrate system_settings.value from CharField to TextField for longer sandbox configs
-    alter_db_column_type(migrator, "system_settings", "value", TextField(null=False, help_text="Configuration value (JSON, string, etc.)"))
-    alter_db_add_column(migrator, "document", "content_hash", CharField(max_length=32, null=True, help_text="xxhash128 of document content for change detection", default="", index=True))
-    update_tenant_llm_to_id_primary_key()
-    alter_db_add_column(migrator, "tenant", "tenant_llm_id", IntegerField(null=True, help_text="id in tenant_llm", index=True))
-    alter_db_add_column(migrator, "tenant", "tenant_embd_id", IntegerField(null=True, help_text="id in tenant_llm", index=True))
-    alter_db_add_column(migrator, "tenant", "tenant_asr_id", IntegerField(null=True, help_text="id in tenant_llm", index=True))
-    alter_db_add_column(migrator, "tenant", "tenant_img2txt_id", IntegerField(null=True, help_text="id in tenant_llm", index=True))
-    alter_db_add_column(migrator, "tenant", "tenant_rerank_id", IntegerField(null=True, help_text="id in tenant_llm", index=True))
-    alter_db_add_column(migrator, "tenant", "tenant_tts_id", IntegerField(null=True, help_text="id in tenant_llm", index=True))
-    alter_db_add_column(migrator, "knowledgebase", "tenant_embd_id", IntegerField(null=True, help_text="id in tenant_llm", index=True))
-    alter_db_column_type(migrator, "document", "size", BigIntegerField(default=0, index=True))
-    alter_db_column_type(migrator, "file", "size", BigIntegerField(default=0, index=True))
-    alter_db_add_column(migrator, "tenant", "ocr_id", CharField(max_length=128, null=True, help_text="default ocr model ID", index=True))
-    # Drop both the explicit "idx_*" name from later migrations AND the
-    # Peewee-auto-derived "<table-as-classname>_<col1>_<col2>" name from the
-    # original TenantModelInstance definition (commit dc4b82523). Databases
-    # created before #15460 dropped the model's `indexes = ((...,), True)`
-    # tuple still carry the auto-named compound unique index, which makes a
-    # second instance with an empty api_key (e.g. Ollama) fail with
-    # "Duplicate entry ... for key 'tenantmodelinstance_api_key_provider_id'"
-    # — see #15699.
-    legacy_indexes = [
-        ("tenant_model_instance", "idx_api_key_provider_id"),
-        ("tenant_model_instance", "tenantmodelinstance_api_key_provider_id"),
-        ("tenant_model", "idx_provider_model_instance"),
-    ]
-    for table_name, index_name in legacy_indexes:
-        try:
-            migrate(migrator.drop_index(table_name, index_name))
-        except (OperationalError, ProgrammingError) as ex:
-            msg = str(ex)
-            if "1091" in msg or "can't DROP" in msg.lower() or "does not exist" in msg.lower() or "already exists" in msg.lower():
-                pass
-            else:
-                logging.critical(f"Failed to drop index {index_name} on {table_name}: {ex}")
-        except Exception as ex:
-            logging.critical(f"Failed to drop index {index_name} on {table_name}: {ex}")
-    logging.disable(logging.NOTSET)
-    # this is after re-enabling logging to allow logging changed user emails
-    migrate_add_unique_email(migrator)
+        db_table = "runtime_model"

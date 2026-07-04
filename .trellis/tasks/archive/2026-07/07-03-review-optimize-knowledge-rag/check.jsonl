@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Build/test/lint expectations before declaring complete"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Verify fixes follow error propagation rules"}
+{"file": ".trellis/spec/backend/api-contracts.md", "reason": "Verify OpenAPI three-way consistency for contract fixes"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Cross-layer data flow verification (Go adapter <-> Python runtime <-> doc engine)"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Check fixes reuse existing helpers instead of duplicating"}

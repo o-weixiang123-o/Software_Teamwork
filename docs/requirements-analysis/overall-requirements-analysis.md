@@ -44,7 +44,7 @@
 - 把电力行业资料沉淀为可管理、可检索、可复用的知识资产。
 - 通过 QA Agent Host 调用知识检索工具和引用溯源能力，提升问答准确率，减少用户在规程、报告、术语资料中的人工查找成本。
 - 通过固定报告类型和模板驱动生成专业报告，提升迎峰度夏检查报告、煤库存审计报告等场景的编写效率。
-- 为管理员提供模型配置、检索测试、模板管理、统计监控等运营能力。
+- 为用户提供检索测试能力，并为管理员提供模型配置、模板管理、统计监控等运营能力。
 
 核心考核点：
 
@@ -85,7 +85,7 @@
 | `gateway` | 统一 API 入口，路由、鉴权上下文传递、聚合接口、跨服务协调 |
 | `auth` | 用户、角色、权限、登录认证、会话或令牌管理 |
 | `file` | 上传文件、对象存储、文件元数据、下载授权、预签名 URL |
-| `knowledge` | 知识库、文档处理、切片、向量化、Qdrant 索引、检索协调 |
+| `knowledge` | 知识库、文档处理、切片、向量化、runtime doc engine 索引、检索协调 |
 | `qa` | 会话、消息、Agent/ReAct 循环、MCP 工具调用编排、答案生成、引用展示 |
 | `document` | 报告模板、报告任务、大纲、章节内容、DOCX 导出、报告记录 |
 | `ai-gateway` | 统一封装 LLM、Embedding、Rerank 等模型调用，向业务服务提供 OpenAI-compatible API |
@@ -101,7 +101,7 @@
 
 ### 5.2 解耦原则
 
-- `knowledge` 是知识检索能力的唯一业务所有者；当前索引写入、重建和检索支持由 RAGFlow runtime/doc engine 承载。
+- `knowledge` 是知识检索能力的唯一业务所有者；当前索引写入、重建和检索支持由 Knowledge runtime/doc engine 承载。
 - `qa` 不直接读写 Knowledge runtime/doc engine 或 Qdrant，只通过 MCP Client 或受控内部客户端调用知识检索能力获取候选片段和引用元数据。
 - `document` 不直接绕过 `knowledge` 做向量检索；报告生成需要业务材料时，通过知识检索或报告支撑材料接口获取。
 - `file` 是 MinIO 对象存储边界，业务服务只保存文件引用和业务元数据，不直接把对象 key 当作权限依据。
@@ -122,7 +122,7 @@
 基础设施决策：
 
 - 首期异步任务采用 `asynq` over Redis + PostgreSQL 持久化状态。
-- OCR 和文档解析当前使用 Knowledge 的 RAGFlow runtime API/worker 跑通 pipeline；旧内部 Parser HTTP 服务不再作为独立边界，解析、切块、embedding、索引和检索由 runtime 统一承载。
+- OCR 和文档解析当前使用 Knowledge 的 Knowledge runtime API/worker 跑通 pipeline；旧内部 Parser HTTP 服务不再作为独立边界，解析、切块、embedding、索引和检索由 runtime 统一承载。
 - LLM、Embedding、Rerank 等模型调用统一经 `ai-gateway`，各业务服务首期只需按 OpenAI-compatible API 调用单一可用供应商。
 - Owner service 只保存不透明 `file_ref`；bucket、object key、storage backend 和凭据由 File Service 独占。根级本地 Compose 的 `software-teamwork-local` bucket 只是 File Service 本地实现细节，不是业务分类契约。
 
@@ -150,7 +150,7 @@
 - `Message`：用户问题、助手回答、意图、生成状态、token 或耗时统计。
 - `Citation`：引用片段，关联切片、来源文档、章节路径、相关性分数。
 - `ReasoningStep`：面向用户展示的处理链路或思考步骤。为避免泄露模型内部隐私，建议展示“处理过程摘要”，而不是原始 chain-of-thought。
-- `RetrievalTest`：管理员检索召回测试记录。
+- `RetrievalTest`：用户检索召回测试记录。
 
 ### 7.4 报告生成
 
@@ -166,9 +166,9 @@
 ### 8.1 知识入库流程
 
 1. 用户或管理员创建知识库，配置文档类型、分段策略和检索策略。
-2. 用户上传文档，Knowledge adapter 交给 RAGFlow runtime 保存原始 bytes 和处理状态。
+2. 用户上传文档，Knowledge adapter 交给 Knowledge runtime 保存原始 bytes 和处理状态。
 3. `knowledge` 创建或映射处理任务，状态从 `uploaded` 流转到 `parsing`。
-4. RAGFlow runtime 把文件转换为文本或结构化内容，并维护内部解析产物。
+4. Knowledge runtime 把文件转换为文本或结构化内容，并维护内部解析产物。
 5. runtime 按知识库分段策略生成切片，并通过 Knowledge DTO 暴露安全摘要。
 6. 嵌入模型生成向量，runtime/doc engine 写入索引后端。
 7. 文档状态变为 `ready`；失败时记录错误原因并支持重试。
@@ -222,7 +222,7 @@
 | 文档上传 | 将 PDF、DOCX、PPTX、XLSX、MD、TXT、图片等资料纳入知识库 | 知识库 ID；文件名、MIME、大小；标签；Knowledge adapter/runtime 上传入口；runtime 对象存储 | 创建文档 API；文档 ID、上传状态、处理任务 ID | P0 |
 | 文档标签管理 | 支持按专业、年份、电厂、材料类型等维度过滤和检索文档 | 文档 ID；标签键值对；标签变更权限 | 文档标签更新 API；标签过滤参数；文档列表中的标签数据 | P0 |
 | 文档状态跟踪 | 让用户明确看到上传、解析、切片、向量化、就绪、失败等处理进度 | 文档处理任务；解析器状态；embedding 状态；错误信息；PostgreSQL 任务状态；尝试次数 | 文档详情 API；处理任务详情 API；状态枚举、进度、失败原因、最近尝试摘要 | P0 |
-| 文档解析 | 把原始文件转换为文本化或结构化内容，为切片和引用做准备 | MinIO 原始文件；Knowledge RAGFlow runtime API/worker；解析配置；文档类型 | 解析产物引用；解析状态；失败原因；可选解析文本预览 | P0 |
+| 文档解析 | 把原始文件转换为文本化或结构化内容，为切片和引用做准备 | MinIO 原始文件；Knowledge runtime API/worker；解析配置；文档类型 | 解析产物引用；解析状态；失败原因；可选解析文本预览 | P0 |
 | 文档分段切片 | 按标题层级或固定长度把文档拆成适合检索和引用的片段 | 解析文本；知识库分段策略；章节路径；页码/表格/图片元数据 | 切片列表 API；切片详情；章节路径、切片类型、内容预览、token 数 | P0 |
 | 向量化与索引 | 将切片写入 Knowledge runtime/doc engine，支撑语义检索和 RAG | 切片文本；embedding profile；runtime/doc-engine 索引；向量维度；版本信息 | 索引状态；文档 ready 状态；索引版本；重建索引任务 API | P0 |
 | 知识检索 | 为前台检索、智能问答和报告生成提供统一召回能力 | 查询文本；知识库范围；标签过滤；Top K；相似度阈值；重排序配置；Knowledge runtime/doc engine；Rerank API | 检索 API；命中文档、章节路径、相关度分数、重排序分数、片段内容 | P0 |
@@ -234,7 +234,7 @@
 
 ### 9.2 智能问答模块
 
-智能问答负责作为 Agent Host，把用户自然语言问题转化为受控的模型调用、MCP 工具调用、知识检索、上下文组织、引用展示和回答生成。它不直接拥有 Qdrant，而是通过知识管理模块或 MCP 工具复用知识能力。
+智能问答负责作为 Agent Host，把用户自然语言问题转化为受控的模型调用、MCP 工具调用、知识检索、上下文组织、引用展示和回答生成。它不直接拥有 runtime doc engine / Elasticsearch 索引，而是通过知识管理模块或 MCP 工具复用知识能力。
 
 | 小功能 | 用于实现什么 | 需要什么数据/API | 对外提供什么数据/API | 优先级 |
 | --- | --- | --- | --- | --- |
@@ -248,13 +248,13 @@
 | 答案生成 | 基于工具结果、引用快照和会话上下文生成准确回答 | AI Gateway profile；工具结果；系统提示词；用户问题 | 助手消息内容；生成状态；错误信息；模型调用元数据候选 | P0 |
 | 引用溯源 | 让用户知道答案依据来自哪些文档和章节，支持追溯原文 | 检索结果；chunkId；documentId；章节路径；相关度分数；引用快照 | 引用列表 API；引用详情 API；原文下载入口；source unavailable fallback | P0/P1 |
 | 处理过程摘要 | 向用户展示“Agent 迭代、工具调用、检索知识库、生成回答”等处理链路 | Agent Run；工具调用摘要；检索统计；生成状态；错误信息 | reasoning steps API；SSE `reasoning.step` 事件；可折叠展示数据 | P1 |
-| 检索体验测试 | 管理员调试知识库召回效果和阈值设置 | 管理员权限；问题；知识库范围；检索参数；`knowledge` 检索 API | 检索测试 API；命中文档、章节、分数、内容预览 | P1 |
+| 检索体验测试 | 用户验证知识库召回效果和阈值设置 | `qa:use`；问题；知识库范围；检索参数；`knowledge` 检索 API | 检索测试 API；命中文档、章节、分数、内容预览 | P1 |
 | 问答配置 | 管理默认知识库、Top K、相似度阈值、重排序阈值、Agent 终止策略、工具白名单和 LLM 配置 | 管理员权限；知识库 ID；AI Gateway profileId、模型名、超时；MCP 工具名 | 问答配置读取/更新 API；脱敏模型配置；默认检索参数；Agent 控制参数 | P1 |
 | 问答统计 | 展示问答次数和近 30 天趋势，支持运营分析 | 会话/消息统计；时间范围；可选意图类型 | 统计概览 API；问答总次数、会话数、趋势数据 | P1 |
 
 ### 9.3 报告生成模块
 
-报告生成负责围绕固定报告类型生成大纲、章节内容和 DOCX 文件。它通过知识管理模块复用支撑材料和检索能力，不直接访问 Qdrant。
+报告生成负责围绕固定报告类型生成大纲、章节内容和 DOCX 文件。它通过知识管理模块复用支撑材料和检索能力，不直接访问 runtime doc engine / Elasticsearch 索引。
 
 | 小功能 | 用于实现什么 | 需要什么数据/API | 对外提供什么数据/API | 优先级 |
 | --- | --- | --- | --- | --- |
@@ -344,7 +344,7 @@
 
 - 用户认证与 RBAC 基础能力。
 - 知识库、文档上传、解析、切片、向量化、检索。
-- Qdrant、PostgreSQL、MinIO 基础集成。
+- Elasticsearch runtime doc engine、PostgreSQL、MinIO 基础集成。
 - 智能问答 Agent/ReAct 主流程、MCP 知识检索工具和 SSE 流式输出。
 - 两类固定报告的大纲、章节生成、编辑、DOCX 导出。
 - 基础统计指标。
@@ -376,7 +376,7 @@
 | Q1 | 认证统一为 opaque Bearer token。 | 影响前后端鉴权、SSE、下载接口、网关转发 |
 | Q2 | API 统一前缀为 `/api/v1`。 | 影响所有契约和前端请求封装 |
 | Q3 | 异步任务采用 `asynq` over Redis + PostgreSQL 持久化状态；任务最多自动重试 3 次，失败后进入 `failed` 并保留最近 10 次尝试摘要。 | 影响文档处理、报告生成、失败重试 |
-| Q4 | OCR 和文档解析当前使用 Knowledge RAGFlow runtime API/worker；旧内部 Parser HTTP 服务已被替代。 | 影响文件处理链路和部署依赖 |
+| Q4 | OCR 和文档解析当前使用 Knowledge runtime API/worker；旧内部 Parser HTTP 服务已被替代。 | 影响文件处理链路和部署依赖 |
 | Q5 | LLM、Embedding、Rerank 统一通过 `ai-gateway` 以 OpenAI-compatible API 调用。 | 影响配置字段、密钥管理、模型能力边界 |
 | Q6 | 会话历史保存到服务端 PostgreSQL，前端只缓存 `sessionId` 等恢复信息。 | 影响 QA 会话/消息 API 和刷新恢复 |
 | Q7 | 统计指标本期做；智能问答中的 Excel/表格数据分析工具本期不开放。 | 影响智能问答工具白名单和后续 API |
@@ -400,4 +400,4 @@
 | 报告大纲、章节生成、DOCX 导出 | `报告生成需求说明书(1).md`、`技术监督辅助平台需求说明书(1).md`、`docs/report_generation_system.md` |
 | 报告模板和支撑材料 | `报告生成需求说明书(1).md`、`技术监督辅助平台需求说明书(1).md` |
 | 用户、角色、权限 | 四份原始需求和 `docs/system.md` |
-| PostgreSQL、Redis、Qdrant、MinIO、微服务边界 | `README.md`、`.trellis/spec/backend/index.md`、`.trellis/spec/backend/database-guidelines.md` |
+| PostgreSQL、Redis、Elasticsearch runtime doc engine、MinIO、微服务边界 | `README.md`、`.trellis/spec/backend/index.md`、`.trellis/spec/backend/database-guidelines.md` |

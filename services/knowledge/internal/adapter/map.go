@@ -2,7 +2,9 @@ package adapter
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -12,6 +14,13 @@ import (
 )
 
 const defaultMaxUploadBytes = int64(32 << 20)
+const defaultMaxJSONBodyBytes = int64(1 << 20)
+
+const (
+	vendorRetCodeArgument       = 101
+	vendorRetCodePermission     = 108
+	vendorRetCodeAuthentication = 109
+)
 
 const (
 	ragflowLayoutDeepDOC        = "DeepDOC"
@@ -20,8 +29,10 @@ const (
 	ragflowLayoutOpenDataLoader = "OpenDataLoader"
 	ragflowLayoutPlainText      = "Plain Text"
 
-	parserConfigTraceKey       = "software_teamwork_parser_config"
-	parserConfigCredentialsKey = "software_teamwork_parser_config_credentials"
+	parserConfigTraceKey             = "software_teamwork_parser_config"
+	parserConfigCredentialsKey       = "software_teamwork_parser_config_credentials"
+	runtimeManagedTraceValue         = "runtime-managed"
+	runtimeManagedEmbeddingDimension = -1
 )
 
 type knowledgeBaseSummary struct {
@@ -79,6 +90,10 @@ type createDatasetOptions struct {
 	VendorEmbeddingID string
 }
 
+type knowledgeQueryTraceOptions struct {
+	VendorEmbeddingID string
+}
+
 type knowledgeQuerySummary struct {
 	ID      string                 `json:"id"`
 	Query   string                 `json:"query"`
@@ -103,7 +118,6 @@ type knowledgeQueryTrace struct {
 	EmbeddingProvider  string  `json:"embeddingProvider"`
 	EmbeddingModel     string  `json:"embeddingModel"`
 	EmbeddingDimension int     `json:"embeddingDimension"`
-	QdrantCollection   string  `json:"qdrantCollection"`
 	SearchTopK         int     `json:"searchTopK"`
 	ScoreThreshold     float64 `json:"scoreThreshold"`
 	HitCount           int     `json:"hitCount"`
@@ -151,22 +165,34 @@ func mapVendorError(err error) error {
 	if err == nil {
 		return nil
 	}
-	if apiErr, ok := err.(*vendorclient.APIError); ok {
-		switch apiErr.Code {
-		case 401:
-			return service.UnauthorizedError()
-		case 403:
-			return service.ForbiddenError(apiErr.Message)
-		default:
-			msg := strings.TrimSpace(apiErr.Message)
-			if strings.Contains(strings.ToLower(msg), "not found") || strings.Contains(strings.ToLower(msg), "invalid dataset") {
-				return service.NotFoundError(msg)
-			}
+	var apiErr *vendorclient.APIError
+	if errors.As(err, &apiErr) {
+		msg := strings.TrimSpace(apiErr.Message)
+		switch {
+		case apiErr.MatchesHTTPStatus(http.StatusBadRequest) || apiErr.Code == http.StatusBadRequest || apiErr.Code == vendorRetCodeArgument:
 			if msg == "" {
-				msg = "vendor runtime request failed"
+				msg = "vendor runtime validation failed"
+			}
+			return service.ValidationError(msg, nil)
+		case apiErr.MatchesHTTPStatus(http.StatusUnauthorized) ||
+			apiErr.Code == http.StatusUnauthorized ||
+			apiErr.Code == vendorRetCodeAuthentication:
+			if msg == "" {
+				msg = "vendor runtime authentication failed"
 			}
 			return service.DependencyError(msg, err)
+		case apiErr.MatchesHTTPStatus(http.StatusForbidden) || apiErr.Code == http.StatusForbidden || apiErr.Code == vendorRetCodePermission:
+			return service.ForbiddenError(msg)
+		case apiErr.MatchesHTTPStatus(http.StatusNotFound) || apiErr.Code == http.StatusNotFound:
+			if msg == "" {
+				msg = "resource not found"
+			}
+			return service.NotFoundError(msg)
 		}
+		if msg == "" {
+			msg = "vendor runtime request failed"
+		}
+		return service.DependencyError(msg, err)
 	}
 	return service.DependencyError("vendor runtime request failed", err)
 }
@@ -260,12 +286,15 @@ func documentsFromVendor(items []map[string]interface{}) []documentSummary {
 	return out
 }
 
-func documentChunkFromVendor(raw map[string]interface{}, kbID, documentID string) documentChunkSummary {
+func documentChunkFromVendor(raw map[string]interface{}, kbID, documentID string, fallbackIndex int) documentChunkSummary {
 	content := stringField(raw, "content_with_weight", "content")
 	if content == "" {
 		content = stringField(raw, "content_ltks")
 	}
-	chunkIndex := int32(intField(raw, "chunk_index", "page_num_int"))
+	chunkIndex := int32(fallbackIndex)
+	if explicitIndex := optionalIntField(raw, "chunk_index", "chunkIndex"); explicitIndex != nil {
+		chunkIndex = int32(*explicitIndex)
+	}
 	metadata := map[string]any{}
 	for key, value := range raw {
 		switch key {
@@ -286,15 +315,15 @@ func documentChunkFromVendor(raw map[string]interface{}, kbID, documentID string
 	}
 }
 
-func documentChunksFromVendor(items []map[string]interface{}, kbID, documentID string) []documentChunkSummary {
+func documentChunksFromVendor(items []map[string]interface{}, kbID, documentID string, fallbackStart int) []documentChunkSummary {
 	out := make([]documentChunkSummary, 0, len(items))
-	for _, item := range items {
-		out = append(out, documentChunkFromVendor(item, kbID, documentID))
+	for idx, item := range items {
+		out = append(out, documentChunkFromVendor(item, kbID, documentID, fallbackStart+idx))
 	}
 	return out
 }
 
-func knowledgeQueryFromVendor(queryID, query string, data *vendorclient.RetrievalData, topK int, scoreThreshold float64, rerank bool, rerankTopN *int) knowledgeQuerySummary {
+func knowledgeQueryFromVendor(queryID, query string, data *vendorclient.RetrievalData, topK int, scoreThreshold float64, rerank bool, rerankTopN *int, opts knowledgeQueryTraceOptions) knowledgeQuerySummary {
 	results := make([]knowledgeQueryResult, 0)
 	if data != nil {
 		for _, chunk := range data.Chunks {
@@ -310,10 +339,9 @@ func knowledgeQueryFromVendor(queryID, query string, data *vendorclient.Retrieva
 		Query:   query,
 		Results: results,
 		Trace: knowledgeQueryTrace{
-			EmbeddingProvider:  "vendor",
-			EmbeddingModel:     "vendor-default",
-			EmbeddingDimension: 0,
-			QdrantCollection:   "elasticsearch",
+			EmbeddingProvider:  "runtime",
+			EmbeddingModel:     firstNonEmpty(strings.TrimSpace(opts.VendorEmbeddingID), runtimeManagedTraceValue),
+			EmbeddingDimension: runtimeManagedEmbeddingDimension,
 			SearchTopK:         topK,
 			ScoreThreshold:     scoreThreshold,
 			HitCount:           hitCount,
@@ -329,13 +357,10 @@ func mapRetrievalChunk(raw map[string]interface{}) knowledgeQueryResult {
 	docID := stringField(raw, "doc_id", "document_id")
 	chunkID := stringField(raw, "chunk_id", "id")
 	docName := stringField(raw, "docnm_kwd", "document_name", "doc_name")
-	content := stringField(raw, "content_with_weight", "content")
-	if len(content) > 240 {
-		content = content[:240]
-	}
+	content := retrievalContentPreview(stringField(raw, "content_with_weight", "content"))
 	var chunkIndex *int
-	if idx := intField(raw, "chunk_index", "page_num_int"); idx >= 0 {
-		chunkIndex = &idx
+	if idx := optionalIntField(raw, "chunk_index", "page_num_int"); idx != nil && *idx >= 0 {
+		chunkIndex = idx
 	}
 	return knowledgeQueryResult{
 		Score:           score,
@@ -346,6 +371,13 @@ func mapRetrievalChunk(raw map[string]interface{}) knowledgeQueryResult {
 		ChunkIndex:      chunkIndex,
 		ContentPreview:  content,
 	}
+}
+
+func retrievalContentPreview(content string) string {
+	if len(content) <= 240 {
+		return content
+	}
+	return strings.ToValidUTF8(content[:240], "")
 }
 
 func buildCreateDatasetBody(req createKnowledgeBaseRequest, defaultParserConfig map[string]any, opts createDatasetOptions) ([]byte, error) {
@@ -363,9 +395,10 @@ func buildCreateDatasetBody(req createKnowledgeBaseRequest, defaultParserConfig 
 	}
 	if req.ChunkStrategy != nil {
 		var cfg map[string]any
-		if err := json.Unmarshal(*req.ChunkStrategy, &cfg); err == nil {
-			payload["parser_config"] = cfg
+		if err := json.Unmarshal(*req.ChunkStrategy, &cfg); err != nil || cfg == nil {
+			return nil, service.ValidationError("request validation failed", map[string]string{"chunkStrategy": "must be a valid JSON object"})
 		}
+		payload["parser_config"] = cfg
 	} else if len(defaultParserConfig) > 0 {
 		payload["parser_config"] = vendorParserConfig(defaultParserConfig)
 		if credentials := parserConfigCredentials(defaultParserConfig); len(credentials) > 0 {
@@ -413,9 +446,10 @@ func buildUpdateDatasetBody(req updateKnowledgeBaseRequest) ([]byte, error) {
 	}
 	if req.ChunkStrategy != nil {
 		var cfg map[string]any
-		if err := json.Unmarshal(*req.ChunkStrategy, &cfg); err == nil {
-			payload["parser_config"] = cfg
+		if err := json.Unmarshal(*req.ChunkStrategy, &cfg); err != nil || cfg == nil {
+			return nil, service.ValidationError("request validation failed", map[string]string{"chunkStrategy": "must be a valid JSON object"})
 		}
+		payload["parser_config"] = cfg
 	}
 	if len(payload) == 0 {
 		return nil, service.ValidationError("request validation failed", map[string]string{"body": "must include at least one supported field"})
@@ -636,6 +670,7 @@ func buildRetrievalBody(req knowledgeQueryRequest, opts retrievalBuildOptions) (
 		"question":    query,
 		"dataset_ids": req.KnowledgeBaseIDs,
 		"top_k":       topK,
+		"size":        topK,
 	}
 	if req.ScoreThreshold != nil {
 		payload["similarity_threshold"] = *req.ScoreThreshold
@@ -659,6 +694,22 @@ func buildRetrievalBody(req knowledgeQueryRequest, opts retrievalBuildOptions) (
 		}
 	}
 	return json.Marshal(payload)
+}
+
+func documentVendorWithTags(raw map[string]interface{}, tags []string) map[string]interface{} {
+	out := make(map[string]interface{}, len(raw)+1)
+	for key, value := range raw {
+		out[key] = value
+	}
+	metaFields := map[string]interface{}{}
+	if existing, ok := raw["meta_fields"].(map[string]interface{}); ok {
+		for key, value := range existing {
+			metaFields[key] = value
+		}
+	}
+	metaFields["tags"] = append([]string(nil), tags...)
+	out["meta_fields"] = metaFields
+	return out
 }
 
 func vendorMetaDataFilter(req knowledgeQueryRequest) map[string]any {
@@ -728,8 +779,8 @@ func normalizePage(page, pageSize int) (service.PageInput, error) {
 	if page < 1 {
 		fields["page"] = "must be greater than or equal to 1"
 	}
-	if pageSize < 1 || pageSize > 200 {
-		fields["pageSize"] = "must be between 1 and 200"
+	if pageSize < 1 || pageSize > 100 {
+		fields["pageSize"] = "must be between 1 and 100"
 	}
 	if len(fields) > 0 {
 		return service.PageInput{}, service.ValidationError("request validation failed", fields)
@@ -788,6 +839,35 @@ func optionalInt64Field(raw map[string]interface{}, keys ...string) *int64 {
 
 func intField(raw map[string]interface{}, keys ...string) int {
 	return int(int64Field(raw, keys...))
+}
+
+func optionalIntField(raw map[string]interface{}, keys ...string) *int {
+	for _, key := range keys {
+		value, ok := raw[key]
+		if !ok || value == nil {
+			continue
+		}
+		switch typed := value.(type) {
+		case float64:
+			parsed := int(typed)
+			return &parsed
+		case int64:
+			parsed := int(typed)
+			return &parsed
+		case int:
+			return &typed
+		case json.Number:
+			if parsed, err := typed.Int64(); err == nil {
+				value := int(parsed)
+				return &value
+			}
+		case string:
+			if parsed, err := strconv.Atoi(strings.TrimSpace(typed)); err == nil {
+				return &parsed
+			}
+		}
+	}
+	return nil
 }
 
 func floatField(raw map[string]interface{}, keys ...string) float64 {

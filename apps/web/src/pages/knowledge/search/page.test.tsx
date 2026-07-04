@@ -47,7 +47,6 @@ const queryResult: KnowledgeQuerySummary = {
     embeddingModel: 'bge-m3',
     embeddingProvider: 'ai-gateway',
     hitCount: 1,
-    qdrantCollection: 'knowledge',
     rerank: false,
     searchTopK: 10,
     scoreThreshold: 0,
@@ -58,7 +57,7 @@ describe('KnowledgeSearchPage', () => {
   beforeEach(() => {
     vi.mocked(listKnowledgeBases).mockResolvedValue({
       items: knowledgeBases,
-      page: { page: 1, pageSize: 200, total: 1 },
+      page: { page: 1, pageSize: 100, total: 1 },
     })
     vi.mocked(runKnowledgeQuery).mockResolvedValue(queryResult)
   })

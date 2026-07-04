@@ -208,7 +208,7 @@ class TCADPParser(RAGFlowPdfParser):
         # Log received parameters
         self.logger.info(f"[TCADP] Initializing with parameters - table_result_type: {table_result_type}, markdown_image_response_type: {markdown_image_response_type}")
 
-        # Priority: read configuration from RAGFlow configuration system (service_conf.yaml)
+        # Priority: read configuration from the runtime configuration system (service_conf.yaml)
         try:
             tcadp_parser = get_base_config("tcadp_config", {})
             if isinstance(tcadp_parser, dict) and tcadp_parser:

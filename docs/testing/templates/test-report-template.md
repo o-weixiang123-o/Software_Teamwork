@@ -45,7 +45,7 @@
 ### 环境与前置条件
 
 - 依赖服务：
-- 数据库 / Redis / MinIO / Qdrant：
+- 数据库 / Redis / MinIO / Elasticsearch/runtime doc engine：
 - 环境变量：
 - 测试账号或 seed：
 - 外部 provider 或模型：

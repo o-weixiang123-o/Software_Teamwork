@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Required backend validation and completion checks."}
+{"file": "docs/services/file/docs/implementation.md", "reason": "Expected File service test and smoke coverage."}
+{"file": "docs/runbooks/local-integration.md", "reason": "Local integration and smoke command reporting."}
+{"file": "docs/architecture/service-boundaries.md", "reason": "Verify implementation does not expand File ownership."}

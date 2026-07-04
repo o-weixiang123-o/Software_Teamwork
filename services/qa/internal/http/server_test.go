@@ -60,6 +60,10 @@ type fakeResourceServiceWithCreate struct {
 	fakeResourceService
 	createRetrievalTestRun func(context.Context, string, service.RetrievalTestInput) (service.RetrievalTestRun, error)
 }
+type fakeResourceServiceWithGetRetrieval struct {
+	fakeResourceService
+	getRetrievalTestRun func(context.Context, string, string) (service.RetrievalTestRun, error)
+}
 
 func (fakeSettingsService) GetSettings(context.Context) (service.QASettings, error) {
 	return service.QASettings{}, nil
@@ -154,6 +158,9 @@ func (f fakeResourceServiceWithCreate) CreateRetrievalTestRun(ctx context.Contex
 }
 func (fakeResourceService) GetRetrievalTestRun(context.Context, string, string) (service.RetrievalTestRun, error) {
 	return service.RetrievalTestRun{}, nil
+}
+func (f fakeResourceServiceWithGetRetrieval) GetRetrievalTestRun(ctx context.Context, userID, id string) (service.RetrievalTestRun, error) {
+	return f.getRetrievalTestRun(ctx, userID, id)
 }
 func (fakeResourceService) GetMetricsOverview(context.Context, string, int) (service.MetricsOverview, error) {
 	return service.MetricsOverview{}, nil
@@ -399,7 +406,7 @@ func TestCreateRetrievalTestReturnsSavedFailedRun(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/internal/v1/retrieval-test-runs", strings.NewReader(`{"question":"query"}`))
 	request.Header.Set("X-User-Id", "user-1")
-	request.Header.Set("X-User-Permissions", "qa:settings:write")
+	request.Header.Set("X-User-Permissions", "qa:use")
 	request.Header.Set("X-Service-Token", "test-service-token")
 
 	server.ServeHTTP(recorder, request)
@@ -414,6 +421,71 @@ func TestCreateRetrievalTestReturnsSavedFailedRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	if body.Data.ID != "rt-1" || body.Data.Status != "failed" || body.Data.ErrorMessage == "" {
+		t.Fatalf("unexpected run: %+v", body.Data)
+	}
+}
+
+func TestCreateRetrievalTestRequiresQAUse(t *testing.T) {
+	resources := fakeResourceServiceWithCreate{
+		createRetrievalTestRun: func(context.Context, string, service.RetrievalTestInput) (service.RetrievalTestRun, error) {
+			t.Fatal("CreateRetrievalTestRun should not be called without qa:use")
+			return service.RetrievalTestRun{}, nil
+		},
+	}
+	server := newTestServerWithResources(t, fakeQAService{}, resources)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/internal/v1/retrieval-test-runs", strings.NewReader(`{"question":"query"}`))
+	request.Header.Set("X-User-Id", "user-1")
+	request.Header.Set("X-User-Permissions", "knowledge:read")
+	request.Header.Set("X-Service-Token", "test-service-token")
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"code":"forbidden"`) {
+		t.Fatalf("unexpected response: %s", recorder.Body.String())
+	}
+}
+
+func TestGetRetrievalTestAllowsQAUse(t *testing.T) {
+	now := time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC)
+	resources := fakeResourceServiceWithGetRetrieval{
+		getRetrievalTestRun: func(_ context.Context, userID, id string) (service.RetrievalTestRun, error) {
+			if userID != "user-1" || id != "rt-1" {
+				t.Fatalf("unexpected input: user=%q id=%q", userID, id)
+			}
+			return service.RetrievalTestRun{
+				ID:          "rt-1",
+				Question:    "query",
+				Status:      "completed",
+				ResultCount: 0,
+				Results:     []service.RetrievalTestResult{},
+				CreatedAt:   now,
+				FinishedAt:  &now,
+			}, nil
+		},
+	}
+	server := newTestServerWithResources(t, fakeQAService{}, resources)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/internal/v1/retrieval-test-runs/rt-1", nil)
+	request.Header.Set("X-User-Id", "user-1")
+	request.Header.Set("X-User-Permissions", "qa:use")
+	request.Header.Set("X-Service-Token", "test-service-token")
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var body struct {
+		Data service.RetrievalTestRun `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Data.ID != "rt-1" || body.Data.Status != "completed" {
 		t.Fatalf("unexpected run: %+v", body.Data)
 	}
 }

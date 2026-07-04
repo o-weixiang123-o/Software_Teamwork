@@ -28,9 +28,15 @@ from typing import Any, Dict, List, Optional
 
 from api.db.db_models import DB, Document
 from common import settings
-from common.metadata_utils import dedupe_list
+from common.metadata_utils import (
+    METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT_ENV,
+    MetadataFilterFallbackTooLarge,
+    dedupe_list,
+    metadata_filter_in_memory_fallback_limit,
+)
 from api.db.db_models import Knowledgebase
 from common.doc_store.doc_store_base import OrderByExpr
+from api.utils.runtime_scope import runtime_index_id
 
 
 def _es_response_total(response: Any) -> Optional[int]:
@@ -63,21 +69,33 @@ def _es_response_total(response: Any) -> Optional[int]:
     return None
 
 
+def _search_response_total(response: Any) -> Optional[int]:
+    if isinstance(response, tuple) and len(response) == 2:
+        total = response[1]
+        if isinstance(total, bool):
+            return None
+        if isinstance(total, int):
+            return total
+        if isinstance(total, float):
+            return int(total)
+    return _es_response_total(response)
+
+
 class DocMetadataService:
     """Service for managing document metadata in ES/Infinity"""
 
     @staticmethod
-    def _get_doc_meta_index_name(tenant_id: str) -> str:
+    def _get_doc_meta_index_name(scope_id: str = "") -> str:
         """
-        Get the index name for document metadata.
+        Get the index name for document metadata in the global runtime scope.
 
         Args:
-            tenant_id: Tenant ID
+            scope_id: Ignored legacy parameter kept for upstream call-site compatibility.
 
         Returns:
             Index name for document metadata
         """
-        return f"ragflow_doc_meta_{tenant_id}"
+        return f"ragflow_doc_meta_{runtime_index_id()}"
 
     @staticmethod
     def _extract_metadata(flat_meta: Dict) -> Dict:
@@ -203,8 +221,8 @@ class DocMetadataService:
         if not kb:
             return []
 
-        tenant_id = kb.tenant_id
-        index_name = cls._get_doc_meta_index_name(tenant_id)
+        scope_id = kb.scope_id
+        index_name = cls._get_doc_meta_index_name(scope_id)
 
         # Check if metadata index exists, create if it doesn't
         if not settings.docStoreConn.index_exist(index_name, ""):
@@ -357,8 +375,8 @@ class DocMetadataService:
             True if successful, False otherwise
         """
         try:
-            # Get document with tenant_id (need to join with Knowledgebase)
-            doc_query = Document.select(Document, Knowledgebase.tenant_id).join(
+            # Get document with scope_id (need to join with Knowledgebase)
+            doc_query = Document.select(Document, Knowledgebase.scope_id).join(
                 Knowledgebase, on=(Knowledgebase.id == Document.kb_id)
             ).where(Document.id == doc_id)
 
@@ -369,7 +387,7 @@ class DocMetadataService:
 
             # Extract document fields
             doc_obj = doc  # This is the Document object
-            tenant_id = doc.knowledgebase.tenant_id  # Get tenant_id from joined Knowledgebase
+            scope_id = doc.knowledgebase.scope_id  # Get scope_id from joined Knowledgebase
             kb_id = doc_obj.kb_id
 
             # Prepare metadata document
@@ -386,8 +404,8 @@ class DocMetadataService:
             else:
                 doc_meta["meta_fields"] = {}
 
-            # Ensure index/table exists (per-tenant for both ES and Infinity)
-            index_name = cls._get_doc_meta_index_name(tenant_id)
+            # Ensure index/table exists (global runtime-scope for both ES and Infinity)
+            index_name = cls._get_doc_meta_index_name(scope_id)
 
             # Check if table exists
             table_exists = settings.docStoreConn.index_exist(index_name, kb_id)
@@ -396,7 +414,7 @@ class DocMetadataService:
             # Create index if it doesn't exist
             if not table_exists:
                 logging.debug(f"Creating metadata table: {index_name}")
-                # Both ES and Infinity now use per-tenant metadata tables
+                # Both ES and Infinity now use global runtime-scope metadata tables
                 result = settings.docStoreConn.create_doc_meta_idx(index_name)
                 logging.debug(f"Table creation result: {result}")
                 if result is False:
@@ -459,8 +477,8 @@ class DocMetadataService:
             True if successful, False otherwise
         """
         try:
-            # Get document with tenant_id
-            doc_query = Document.select(Document, Knowledgebase.tenant_id).join(
+            # Get document with scope_id
+            doc_query = Document.select(Document, Knowledgebase.scope_id).join(
                 Knowledgebase, on=(Knowledgebase.id == Document.kb_id)
             ).where(Document.id == doc_id)
 
@@ -471,9 +489,9 @@ class DocMetadataService:
 
             # Extract fields
             doc_obj = doc
-            tenant_id = doc.knowledgebase.tenant_id
+            scope_id = doc.knowledgebase.scope_id
             kb_id = doc_obj.kb_id
-            index_name = cls._get_doc_meta_index_name(tenant_id)
+            index_name = cls._get_doc_meta_index_name(scope_id)
 
             # Post-process to split combined values
             processed_meta = cls._split_combined_values(meta_fields)
@@ -519,7 +537,7 @@ class DocMetadataService:
                         # Mirror the Infinity fallback below so a failed scripted
                         # replace still guarantees full overwrite semantics rather
                         # than leaking through the "document not found" branch.
-                        cls.delete_document_metadata(doc_id, kb_id, tenant_id)
+                        cls.delete_document_metadata(doc_id, kb_id, scope_id)
                         return cls.insert_document_metadata(doc_id, processed_meta)
                 except Exception as e:
                     logging.debug(f"Document {doc_id} not found in index, will insert: {e}")
@@ -530,7 +548,7 @@ class DocMetadataService:
 
             # For Infinity or as fallback: use delete+insert
             logging.debug(f"[update_document_metadata] Using delete+insert method for doc_id: {doc_id}")
-            cls.delete_document_metadata(doc_id, kb_id, tenant_id)
+            cls.delete_document_metadata(doc_id, kb_id, scope_id)
             return cls.insert_document_metadata(doc_id, processed_meta)
 
         except Exception as e:
@@ -539,7 +557,7 @@ class DocMetadataService:
 
     @classmethod
     @DB.connection_context()
-    def delete_document_metadata(cls, doc_id: str, kb_id: str, tenant_id: str = None) -> bool:
+    def delete_document_metadata(cls, doc_id: str, kb_id: str, scope_id: str = None) -> bool:
         """
         Delete document metadata from ES/Infinity.
         Also drops the metadata table if it becomes empty (efficiently).
@@ -548,7 +566,7 @@ class DocMetadataService:
         Args:
             doc_id: Document ID
             kb_id: Knowledge base ID
-            tenant_id: Tenant ID, if not provided, get it from kb_id
+            scope_id: runtime scope ID, if not provided, get it from kb_id
 
         Returns:
             True if successful (or no metadata to delete), False otherwise
@@ -556,15 +574,15 @@ class DocMetadataService:
         try:
             logging.debug(f"[METADATA DELETE] Starting metadata deletion for document: {doc_id}")
 
-            # Get tenant_id from kb_id if not provided
-            if tenant_id is None:
+            # Get scope_id from kb_id if not provided
+            if scope_id is None:
                 kb = Knowledgebase.get_or_none(Knowledgebase.id == kb_id)
                 if not kb:
                     logging.warning(f"Knowledgebase {kb_id} not found for metadata deletion")
                     return False
-                tenant_id = kb.tenant_id
+                scope_id = kb.scope_id
 
-            index_name = cls._get_doc_meta_index_name(tenant_id)
+            index_name = cls._get_doc_meta_index_name(scope_id)
             logging.debug(f"[delete_document_metadata] Deleting doc_id: {doc_id}, kb_id: {kb_id}, index: {index_name}")
 
             # Check if metadata table exists before attempting deletion
@@ -608,7 +626,7 @@ class DocMetadataService:
             return False
 
     @classmethod
-    def _drop_empty_metadata_table(cls, index_name: str, tenant_id: str) -> None:
+    def _drop_empty_metadata_table(cls, index_name: str, scope_id: str) -> None:
         """
         Check if metadata table is empty and drop it if so.
         Uses optimized count query instead of full search.
@@ -616,7 +634,7 @@ class DocMetadataService:
 
         Args:
             index_name: Metadata table/index name
-            tenant_id: Tenant ID
+            scope_id: runtime scope ID
         """
         try:
             logging.debug(f"[DROP EMPTY TABLE] Starting empty table check for: {index_name}")
@@ -712,8 +730,8 @@ class DocMetadataService:
             Metadata dictionary, empty dict if not found
         """
         try:
-            # Get document with tenant_id
-            doc_query = Document.select(Document, Knowledgebase.tenant_id).join(
+            # Get document with scope_id
+            doc_query = Document.select(Document, Knowledgebase.scope_id).join(
                 Knowledgebase, on=(Knowledgebase.id == Document.kb_id)
             ).where(Document.id == doc_id)
 
@@ -724,9 +742,9 @@ class DocMetadataService:
 
             # Extract fields
             doc_obj = doc
-            tenant_id = doc.knowledgebase.tenant_id
+            scope_id = doc.knowledgebase.scope_id
             kb_id = doc_obj.kb_id
-            index_name = cls._get_doc_meta_index_name(tenant_id)
+            index_name = cls._get_doc_meta_index_name(scope_id)
 
             # Try to get metadata from ES/Infinity
             metadata_doc = settings.docStoreConn.get(
@@ -747,7 +765,7 @@ class DocMetadataService:
 
     @classmethod
     @DB.connection_context()
-    def get_flatted_meta_by_kbs(cls, kb_ids: List[str]) -> Dict:
+    def get_flatted_meta_by_kbs(cls, kb_ids: List[str], max_documents: Optional[int] = None) -> Dict:
         """
         Get flattened metadata for documents in knowledge bases.
 
@@ -764,24 +782,37 @@ class DocMetadataService:
             Metadata dictionary in format: {field_name: {value: [doc_ids]}}
         """
         try:
-            # Get tenant_id from first KB
+            # Get scope_id from first KB
             kb = Knowledgebase.get_by_id(kb_ids[0])
             if not kb:
                 return {}
 
-            tenant_id = kb.tenant_id
-            index_name = cls._get_doc_meta_index_name(tenant_id)
+            scope_id = kb.scope_id
+            index_name = cls._get_doc_meta_index_name(scope_id)
 
             condition = {"kb_id": kb_ids}
             order_by = OrderByExpr()
             if not settings.DOC_ENGINE_INFINITY:
                 order_by.asc("id")
 
+            if max_documents is not None:
+                max_documents = max(0, int(max_documents))
+
             # Paginate to support datasets with more than 10,000 documents.
             page_size = 1000
             offset = 0
             all_results = []
             while True:
+                query_limit = page_size
+                if max_documents is not None:
+                    remaining_for_probe = max_documents + 1 - len(all_results)
+                    if remaining_for_probe <= 0:
+                        raise MetadataFilterFallbackTooLarge(
+                            f"metadata filter in-memory fallback would scan more than {max_documents} documents; "
+                            f"cap is {max_documents} from {METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT_ENV}"
+                        )
+                    query_limit = min(page_size, remaining_for_probe)
+
                 batch = settings.docStoreConn.search(
                     select_fields=["*"],
                     highlight_fields=[],
@@ -789,21 +820,33 @@ class DocMetadataService:
                     match_expressions=[],
                     order_by=order_by,
                     offset=offset,
-                    limit=page_size,
+                    limit=query_limit,
                     index_names=index_name,
                     knowledgebase_ids=kb_ids
                 )
+                if max_documents is not None:
+                    total = _search_response_total(batch)
+                    if total is not None and total > max_documents:
+                        raise MetadataFilterFallbackTooLarge(
+                            f"metadata filter in-memory fallback would scan {total} documents; "
+                            f"cap is {max_documents} from {METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT_ENV}"
+                        )
                 batch_docs = list(cls._iter_search_results(batch))
                 if not batch_docs:
                     break
+                if max_documents is not None and len(all_results) + len(batch_docs) > max_documents:
+                    raise MetadataFilterFallbackTooLarge(
+                        f"metadata filter in-memory fallback would scan more than {max_documents} documents; "
+                        f"cap is {max_documents} from {METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT_ENV}"
+                    )
                 all_results.extend(batch_docs)
                 logging.debug(
                     "[get_flatted_meta_by_kbs] offset=%d batch=%d total=%d kb_ids=%s",
                     offset, len(batch_docs), len(all_results), kb_ids,
                 )
-                if len(batch_docs) < page_size:
+                if len(batch_docs) < query_limit:
                     break
-                offset += page_size
+                offset += query_limit
 
             # Aggregate metadata over all retrieved results
             meta = {}
@@ -834,6 +877,8 @@ class DocMetadataService:
                           kb_ids, doc_count, meta)
             return meta
 
+        except MetadataFilterFallbackTooLarge:
+            raise
         except Exception as e:
             logging.error("Error getting flattened metadata for KBs %s: %s", kb_ids, e)
             return {}
@@ -844,7 +889,7 @@ class DocMetadataService:
             kb_ids: List[str],
             filters: List[Dict],
             logic: str = "and",
-            limit: int = 10000,
+            limit: Optional[int] = None,
     ) -> Optional[List[str]]:
         """Run a metadata filter directly against ES or Infinity, returning matching doc IDs.
 
@@ -866,13 +911,16 @@ class DocMetadataService:
         try:
             kb = Knowledgebase.get_by_id(kb_ids[0])
         except Exception as e:
-            logging.warning(f"Metadata filter cannot resolve tenant for kb {kb_ids[0]}: {e}")
+            logging.warning(f"Metadata filter cannot resolve runtime scope for kb {kb_ids[0]}: {e}")
             return None
         if not kb:
             return None
 
-        tenant_id = kb.tenant_id
-        index_name = cls._get_doc_meta_index_name(tenant_id)
+        if limit is None:
+            limit = metadata_filter_in_memory_fallback_limit()
+
+        scope_id = kb.scope_id
+        index_name = cls._get_doc_meta_index_name(scope_id)
 
         if not settings.docStoreConn.index_exist(index_name, ""):
             return []
@@ -957,10 +1005,12 @@ class DocMetadataService:
         total = _es_response_total(response)
         if total is not None and total > limit:
             logging.warning(
-                f"ES metadata filter result exceeds push-down cap, falling back to in-memory: "
+                f"ES metadata filter result exceeds safe fallback cap: "
                 f"total={total}, cap={limit}, kb_ids={kb_ids}"
             )
-            return None
+            raise MetadataFilterFallbackTooLarge(
+                f"metadata filter matched {total} documents; cap is {limit}"
+            )
 
         logging.debug(f"ES metadata filter returned {len(unique)} matches for KBs {kb_ids}")
         return unique
@@ -1324,7 +1374,7 @@ class DocMetadataService:
                     logging.debug(f"[batch_update_metadata] Updating doc_id: {doc_id}, meta: {meta}")
                     # If metadata is empty, delete the row entirely instead of keeping empty metadata
                     if not meta:
-                        cls.delete_document_metadata(doc_id, kb_id, tenant_id=None)
+                        cls.delete_document_metadata(doc_id, kb_id, scope_id=None)
                     else:
                         cls.update_document_metadata(doc_id, meta)
                     updated_docs += 1

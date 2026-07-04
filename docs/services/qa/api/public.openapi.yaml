@@ -160,7 +160,7 @@ paths:
       description: >-
         Uploads a temporary attachment. QA stores metadata and parse status,
         calls file internally for raw bytes, and delegates parsing to the
-        Knowledge RAGFlow runtime boundary.
+        Knowledge runtime boundary.
         The attachment starts in uploaded status and is purged by TTL.
         Single file limit: 20 MB. Per-session limit: 10 attachments and
         100 MB total. Accepted part Content-Type values: application/pdf,
@@ -396,6 +396,7 @@ paths:
     post:
       tags: [RetrievalTests]
       summary: Create QA retrieval test run
+      description: Creates a QA retrieval test run owned by the authenticated user. Standard users with `qa:use` may run retrieval tests; settings and metrics remain management-only resources.
       requestBody:
         required: true
         content:
@@ -415,6 +416,7 @@ paths:
     get:
       tags: [RetrievalTests]
       summary: Get QA retrieval test run
+      description: Returns a retrieval test run owned by the authenticated user.
       parameters:
         - $ref: '#/components/parameters/TestRunId'
       responses:
@@ -653,6 +655,12 @@ components:
         knowledgeBaseIds:
           type: array
           items: { type: string }
+          description: >-
+            Optional request-level long-term knowledge-base scope. When
+            omitted, QA uses the configured default scope; if the default scope
+            is empty, QA retrieves from the project-wide knowledge base pool.
+            This request scope narrows QA RAG only; it is not the Knowledge
+            management permission model.
         retrieval: { $ref: '#/components/schemas/RetrievalOptions' }
         attachmentIds:
           type: array
@@ -724,7 +732,12 @@ components:
         score: { type: number }
         rerankScore: { type: number, nullable: true }
         chunkType: { type: string }
-        isSourceAvailable: { type: boolean }
+        isSourceAvailable:
+          type: boolean
+          description: >-
+            True only when the current user can still read the concrete source
+            document through Knowledge using the stored knowledgeBaseId and
+            documentId.
     CitationDetail:
       allOf:
         - $ref: '#/components/schemas/Citation'
@@ -736,7 +749,11 @@ components:
               properties:
                 available: { type: boolean }
                 reason: { type: string }
-                downloadEndpoint: { type: string }
+                downloadEndpoint:
+                  type: string
+                  description: >-
+                    Gateway document content endpoint including the required
+                    knowledgeBaseId query when the original source is available.
     CitationLookupRequest:
       type: object
       required: [citationIds]
@@ -822,6 +839,12 @@ components:
         defaultKnowledgeBaseIds:
           type: array
           items: { type: string }
+          description: >-
+            Default long-term knowledge-base scope for QA RAG. Empty means no
+            preselected scope, so QA retrieves from the project-wide knowledge
+            base pool. A non-empty list narrows QA retrieval and acts as the
+            request-level allowlist. Disable RAG by removing knowledge search
+            tools from enabledToolNames.
         retrieval: { $ref: '#/components/schemas/RetrievalOptions' }
         llm: { $ref: '#/components/schemas/ModelConfigPublic' }
         agent: { $ref: '#/components/schemas/AgentConfig' }
@@ -851,7 +874,9 @@ components:
         profileId:
           type: string
           description: AI Gateway model profile id.
-        modelName: { type: string }
+        modelName:
+          type: string
+          description: Optional compatibility label. Leave empty to let AI Gateway derive the provider model from the selected/default profile.
         timeoutSeconds: { type: integer }
     ModelConfigWritable:
       allOf:

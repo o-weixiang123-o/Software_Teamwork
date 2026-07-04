@@ -17,9 +17,9 @@ from requests.auth import AuthBase
 
 
 class RAGFlowHttpApiAuth(AuthBase):
-    def __init__(self, tenant_id):
-        self._tenant_id = tenant_id
+    def __init__(self, service_token):
+        self._service_token = service_token
 
     def __call__(self, r):
-        r.headers["X-Tenant-Id"] = self._tenant_id
+        r.headers["X-Service-Token"] = self._service_token
         return r

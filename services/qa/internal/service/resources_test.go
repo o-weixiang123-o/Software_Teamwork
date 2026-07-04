@@ -26,8 +26,47 @@ func TestReportGenerationDirectiveMentionsContentReportTool(t *testing.T) {
 	if !strings.Contains(directive, "document__generate_report_from_content") ||
 		!strings.Contains(directive, "search_session_attachments") ||
 		!strings.Contains(directive, "include_report_source=true") ||
-		!strings.Contains(directive, "report_source_excerpt") {
+		!strings.Contains(directive, "report_source_excerpt") ||
+		!strings.Contains(directive, "long-term knowledge-base retrieval") {
 		t.Fatalf("directive=%q, want attachment-to-report tool guidance", directive)
+	}
+}
+
+func TestAttachmentDirectiveKeepsKnowledgeRAGAvailable(t *testing.T) {
+	directive := requestDirective(AskInput{
+		Mode:             "knowledge_qa",
+		AttachmentIDs:    []string{"att-1"},
+		KnowledgeBaseIDs: []string{"kb-1"},
+	})
+	for _, want := range []string{
+		"search_session_attachments",
+		"do not replace long-term knowledge-base RAG",
+		"search_knowledge or knowledge__search",
+		"restrict it to: kb-1",
+	} {
+		if !strings.Contains(directive, want) {
+			t.Fatalf("directive=%q, want %q", directive, want)
+		}
+	}
+}
+
+func TestKnowledgeQADirectiveMentionsLongTermRAG(t *testing.T) {
+	directive := requestDirective(AskInput{
+		Mode:             "knowledge_qa",
+		AttachmentIDs:    []string{" ", ""},
+		KnowledgeBaseIDs: []string{"kb-1", " ", "kb-1"},
+	})
+	for _, want := range []string{
+		"long-term knowledge-base retrieval",
+		"search_knowledge or knowledge__search",
+		"restrict it to: kb-1",
+	} {
+		if !strings.Contains(directive, want) {
+			t.Fatalf("directive=%q, want %q", directive, want)
+		}
+	}
+	if strings.Contains(directive, "search_session_attachments") {
+		t.Fatalf("directive=%q, did not expect attachment guidance for blank attachment IDs", directive)
 	}
 }
 
@@ -252,7 +291,7 @@ func TestCreateRetrievalTestRunMergesActiveConfigAndOverrides(t *testing.T) {
 	}
 
 	wantRetrieval := RetrievalSettings{TopK: 8, ScoreThreshold: .35, EnableRerank: true, RerankTopN: 4}
-	if retriever.input.Question != "what is qa" || !reflect.DeepEqual(retriever.input.KnowledgeBaseIDs, []string{"kb-default"}) || retriever.input.QAConfigVersionID != "qa-config-id" || !reflect.DeepEqual(retriever.input.Retrieval, wantRetrieval) {
+	if retriever.input.Question != "what is qa" || len(retriever.input.KnowledgeBaseIDs) != 0 || retriever.input.QAConfigVersionID != "qa-config-id" || !reflect.DeepEqual(retriever.input.Retrieval, wantRetrieval) {
 		t.Fatalf("retriever input=%+v", retriever.input)
 	}
 	if !repository.saveCalled || !reflect.DeepEqual(repository.savedInput.Retrieval, wantRetrieval) {
@@ -263,7 +302,7 @@ func TestCreateRetrievalTestRunMergesActiveConfigAndOverrides(t *testing.T) {
 	}
 }
 
-func TestCreateRetrievalTestRunFallsBackToDefaultsAfterKnowledgeBaseNormalization(t *testing.T) {
+func TestCreateRetrievalTestRunKeepsEmptyKnowledgeBasesForGlobalSearch(t *testing.T) {
 	repository := &resourceRepositoryStub{activeQAConfig: QAConfigVersion{
 		ID:                      "qa-config-id",
 		DefaultKnowledgeBaseIDs: []string{" kb-default ", "kb-default"},
@@ -283,11 +322,11 @@ func TestCreateRetrievalTestRunFallsBackToDefaultsAfterKnowledgeBaseNormalizatio
 		t.Fatal(err)
 	}
 
-	if !reflect.DeepEqual(retriever.input.KnowledgeBaseIDs, []string{"kb-default"}) {
-		t.Fatalf("knowledgeBaseIds=%+v, want default knowledge base", retriever.input.KnowledgeBaseIDs)
+	if len(retriever.input.KnowledgeBaseIDs) != 0 {
+		t.Fatalf("knowledgeBaseIds=%+v, want empty for global search", retriever.input.KnowledgeBaseIDs)
 	}
-	if !reflect.DeepEqual(repository.savedInput.KnowledgeBaseIDs, []string{"kb-default"}) {
-		t.Fatalf("saved knowledgeBaseIds=%+v, want default knowledge base", repository.savedInput.KnowledgeBaseIDs)
+	if len(repository.savedInput.KnowledgeBaseIDs) != 0 {
+		t.Fatalf("saved knowledgeBaseIds=%+v, want empty for global search", repository.savedInput.KnowledgeBaseIDs)
 	}
 }
 
@@ -593,6 +632,24 @@ func TestCreateLLMConfigVersionReloadsRuntimeWhenActivated(t *testing.T) {
 	}
 }
 
+func TestCreateLLMConfigVersionAllowsProfileOnlyModel(t *testing.T) {
+	repository := &resourceRepositoryStub{}
+	resources, err := NewResourceService(repository, &knowledgeRetrieverStub{}, llmTesterStub{}, RuntimeLLMConfig{}, runCancellerStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = resources.CreateLLMConfigVersion(context.Background(), "user-1", CreateLLMConfigVersionInput{
+		Provider: "ai-gateway", ProfileID: "profile-1", TimeoutSeconds: 60,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !repository.createLLMCalled || repository.createdLLMInput.ModelName != "" {
+		t.Fatalf("llm input not persisted as profile-only config: called=%v input=%+v", repository.createLLMCalled, repository.createdLLMInput)
+	}
+}
+
 func TestCreateLLMConfigVersionRollsBackActiveVersionWhenReloadFails(t *testing.T) {
 	repository := &resourceRepositoryStub{activeLLMConfig: LLMConfigVersion{ID: "llm-old", IsActive: true}}
 	reloader := &resourceReloaderStub{err: errors.New("reload failed")}
@@ -680,6 +737,7 @@ func TestResourceServiceRevalidatesCitationSourceAvailability(t *testing.T) {
 			MessageID:         "message-1",
 			CitationNo:        1,
 			DocumentID:        "doc-1",
+			KnowledgeBaseID:   "kb-1",
 			DocumentName:      "Manual",
 			Text:              "saved quote",
 			ContentPreview:    "saved preview",
@@ -687,7 +745,7 @@ func TestResourceServiceRevalidatesCitationSourceAvailability(t *testing.T) {
 			Metadata:          map[string]any{"pageLabel": "1"},
 		}},
 	}
-	retriever := &resourceRetrieverStub{availability: map[string]bool{"doc-1": true}}
+	retriever := &resourceRetrieverStub{availability: map[string]bool{CitationSourceRefKey("kb-1", "doc-1"): true}}
 	resources, err := NewResourceService(repository, retriever, resourceLLMTester{}, RuntimeLLMConfig{}, resourceCancellerStub{})
 	if err != nil {
 		t.Fatal(err)
@@ -696,8 +754,8 @@ func TestResourceServiceRevalidatesCitationSourceAvailability(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if retriever.userID != "user-1" || !reflect.DeepEqual(retriever.documentIDs, []string{"doc-1"}) {
-		t.Fatalf("source check user=%q ids=%+v", retriever.userID, retriever.documentIDs)
+	if retriever.userID != "user-1" || !reflect.DeepEqual(retriever.refs, []CitationSourceRef{{KnowledgeBaseID: "kb-1", DocumentID: "doc-1"}}) {
+		t.Fatalf("source check user=%q refs=%+v", retriever.userID, retriever.refs)
 	}
 	if len(citations) != 1 {
 		t.Fatalf("citations=%+v", citations)
@@ -706,7 +764,7 @@ func TestResourceServiceRevalidatesCitationSourceAvailability(t *testing.T) {
 	if !citation.IsSourceAvailable || citation.Source == nil || !citation.Source.Available {
 		t.Fatalf("source should be available: %+v", citation)
 	}
-	if citation.Source.DownloadEndpoint != "/api/v1/documents/doc-1/content" || citation.Source.Reason != "" {
+	if citation.Source.DownloadEndpoint != "/api/v1/documents/doc-1/content?knowledgeBaseId=kb-1" || citation.Source.Reason != "" {
 		t.Fatalf("unexpected source mapping: %+v", citation.Source)
 	}
 }
@@ -756,16 +814,16 @@ type resourceRetrieverStub struct {
 	availability map[string]bool
 	checkErr     error
 	userID       string
-	documentIDs  []string
+	refs         []CitationSourceRef
 }
 
 func (r *resourceRetrieverStub) Retrieve(context.Context, string, RetrievalTestInput) ([]RetrievalTestResult, error) {
 	return nil, nil
 }
 
-func (r *resourceRetrieverStub) CheckCitationSources(_ context.Context, userID string, documentIDs []string) (map[string]bool, error) {
+func (r *resourceRetrieverStub) CheckCitationSources(_ context.Context, userID string, refs []CitationSourceRef) (map[string]bool, error) {
 	r.userID = userID
-	r.documentIDs = append([]string(nil), documentIDs...)
+	r.refs = append([]CitationSourceRef(nil), refs...)
 	return r.availability, r.checkErr
 }
 

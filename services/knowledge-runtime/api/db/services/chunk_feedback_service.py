@@ -161,7 +161,7 @@ class ChunkFeedbackService:
 
     @staticmethod
     def update_chunk_weight(
-        tenant_id: str,
+        scope_id: str,
         chunk_id: str,
         kb_id: str,
         delta: int,
@@ -175,7 +175,7 @@ class ChunkFeedbackService:
         row_id (from retrieval results) for targeted single-row updates.
 
         Args:
-            tenant_id: The tenant ID for index naming
+            scope_id: The runtime scope ID for index naming
             chunk_id: The chunk ID to update
             kb_id: The knowledgebase ID
             delta: Signed integer weight change (pagerank_fea is stored as int)
@@ -184,7 +184,7 @@ class ChunkFeedbackService:
             True if update succeeded, False otherwise
         """
         try:
-            idx_name = index_name(tenant_id)
+            idx_name = index_name(scope_id)
             conn = settings.docStoreConn
             adjust = getattr(conn, "adjust_chunk_pagerank_fea", None)
             if callable(adjust):
@@ -247,7 +247,7 @@ class ChunkFeedbackService:
     @classmethod
     def apply_feedback(
         cls,
-        tenant_id: str,
+        scope_id: str,
         reference: dict,
         is_positive: bool
     ) -> dict:
@@ -255,7 +255,7 @@ class ChunkFeedbackService:
         Apply user feedback to all chunks referenced in a response.
 
         Args:
-            tenant_id: The tenant ID
+            scope_id: The runtime scope ID
             reference: The reference dict from the conversation message
             is_positive: True for upvote (thumbup), False for downvote
 
@@ -301,7 +301,7 @@ class ChunkFeedbackService:
                     rid_int = int(rid)
                 except (TypeError, ValueError):
                     pass
-            if cls.update_chunk_weight(tenant_id, chunk_id, kb_id, delta, row_id=rid_int):
+            if cls.update_chunk_weight(scope_id, chunk_id, kb_id, delta, row_id=rid_int):
                 success_count += 1
             else:
                 fail_count += 1

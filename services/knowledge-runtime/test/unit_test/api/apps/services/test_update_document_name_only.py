@@ -50,7 +50,7 @@ def _load_update_document_name_only_module(monkeypatch, *, file_lookup):
         "api.db.services.document_service",
         DocumentService=SimpleNamespace(
             update_by_id=lambda doc_id, data: True,
-            get_tenant_id=lambda doc_id: "tenant-1",
+            get_scope_id=lambda doc_id: "scope-1",
             get_by_id=lambda doc_id: (True, doc),
         ),
     )
@@ -90,7 +90,7 @@ def _load_update_document_name_only_module(monkeypatch, *, file_lookup):
     _stub(
         monkeypatch,
         "rag.nlp.search",
-        index_name=lambda tenant_id: f"idx-{tenant_id}",
+        index_name=lambda scope_id: f"idx-{scope_id}",
     )
     _stub(
         monkeypatch,

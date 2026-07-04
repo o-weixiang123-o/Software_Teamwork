@@ -65,6 +65,9 @@ export type DocumentSummary = JsonResponseData<
 > &
   PaginatedResponseItem<'/api/v1/knowledge-bases/{knowledgeBaseId}/documents', 'get', 200>
 export type UpdateDocumentRequest = JsonRequestBody<'/api/v1/documents/{documentId}', 'patch'>
+type DocumentQueryParams = QueryParams<'/api/v1/documents/{documentId}', 'get'>
+type DocumentChunkParams = QueryParams<'/api/v1/documents/{documentId}/chunks', 'get'>
+type DocumentContentParams = QueryParams<'/api/v1/documents/{documentId}/content', 'get'>
 export type DocumentChunk = PaginatedResponseItem<
   '/api/v1/documents/{documentId}/chunks',
   'get',
@@ -156,43 +159,75 @@ export function uploadDocument(
   )
 }
 
-/** GET /documents/{documentId} */
-export function getDocument(documentId: string): Promise<DocumentSummary> {
-  return gatewayRequest<DocumentSummary>(`/documents/${encodeURIComponent(documentId)}`)
+/** GET /documents/{documentId}?knowledgeBaseId= */
+export function getDocument(
+  documentId: string,
+  knowledgeBaseId: DocumentQueryParams['knowledgeBaseId'],
+): Promise<DocumentSummary> {
+  return gatewayRequest<DocumentSummary>(
+    `/documents/${encodeURIComponent(documentId)}${buildQuery({ knowledgeBaseId })}`,
+  )
 }
 
-/** PATCH /documents/{documentId} */
+/** PATCH /documents/{documentId}?knowledgeBaseId= */
 export function updateDocument(
   documentId: string,
+  knowledgeBaseId: DocumentQueryParams['knowledgeBaseId'],
   params: UpdateDocumentRequest,
 ): Promise<DocumentSummary> {
-  return gatewayRequest<DocumentSummary>(`/documents/${encodeURIComponent(documentId)}`, {
-    method: 'PATCH',
-    body: params,
-  })
+  return gatewayRequest<DocumentSummary>(
+    `/documents/${encodeURIComponent(documentId)}${buildQuery({ knowledgeBaseId })}`,
+    {
+      method: 'PATCH',
+      body: params,
+    },
+  )
 }
 
-/** DELETE /documents/{documentId} */
-export async function deleteDocument(documentId: string): Promise<void> {
-  await requestVoid(`/documents/${encodeURIComponent(documentId)}`, { method: 'DELETE' })
+/** DELETE /documents/{documentId}?knowledgeBaseId= */
+export async function deleteDocument(
+  documentId: string,
+  knowledgeBaseId: DocumentQueryParams['knowledgeBaseId'],
+): Promise<void> {
+  await requestVoid(
+    `/documents/${encodeURIComponent(documentId)}${buildQuery({ knowledgeBaseId })}`,
+    {
+      method: 'DELETE',
+    },
+  )
 }
 
-/** GET /documents/{documentId}/chunks?page=&pageSize= */
+/** GET /documents/{documentId}/chunks?knowledgeBaseId=&page=&pageSize= */
 export async function listChunks(
   documentId: string,
-  params: QueryParams<'/api/v1/documents/{documentId}/chunks', 'get'> = {},
+  knowledgeBaseId: DocumentChunkParams['knowledgeBaseId'],
+  params: Omit<DocumentChunkParams, 'knowledgeBaseId'> = {},
 ): Promise<KnowledgePageResult<DocumentChunk>> {
   return gatewayPageRequest<DocumentChunk>(
     `/documents/${encodeURIComponent(documentId)}/chunks${buildQuery({
+      knowledgeBaseId,
       page: params.page,
       pageSize: params.pageSize,
     })}`,
   )
 }
 
-/** GET /documents/{documentId}/content */
-export function getDocumentContent(documentId: string): Promise<Blob> {
-  return gatewayFileRequest(`/documents/${encodeURIComponent(documentId)}/content`)
+/** GET /documents/{documentId}/content?knowledgeBaseId= */
+export function getDocumentContent(
+  documentId: string,
+  knowledgeBaseId: DocumentContentParams['knowledgeBaseId'],
+): Promise<Blob> {
+  return gatewayFileRequest(
+    `/documents/${encodeURIComponent(documentId)}/content${buildQuery({ knowledgeBaseId })}`,
+  )
+}
+
+/** GET citation source content using the Gateway endpoint returned by QA. */
+export function getDocumentContentFromEndpoint(downloadEndpoint: string): Promise<Blob> {
+  const path = downloadEndpoint
+    .replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]+/i, '')
+    .replace(/^\/api\/v1(?=\/)/, '')
+  return gatewayFileRequest(path)
 }
 
 /** POST /knowledge-queries */

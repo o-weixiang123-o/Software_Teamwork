@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -36,8 +38,9 @@ func New(baseURL string, timeout time.Duration, serviceToken string) *Client {
 }
 
 type APIError struct {
-	Code    int
-	Message string
+	Code       int
+	Message    string
+	HTTPStatus int
 }
 
 func (e *APIError) Error() string {
@@ -45,6 +48,16 @@ func (e *APIError) Error() string {
 		return e.Message
 	}
 	return fmt.Sprintf("vendor api error code=%d", e.Code)
+}
+
+func (e *APIError) MatchesHTTPStatus(status int) bool {
+	if e == nil {
+		return false
+	}
+	if e.HTTPStatus == status {
+		return true
+	}
+	return e.HTTPStatus == 0 && e.Code == status
 }
 
 type envelope struct {
@@ -71,7 +84,7 @@ type RetrievalData struct {
 	DocAggs []map[string]interface{} `json:"doc_aggs"`
 }
 
-func (c *Client) ListDatasets(ctx context.Context, userID string, page, pageSize int) ([]map[string]interface{}, int64, error) {
+func (c *Client) ListDatasets(ctx context.Context, runtimeScopeID string, page, pageSize int) ([]map[string]interface{}, int64, error) {
 	query := url.Values{}
 	if page > 0 {
 		query.Set("page", strconv.Itoa(page))
@@ -80,7 +93,7 @@ func (c *Client) ListDatasets(ctx context.Context, userID string, page, pageSize
 		query.Set("page_size", strconv.Itoa(pageSize))
 	}
 	var payload envelope
-	if err := c.getJSON(ctx, userID, "/api/v1/datasets?"+query.Encode(), &payload); err != nil {
+	if err := c.getJSON(ctx, runtimeScopeID, "/api/v1/datasets?"+query.Encode(), &payload); err != nil {
 		return nil, 0, err
 	}
 	items, err := decodeDatasetItems(payload.Data)
@@ -94,9 +107,9 @@ func (c *Client) ListDatasets(ctx context.Context, userID string, page, pageSize
 	return items, total, nil
 }
 
-func (c *Client) CreateDataset(ctx context.Context, userID string, body []byte) (map[string]interface{}, error) {
+func (c *Client) CreateDataset(ctx context.Context, runtimeScopeID string, body []byte) (map[string]interface{}, error) {
 	var payload envelope
-	if err := c.doJSON(ctx, userID, http.MethodPost, createDatasetPath(body), body, &payload); err != nil {
+	if err := c.doJSON(ctx, runtimeScopeID, http.MethodPost, createDatasetPath(body), body, &payload); err != nil {
 		return nil, err
 	}
 	return decodeObject(payload.Data)
@@ -118,34 +131,34 @@ func createDatasetPath(body []byte) string {
 	return "/api/v1/internal/datasets"
 }
 
-func (c *Client) GetDataset(ctx context.Context, userID, datasetID string) (map[string]interface{}, error) {
+func (c *Client) GetDataset(ctx context.Context, runtimeScopeID, datasetID string) (map[string]interface{}, error) {
 	var payload envelope
 	path := "/api/v1/datasets/" + url.PathEscape(datasetID)
-	if err := c.getJSON(ctx, userID, path, &payload); err != nil {
+	if err := c.getJSON(ctx, runtimeScopeID, path, &payload); err != nil {
 		return nil, err
 	}
 	return decodeObject(payload.Data)
 }
 
-func (c *Client) UpdateDataset(ctx context.Context, userID, datasetID string, body []byte) (map[string]interface{}, error) {
+func (c *Client) UpdateDataset(ctx context.Context, runtimeScopeID, datasetID string, body []byte) (map[string]interface{}, error) {
 	var payload envelope
 	path := "/api/v1/datasets/" + url.PathEscape(datasetID)
-	if err := c.doJSON(ctx, userID, http.MethodPut, path, body, &payload); err != nil {
+	if err := c.doJSON(ctx, runtimeScopeID, http.MethodPut, path, body, &payload); err != nil {
 		return nil, err
 	}
 	return decodeObject(payload.Data)
 }
 
-func (c *Client) DeleteDataset(ctx context.Context, userID, datasetID string) error {
+func (c *Client) DeleteDataset(ctx context.Context, runtimeScopeID, datasetID string) error {
 	body, err := json.Marshal(map[string]any{"ids": []string{datasetID}})
 	if err != nil {
 		return err
 	}
 	var payload envelope
-	return c.doJSON(ctx, userID, http.MethodDelete, "/api/v1/datasets", body, &payload)
+	return c.doJSON(ctx, runtimeScopeID, http.MethodDelete, "/api/v1/datasets", body, &payload)
 }
 
-func (c *Client) ListDocuments(ctx context.Context, userID, datasetID string, page, pageSize int) ([]map[string]interface{}, int64, error) {
+func (c *Client) ListDocuments(ctx context.Context, runtimeScopeID, datasetID string, page, pageSize int) ([]map[string]interface{}, int64, error) {
 	query := url.Values{}
 	if page > 0 {
 		query.Set("page", strconv.Itoa(page))
@@ -155,7 +168,7 @@ func (c *Client) ListDocuments(ctx context.Context, userID, datasetID string, pa
 	}
 	path := fmt.Sprintf("/api/v1/datasets/%s/documents?%s", url.PathEscape(datasetID), query.Encode())
 	var payload envelope
-	if err := c.getJSON(ctx, userID, path, &payload); err != nil {
+	if err := c.getJSON(ctx, runtimeScopeID, path, &payload); err != nil {
 		return nil, 0, err
 	}
 	var listed documentListData
@@ -168,7 +181,7 @@ func (c *Client) ListDocuments(ctx context.Context, userID, datasetID string, pa
 	return listed.Docs, listed.Total, nil
 }
 
-func (c *Client) UploadDocument(ctx context.Context, userID, datasetID, filename, contentType string, content io.Reader) (map[string]interface{}, error) {
+func (c *Client) UploadDocument(ctx context.Context, runtimeScopeID, datasetID, filename, contentType string, content io.Reader) (map[string]interface{}, error) {
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 	part, err := writer.CreateFormFile("file", filename)
@@ -183,7 +196,7 @@ func (c *Client) UploadDocument(ctx context.Context, userID, datasetID, filename
 	}
 
 	path := fmt.Sprintf("/api/v1/datasets/%s/documents?type=local", url.PathEscape(datasetID))
-	req, err := c.newRequest(ctx, userID, http.MethodPost, path, &body)
+	req, err := c.newRequest(ctx, runtimeScopeID, http.MethodPost, path, &body)
 	if err != nil {
 		return nil, err
 	}
@@ -200,7 +213,11 @@ func (c *Client) UploadDocument(ctx context.Context, userID, datasetID, filename
 		return nil, err
 	}
 	if res.StatusCode >= http.StatusBadRequest {
-		return nil, fmt.Errorf("vendor upload failed: status=%d body=%s", res.StatusCode, strings.TrimSpace(string(raw)))
+		var payload envelope
+		if err := json.Unmarshal(raw, &payload); err == nil {
+			return nil, &APIError{Code: payload.Code, Message: payload.Message, HTTPStatus: res.StatusCode}
+		}
+		return nil, &APIError{Message: "vendor upload failed", HTTPStatus: res.StatusCode}
 	}
 
 	var payload envelope
@@ -208,14 +225,14 @@ func (c *Client) UploadDocument(ctx context.Context, userID, datasetID, filename
 		return nil, err
 	}
 	if payload.Code != vendorCodeSuccess {
-		return nil, &APIError{Code: payload.Code, Message: payload.Message}
+		return nil, &APIError{Code: payload.Code, Message: payload.Message, HTTPStatus: res.StatusCode}
 	}
 	return decodeUploadDocument(payload.Data)
 }
 
 // StartDocumentParse queues deepdoc ingestion for uploaded documents in a dataset.
 // Both document_ids (Python API) and documents (Go API) are sent for compatibility.
-func (c *Client) StartDocumentParse(ctx context.Context, userID, datasetID string, documentIDs []string) error {
+func (c *Client) StartDocumentParse(ctx context.Context, runtimeScopeID, datasetID string, documentIDs []string) error {
 	if len(documentIDs) == 0 {
 		return fmt.Errorf("document ids are required")
 	}
@@ -229,12 +246,12 @@ func (c *Client) StartDocumentParse(ctx context.Context, userID, datasetID strin
 	}
 	path := fmt.Sprintf("/api/v1/datasets/%s/documents/parse", url.PathEscape(datasetID))
 	var payload envelope
-	return c.doJSON(ctx, userID, http.MethodPost, path, body, &payload)
+	return c.doJSON(ctx, runtimeScopeID, http.MethodPost, path, body, &payload)
 }
 
-func (c *Client) GetDocument(ctx context.Context, userID, documentID string) (map[string]interface{}, error) {
+func (c *Client) GetDocument(ctx context.Context, runtimeScopeID, documentID string) (map[string]interface{}, error) {
 	path := "/api/v1/documents/" + url.PathEscape(documentID)
-	req, err := c.newRequest(ctx, userID, http.MethodGet, path, nil)
+	req, err := c.newRequest(ctx, runtimeScopeID, http.MethodGet, path, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -248,10 +265,10 @@ func (c *Client) GetDocument(ctx context.Context, userID, documentID string) (ma
 		return nil, err
 	}
 	if res.StatusCode == http.StatusNotFound {
-		return nil, &APIError{Code: 404, Message: "document not found"}
+		return nil, &APIError{Code: 404, Message: "document not found", HTTPStatus: http.StatusNotFound}
 	}
 	if res.StatusCode >= http.StatusBadRequest {
-		return nil, fmt.Errorf("vendor get document failed: status=%d", res.StatusCode)
+		return nil, &APIError{Message: "vendor get document failed", HTTPStatus: res.StatusCode}
 	}
 
 	var wrapped struct {
@@ -261,15 +278,15 @@ func (c *Client) GetDocument(ctx context.Context, userID, documentID string) (ma
 		return nil, err
 	}
 	if wrapped.Data == nil {
-		return nil, &APIError{Code: 404, Message: "document not found"}
+		return nil, &APIError{Code: 404, Message: "document not found", HTTPStatus: http.StatusNotFound}
 	}
 	return wrapped.Data, nil
 }
 
-func (c *Client) GetDatasetDocument(ctx context.Context, userID, datasetID, documentID string) (map[string]interface{}, error) {
+func (c *Client) GetDatasetDocument(ctx context.Context, runtimeScopeID, datasetID, documentID string) (map[string]interface{}, error) {
 	const pageSize = 100
 	for page := 1; ; page++ {
-		items, total, err := c.ListDocuments(ctx, userID, datasetID, page, pageSize)
+		items, total, err := c.ListDocuments(ctx, runtimeScopeID, datasetID, page, pageSize)
 		if err != nil {
 			return nil, err
 		}
@@ -282,29 +299,29 @@ func (c *Client) GetDatasetDocument(ctx context.Context, userID, datasetID, docu
 			break
 		}
 	}
-	return nil, &APIError{Code: 404, Message: "document not found"}
+	return nil, &APIError{Code: 404, Message: "document not found", HTTPStatus: http.StatusNotFound}
 }
 
-func (c *Client) UpdateDocument(ctx context.Context, userID, datasetID, documentID string, body []byte) (map[string]interface{}, error) {
+func (c *Client) UpdateDocument(ctx context.Context, runtimeScopeID, datasetID, documentID string, body []byte) (map[string]interface{}, error) {
 	var payload envelope
 	path := fmt.Sprintf("/api/v1/datasets/%s/documents/%s", url.PathEscape(datasetID), url.PathEscape(documentID))
-	if err := c.doJSON(ctx, userID, http.MethodPatch, path, body, &payload); err != nil {
+	if err := c.doJSON(ctx, runtimeScopeID, http.MethodPatch, path, body, &payload); err != nil {
 		return nil, err
 	}
 	return decodeObject(payload.Data)
 }
 
-func (c *Client) DeleteDocument(ctx context.Context, userID, datasetID, documentID string) error {
+func (c *Client) DeleteDocument(ctx context.Context, runtimeScopeID, datasetID, documentID string) error {
 	path := fmt.Sprintf("/api/v1/datasets/%s/documents", url.PathEscape(datasetID))
 	body, err := json.Marshal(map[string][]string{"ids": []string{documentID}})
 	if err != nil {
 		return err
 	}
 	var payload envelope
-	return c.doJSON(ctx, userID, http.MethodDelete, path, body, &payload)
+	return c.doJSON(ctx, runtimeScopeID, http.MethodDelete, path, body, &payload)
 }
 
-func (c *Client) ListChunks(ctx context.Context, userID, datasetID, documentID string, page, pageSize int) ([]map[string]interface{}, int64, error) {
+func (c *Client) ListChunks(ctx context.Context, runtimeScopeID, datasetID, documentID string, page, pageSize int) ([]map[string]interface{}, int64, error) {
 	query := url.Values{}
 	if page > 0 {
 		query.Set("page", strconv.Itoa(page))
@@ -315,7 +332,7 @@ func (c *Client) ListChunks(ctx context.Context, userID, datasetID, documentID s
 	path := fmt.Sprintf("/api/v1/datasets/%s/documents/%s/chunks?%s",
 		url.PathEscape(datasetID), url.PathEscape(documentID), query.Encode())
 	var payload envelope
-	if err := c.getJSON(ctx, userID, path, &payload); err != nil {
+	if err := c.getJSON(ctx, runtimeScopeID, path, &payload); err != nil {
 		return nil, 0, err
 	}
 	var listed chunkListData
@@ -328,9 +345,53 @@ func (c *Client) ListChunks(ctx context.Context, userID, datasetID, documentID s
 	return listed.Chunks, listed.Total, nil
 }
 
-func (c *Client) DownloadDocument(ctx context.Context, userID, datasetID, documentID string) (contentType string, body []byte, err error) {
+func (c *Client) GetChunk(ctx context.Context, runtimeScopeID, datasetID, documentID, chunkID string) (map[string]interface{}, error) {
+	query := url.Values{}
+	query.Set("id", chunkID)
+	query.Set("page", "1")
+	query.Set("page_size", "1")
+	path := fmt.Sprintf("/api/v1/datasets/%s/documents/%s/chunks?%s",
+		url.PathEscape(datasetID), url.PathEscape(documentID), query.Encode())
+	var payload envelope
+	if err := c.getJSON(ctx, runtimeScopeID, path, &payload); err != nil {
+		return nil, normalizeChunkNotFoundError(err)
+	}
+	if len(payload.Data) == 0 {
+		return nil, chunkNotFoundError()
+	}
+	var listed chunkListData
+	if err := json.Unmarshal(payload.Data, &listed); err == nil && len(listed.Chunks) > 0 {
+		return listed.Chunks[0], nil
+	}
+	chunk, err := decodeObject(payload.Data)
+	if err != nil || len(chunk) == 0 {
+		return nil, chunkNotFoundError()
+	}
+	id := strings.TrimSpace(fmt.Sprint(chunk["id"]))
+	if id == "" {
+		id = strings.TrimSpace(fmt.Sprint(chunk["chunk_id"]))
+	}
+	if id != "" && id != chunkID {
+		return nil, chunkNotFoundError()
+	}
+	return chunk, nil
+}
+
+func chunkNotFoundError() error {
+	return &APIError{Code: http.StatusNotFound, Message: "chunk not found", HTTPStatus: http.StatusNotFound}
+}
+
+func normalizeChunkNotFoundError(err error) error {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) && strings.Contains(strings.ToLower(apiErr.Message), "chunk not found") {
+		return chunkNotFoundError()
+	}
+	return err
+}
+
+func (c *Client) DownloadDocument(ctx context.Context, runtimeScopeID, datasetID, documentID string) (contentType string, body []byte, err error) {
 	path := fmt.Sprintf("/api/v1/datasets/%s/documents/%s", url.PathEscape(datasetID), url.PathEscape(documentID))
-	req, err := c.newRequest(ctx, userID, http.MethodGet, path, nil)
+	req, err := c.newRequest(ctx, runtimeScopeID, http.MethodGet, path, nil)
 	if err != nil {
 		return "", nil, err
 	}
@@ -344,18 +405,24 @@ func (c *Client) DownloadDocument(ctx context.Context, userID, datasetID, docume
 		return "", nil, err
 	}
 	if res.StatusCode >= http.StatusBadRequest {
-		return "", nil, fmt.Errorf("vendor download failed: status=%d", res.StatusCode)
+		return "", nil, &APIError{Message: "vendor download failed", HTTPStatus: res.StatusCode}
 	}
 	contentType = res.Header.Get("Content-Type")
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
+	if isJSONContentType(contentType) {
+		var payload envelope
+		if err := json.Unmarshal(raw, &payload); err == nil && payload.Code != vendorCodeSuccess && (payload.Message != "" || len(payload.Data) > 0) {
+			return "", nil, &APIError{Code: payload.Code, Message: payload.Message, HTTPStatus: res.StatusCode}
+		}
+	}
 	return contentType, raw, nil
 }
 
-func (c *Client) RetrievalSearch(ctx context.Context, userID string, body []byte) (*RetrievalData, error) {
+func (c *Client) RetrievalSearch(ctx context.Context, runtimeScopeID string, body []byte) (*RetrievalData, error) {
 	var payload envelope
-	if err := c.doJSON(ctx, userID, http.MethodPost, "/api/v1/datasets/search", body, &payload); err != nil {
+	if err := c.doJSON(ctx, runtimeScopeID, http.MethodPost, "/api/v1/datasets/search", body, &payload); err != nil {
 		return nil, err
 	}
 	var data RetrievalData
@@ -385,24 +452,24 @@ func (c *Client) Ping(ctx context.Context) error {
 	return nil
 }
 
-func (c *Client) RuntimeStatus(ctx context.Context, userID string) (map[string]interface{}, error) {
+func (c *Client) RuntimeStatus(ctx context.Context, runtimeScopeID string) (map[string]interface{}, error) {
 	var payload envelope
-	if err := c.getJSON(ctx, userID, "/api/v1/system/status", &payload); err != nil {
+	if err := c.getJSON(ctx, runtimeScopeID, "/api/v1/system/status", &payload); err != nil {
 		return nil, err
 	}
 	return decodeObject(payload.Data)
 }
 
-func (c *Client) getJSON(ctx context.Context, userID, path string, target *envelope) error {
-	return c.doJSON(ctx, userID, http.MethodGet, path, nil, target)
+func (c *Client) getJSON(ctx context.Context, runtimeScopeID, path string, target *envelope) error {
+	return c.doJSON(ctx, runtimeScopeID, http.MethodGet, path, nil, target)
 }
 
-func (c *Client) doJSON(ctx context.Context, userID, method, path string, body []byte, target *envelope) error {
+func (c *Client) doJSON(ctx context.Context, runtimeScopeID, method, path string, body []byte, target *envelope) error {
 	var reader io.Reader
 	if len(body) > 0 {
 		reader = bytes.NewReader(body)
 	}
-	req, err := c.newRequest(ctx, userID, method, path, reader)
+	req, err := c.newRequest(ctx, runtimeScopeID, method, path, reader)
 	if err != nil {
 		return err
 	}
@@ -419,32 +486,41 @@ func (c *Client) doJSON(ctx context.Context, userID, method, path string, body [
 		return err
 	}
 	if res.StatusCode >= http.StatusBadRequest && len(raw) == 0 {
-		return fmt.Errorf("vendor request failed: status=%d", res.StatusCode)
+		return &APIError{Message: "vendor request failed", HTTPStatus: res.StatusCode}
 	}
 	if err := json.Unmarshal(raw, target); err != nil {
 		if res.StatusCode >= http.StatusBadRequest {
-			return fmt.Errorf("vendor request failed: status=%d body=%s", res.StatusCode, strings.TrimSpace(string(raw)))
+			return &APIError{Message: "vendor request failed", HTTPStatus: res.StatusCode}
 		}
 		return err
 	}
-	if target.Code != vendorCodeSuccess {
-		return &APIError{Code: target.Code, Message: target.Message}
+	if res.StatusCode >= http.StatusBadRequest || target.Code != vendorCodeSuccess {
+		return &APIError{Code: target.Code, Message: target.Message, HTTPStatus: res.StatusCode}
 	}
 	return nil
 }
 
-func (c *Client) newRequest(ctx context.Context, userID, method, path string, body io.Reader) (*http.Request, error) {
+func (c *Client) newRequest(ctx context.Context, runtimeScopeID, method, path string, body io.Reader) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
 	if err != nil {
 		return nil, err
 	}
-	userID = strings.TrimSpace(userID)
-	req.Header.Set("X-Tenant-Id", userID)
-	req.Header.Set("X-User-Id", userID)
 	if c.serviceToken != "" {
 		req.Header.Set("X-Service-Token", c.serviceToken)
 	}
+	if requestID := requestIDFromContext(ctx); requestID != "" {
+		req.Header.Set("X-Request-Id", requestID)
+	}
 	return req, nil
+}
+
+func isJSONContentType(contentType string) bool {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		mediaType = strings.TrimSpace(strings.Split(contentType, ";")[0])
+	}
+	mediaType = strings.ToLower(mediaType)
+	return mediaType == "application/json" || strings.HasSuffix(mediaType, "+json")
 }
 
 func decodeDatasetItems(raw json.RawMessage) ([]map[string]interface{}, error) {

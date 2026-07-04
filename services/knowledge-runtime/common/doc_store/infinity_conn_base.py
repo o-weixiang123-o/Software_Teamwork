@@ -496,8 +496,8 @@ class InfinityConnectionBase(DocStoreConnection):
         """
         Create a document metadata table.
 
-        Table name pattern: ragflow_doc_meta_{tenant_id}
-        - Per-tenant metadata table for storing document metadata fields
+        Table name pattern: ragflow_doc_meta_{scope_id}
+        - Per-scope metadata table for storing document metadata fields
         """
         table_name = index_name
         inf_conn = self.connPool.get_conn()

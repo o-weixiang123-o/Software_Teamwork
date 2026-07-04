@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-ENV_FILE="$ROOT_DIR/deploy/.env"
+CONFIG_LOADER="$ROOT_DIR/scripts/config/load-profile.sh"
 RUN_DIR="$ROOT_DIR/.local/run"
 LOG_DIR="$ROOT_DIR/.local/logs"
 CURRENT_STEP="initializing"
@@ -107,39 +107,40 @@ trap on_exit EXIT
 
 log_info "starting Go module checks and host services"
 
-if [[ ! -f "$ENV_FILE" ]]; then
-  log_error "missing deploy/.env; run: cp deploy/.env.example deploy/.env"
+if ! command -v setsid >/dev/null 2>&1 && ! command -v python3 >/dev/null 2>&1; then
+  log_error "setsid or python3 is required to manage host-run service process groups"
   exit 1
 fi
 
-if ! command -v setsid >/dev/null 2>&1; then
-  log_error "setsid is required to manage host-run service process groups"
-  exit 1
-fi
-
-# deploy/.env is copied by the user from deploy/.env.example. The script does
-# not own defaults; it only exposes that file to host child processes.
-set -a
+export SOFTWARE_TEAMWORK_ROOT="$ROOT_DIR"
 # shellcheck disable=SC1090
-. "$ENV_FILE"
-set +a
+. "$CONFIG_LOADER"
 
 if (( CHINA_MIRRORS )); then
   export GOPROXY="$CHINA_GOPROXY"
   export GOSUMDB="$CHINA_GOSUMDB"
-  log_info "using mainland China Go mirrors for this run (--china); deploy/.env is not modified"
+  log_info "using mainland China Go mirrors for this run (--china); profile files and .env.local are not modified"
 else
   export GOPROXY="${GOPROXY:-$OFFICIAL_GOPROXY}"
   export GOSUMDB="${GOSUMDB:-$OFFICIAL_GOSUMDB}"
   case "${GOPROXY:-}" in
     *goproxy.cn*)
-      log_warn "deploy/.env still contains mainland China Go mirror values while --china was not passed."
-      log_warn "continuing with deploy/.env as user configuration; use official GOPROXY/GOSUMDB for default mode or rerun with --china."
+      log_warn "local profile output contains mainland China Go mirror values while --china was not passed."
+      log_warn "continuing with user configuration; use official GOPROXY/GOSUMDB for default mode or rerun with --china."
       ;;
   esac
   if [[ "${GOSUMDB:-}" == "sum.golang.google.cn" ]]; then
-    log_warn "deploy/.env still contains mainland China GOSUMDB while --china was not passed."
+    log_warn "local profile output contains mainland China GOSUMDB while --china was not passed."
   fi
+fi
+
+if [[ -n "${AI_GATEWAY_LOCAL_CHAT_MODEL:-}" && ( -z "${MODEL_ID:-}" || "${MODEL_ID:-}" == "local-placeholder-chat" ) ]]; then
+  export MODEL_ID="$AI_GATEWAY_LOCAL_CHAT_MODEL"
+  log_info "profile kept MODEL_ID=local-placeholder-chat; using AI_GATEWAY_LOCAL_CHAT_MODEL for host-run QA: $MODEL_ID"
+fi
+if [[ -n "${AI_GATEWAY_LOCAL_CHAT_MODEL:-}" && ( -z "${DOCUMENT_AI_GATEWAY_MODEL:-}" || "${DOCUMENT_AI_GATEWAY_MODEL:-}" == "local-placeholder-chat" ) ]]; then
+  export DOCUMENT_AI_GATEWAY_MODEL="$AI_GATEWAY_LOCAL_CHAT_MODEL"
+  log_info "profile kept DOCUMENT_AI_GATEWAY_MODEL=local-placeholder-chat; using AI_GATEWAY_LOCAL_CHAT_MODEL for host-run Document: $DOCUMENT_AI_GATEWAY_MODEL"
 fi
 
 mkdir -p "$RUN_DIR" "$LOG_DIR"
@@ -195,18 +196,18 @@ check_go_module_settings() {
 
   if [[ -z "${GOPROXY:-}" && ( -z "$effective_goproxy" || "$effective_goproxy" == *"proxy.golang.org"* ) ]]; then
     export GOPROXY="$default_goproxy"
-    log_info "deploy/.env did not set GOPROXY; using selected default for this run: $GOPROXY"
+    log_info "profile did not set GOPROXY; using selected default for this run: $GOPROXY"
   elif [[ -z "${GOPROXY:-}" ]]; then
     export GOPROXY="$effective_goproxy"
-    log_info "deploy/.env did not set GOPROXY; using global go env value: $GOPROXY"
+    log_info "profile did not set GOPROXY; using global go env value: $GOPROXY"
   fi
 
   if [[ -z "${GOSUMDB:-}" && ( -z "$effective_gosumdb" || "$effective_gosumdb" == "sum.golang.org" ) ]]; then
     export GOSUMDB="$default_gosumdb"
-    log_info "deploy/.env did not set GOSUMDB; using selected default for this run: $GOSUMDB"
+    log_info "profile did not set GOSUMDB; using selected default for this run: $GOSUMDB"
   elif [[ -z "${GOSUMDB:-}" ]]; then
     export GOSUMDB="$effective_gosumdb"
-    log_info "deploy/.env did not set GOSUMDB; using global go env value: $GOSUMDB"
+    log_info "profile did not set GOSUMDB; using global go env value: $GOSUMDB"
   fi
 
   if [[ "$GOPROXY" == *"proxy.golang.org"* && "$CHINA_MIRRORS" == "0" ]]; then
@@ -255,15 +256,38 @@ run_go_mod_download() {
   (cd "$dir" && go mod download)
 }
 
+launch_process_group() {
+  local dir="$1"
+  shift
+  cd "$dir"
+  if command -v setsid >/dev/null 2>&1; then
+    exec setsid "$@"
+  fi
+  exec python3 -c 'import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' "$@"
+}
+
+service_group_alive() {
+  local pid_file="$1"
+  [[ -f "$pid_file" ]] || return 1
+  local pid
+  pid="$(cat "$pid_file")"
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+  kill -0 -- "-$pid" 2>/dev/null
+}
+
 start() {
   name="$1"
   dir="$2"
   shift 2
   CURRENT_STEP="starting $name"
 
+  if [[ "$name" == "knowledge" ]] && service_group_alive "$RUN_DIR/knowledge-adapter.pid"; then
+    echo "knowledge adapter already running from run-knowledge-parse-stack.sh; reusing it"
+    return
+  fi
+
   if [[ -f "$RUN_DIR/$name.pid" ]]; then
-    pid="$(cat "$RUN_DIR/$name.pid")"
-    if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 -- "-$pid" 2>/dev/null; then
+    if service_group_alive "$RUN_DIR/$name.pid"; then
       log_success "$name already running"
       return
     fi
@@ -271,7 +295,7 @@ start() {
   rm -f "$RUN_DIR/$name.pid"
 
   log_info "starting $name"
-  (cd "$dir" && exec setsid "$@") >"$LOG_DIR/$name.log" 2>&1 &
+  launch_process_group "$dir" "$@" >"$LOG_DIR/$name.log" 2>&1 &
   echo "$!" >"$RUN_DIR/$name.pid"
   STARTED_SERVICES+=("$name")
 }

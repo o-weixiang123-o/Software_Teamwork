@@ -42,7 +42,7 @@ def update_document_name_only(document_id, req_doc_name):
         if e and file:
             FileService.update_by_id(file.id, {"name": req_doc_name})
     # Add logic to update index - refer to rename method in document_app.py
-    tenant_id = DocumentService.get_tenant_id(document_id)
+    scope_id = DocumentService.get_scope_id(document_id)
     title_tks = rag_tokenizer.tokenize(req_doc_name)
     es_body = {
         "docnm_kwd": req_doc_name,
@@ -52,16 +52,16 @@ def update_document_name_only(document_id, req_doc_name):
     ok, doc = DocumentService.get_by_id(document_id)
     if not ok:
         return get_error_data_result(message=f"Not able to find document by id:{document_id}")
-    if settings.docStoreConn.index_exist(search.index_name(tenant_id), doc.kb_id):
+    if settings.docStoreConn.index_exist(search.index_name(scope_id), doc.kb_id):
         settings.docStoreConn.update(
             {"doc_id": document_id},
             es_body,
-            search.index_name(tenant_id),
+            search.index_name(scope_id),
             doc.kb_id,
         )
     return None
 
-def update_chunk_method(req, doc, tenant_id):
+def update_chunk_method(req, doc, scope_id):
     """
     Update chunk method only (without validation).
 
@@ -72,14 +72,14 @@ def update_chunk_method(req, doc, tenant_id):
     Args:
         req: The request dictionary containing chunk_method and parser_config.
         doc: The document model from the database.
-        tenant_id: The tenant ID for the document store.
+        scope_id: The runtime scope ID for the document store.
 
     Returns:
         None if successful, or an error result dictionary if failed.
     """
     if doc.parser_id.lower() != req["chunk_method"].lower():
         # if chunk method changed, reset document for reparse
-        result = reset_document_for_reparse(doc, tenant_id, parser_id=req["chunk_method"])
+        result = reset_document_for_reparse(doc, scope_id, parser_id=req["chunk_method"])
         if result:
             return result
     if not req.get("parser_config"):
@@ -88,7 +88,7 @@ def update_chunk_method(req, doc, tenant_id):
     return None
 
 
-def reset_document_for_reparse(doc, tenant_id, parser_id=None, pipeline_id=None):
+def reset_document_for_reparse(doc, scope_id, parser_id=None, pipeline_id=None):
     """
     Reset document for reparsing.
 
@@ -97,7 +97,7 @@ def reset_document_for_reparse(doc, tenant_id, parser_id=None, pipeline_id=None)
 
     Args:
         doc: The document model from the database.
-        tenant_id: The tenant ID for the document store.
+        scope_id: The runtime scope ID for the document store.
         parser_id: Optional new parser_id (chunk method). If None, keeps existing.
         pipeline_id: Optional new pipeline_id. If None, keeps existing.
 
@@ -135,11 +135,11 @@ def reset_document_for_reparse(doc, tenant_id, parser_id=None, pipeline_id=None)
             return get_error_data_result(message="Document not found!")
         if not e:
             return get_error_data_result(message="Document not found!")
-        settings.docStoreConn.delete({"doc_id": doc.id}, search.index_name(tenant_id), doc.kb_id)
+        settings.docStoreConn.delete({"doc_id": doc.id}, search.index_name(scope_id), doc.kb_id)
 
     # Delete chunk images
     try:
-        DocumentService.delete_chunk_images(doc, tenant_id)
+        DocumentService.delete_chunk_images(doc, scope_id)
     except Exception as e:
         logging.error(f"error when delete chunk images:{e}")
 
@@ -165,7 +165,7 @@ def update_document_status_only(status:int, doc, kb):
         try:
             if not DocumentService.update_by_id(doc.id, {"status": str(status)}):
                 return get_error_data_result(message="Database error (Document update)!")
-            settings.docStoreConn.update({"doc_id": doc.id}, {"available_int": status}, search.index_name(kb.tenant_id), doc.kb_id)
+            settings.docStoreConn.update({"doc_id": doc.id}, {"available_int": status}, search.index_name(kb.scope_id), doc.kb_id)
         except Exception as e:
             return server_error_response(e)
     return None

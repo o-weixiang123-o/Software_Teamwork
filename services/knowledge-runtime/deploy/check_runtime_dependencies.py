@@ -13,6 +13,39 @@ from pathlib import Path
 
 
 LOCAL_KEYLESS_FACTORIES = {"Builtin", "LocalAI", "Ollama", "VLLM"}
+AI_GATEWAY_FACTORY = "AI_GATEWAY"
+
+
+def ai_gateway_service_token(env: Mapping[str, str]) -> str:
+    for key in (
+        "KNOWLEDGE_RUNTIME_AI_GATEWAY_SERVICE_TOKEN",
+        "AI_GATEWAY_SERVICE_TOKEN",
+        "INTERNAL_SERVICE_TOKEN",
+    ):
+        value = env.get(key, "").strip()
+        if value:
+            return value
+    return ""
+
+
+def validate_env_model_credentials(env: Mapping[str, str], factory: str, model: str, label: str) -> list[str]:
+    if not factory or not model:
+        return []
+    if factory == AI_GATEWAY_FACTORY:
+        if ai_gateway_service_token(env):
+            return []
+        return [
+            f"KNOWLEDGE_RUNTIME_{label}_FACTORY=AI_GATEWAY requires "
+            "KNOWLEDGE_RUNTIME_AI_GATEWAY_SERVICE_TOKEN, AI_GATEWAY_SERVICE_TOKEN, or INTERNAL_SERVICE_TOKEN."
+        ]
+    if factory in LOCAL_KEYLESS_FACTORIES:
+        return []
+    if env.get("KNOWLEDGE_RUNTIME_MODEL_API_KEY", "").strip() or env.get("KNOWLEDGE_RUNTIME_ALLOW_EMPTY_MODEL_API_KEY") == "1":
+        return []
+    return [
+        f"KNOWLEDGE_RUNTIME_{label}_FACTORY/MODEL are set, but KNOWLEDGE_RUNTIME_MODEL_API_KEY is empty. "
+        "Set a real provider key or KNOWLEDGE_RUNTIME_ALLOW_EMPTY_MODEL_API_KEY=1 for a trusted local provider."
+    ]
 
 
 def read_simple_yaml(path: Path) -> dict:
@@ -64,6 +97,30 @@ def check_tcp_url(url: str, timeout: float = 3.0) -> None:
         return
 
 
+def check_nltk_data(env: Mapping[str, str]) -> list[str]:
+    if env.get("KNOWLEDGE_RUNTIME_REQUIRE_NLTK_DATA") != "1":
+        return []
+    roots = [Path(item) for item in env.get("NLTK_DATA", "").split(os.pathsep) if item.strip()]
+    if not roots:
+        return ["Worker startup requires NLTK_DATA to point at provisioned nltk_data."]
+
+    missing: list[str] = []
+    for name, relative in {
+        "punkt_tab": Path("tokenizers") / "punkt_tab",
+        "wordnet": Path("corpora") / "wordnet",
+    }.items():
+        if not any((root / relative).exists() or (root / relative.parent / f"{relative.name}.zip").exists() for root in roots):
+            missing.append(name)
+    if missing:
+        joined_roots = ", ".join(str(root) for root in roots)
+        return [
+            "Worker startup requires NLTK data "
+            f"{', '.join(missing)} under NLTK_DATA ({joined_roots}). Run "
+            "services/knowledge-runtime/ragflow_deps/download_deps.py --china or set NLTK_DATA to a provisioned directory."
+        ]
+    return []
+
+
 def validate(
     config_path: Path,
     environ: Mapping[str, str] | None = None,
@@ -75,6 +132,7 @@ def validate(
     tcp_checker = tcp_checker or check_tcp_url
     config = read_simple_yaml(config_path)
     issues: list[str] = []
+    issues.extend(check_nltk_data(env))
 
     doc_engine = env.get("DOC_ENGINE", "elasticsearch").strip().lower()
     if doc_engine == "elasticsearch":
@@ -93,20 +151,19 @@ def validate(
                     "to another supported reachable engine."
                 )
     elif doc_engine not in {"opensearch", "infinity", "oceanbase", "seekdb"}:
-        issues.append(f"DOC_ENGINE={doc_engine!r} is not supported by the vendored RAGFlow runtime.")
+        issues.append(f"DOC_ENGINE={doc_engine!r} is not supported by Knowledge runtime.")
 
     env_embedding_model = env.get("KNOWLEDGE_RUNTIME_EMBEDDING_MODEL", "").strip()
     env_embedding_factory = env.get("KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY", "").strip()
+    env_rerank_model = env.get("KNOWLEDGE_RUNTIME_RERANK_MODEL", "").strip()
+    env_rerank_factory = env.get("KNOWLEDGE_RUNTIME_RERANK_FACTORY", "").strip()
+    env_model_credentials_issues = []
+    env_model_credentials_issues.extend(validate_env_model_credentials(env, env_embedding_factory, env_embedding_model, "EMBEDDING"))
+    env_model_credentials_issues.extend(validate_env_model_credentials(env, env_rerank_factory, env_rerank_model, "RERANK"))
+    if env_model_credentials_issues:
+        issues.extend(env_model_credentials_issues)
+        return issues
     if env_embedding_model and env_embedding_factory:
-        if (
-            env_embedding_factory not in LOCAL_KEYLESS_FACTORIES
-            and not env.get("KNOWLEDGE_RUNTIME_MODEL_API_KEY", "").strip()
-            and env.get("KNOWLEDGE_RUNTIME_ALLOW_EMPTY_MODEL_API_KEY") != "1"
-        ):
-            issues.append(
-                "KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY/MODEL are set, but KNOWLEDGE_RUNTIME_MODEL_API_KEY is empty. "
-                "Set a real provider key or KNOWLEDGE_RUNTIME_ALLOW_EMPTY_MODEL_API_KEY=1 for a trusted local provider."
-            )
         return issues
 
     embedding = config.get("user_default_llm", {}).get("default_models", {}).get("embedding_model", {})
@@ -125,7 +182,7 @@ def validate(
                 "Default Builtin embedding is not usable in the current host-run setup. "
                 "Root Compose no longer starts a TEI/Builtin embedding service; set "
                 "KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY, KNOWLEDGE_RUNTIME_EMBEDDING_MODEL, "
-                "KNOWLEDGE_RUNTIME_EMBEDDING_BASE_URL, and KNOWLEDGE_RUNTIME_MODEL_API_KEY before enabling ingestion."
+                "KNOWLEDGE_RUNTIME_EMBEDDING_BASE_URL, and the AI Gateway service token before enabling ingestion."
             )
     elif not cfg_model or not cfg_factory:
         issues.append(

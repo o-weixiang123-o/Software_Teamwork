@@ -45,14 +45,20 @@ func main() {
 		logger.Error("storage initialization failed", "service", "file", "error", err)
 		os.Exit(1)
 	}
-	documentService := service.New(repo, objectStore, service.WithStorageBackend(cfg.StorageBackend))
+	documentService := service.New(repo, objectStore,
+		service.WithStorageBackend(cfg.StorageBackend),
+		service.WithAllowedContentTypes(cfg.AllowedContentTypes),
+	)
 	handler := filehttp.NewServer(documentService, filehttp.Config{
-		MaxUploadBytes:   cfg.MaxUploadBytes,
-		Logger:           logger,
-		ServiceToken:     cfg.InternalServiceToken,
-		MetadataBackend:  metadataBackend,
-		StorageBackend:   cfg.StorageBackend,
-		ReadinessChecker: readinessChecker,
+		MaxUploadBytes:       cfg.MaxUploadBytes,
+		Logger:               logger,
+		ServiceToken:         cfg.InternalServiceToken,
+		MetadataBackend:      metadataBackend,
+		StorageBackend:       cfg.StorageBackend,
+		AllowedCreateCallers: cfg.AllowedCreateCallers,
+		AllowedReadCallers:   cfg.AllowedReadCallers,
+		AllowedDeleteCallers: cfg.AllowedDeleteCallers,
+		ReadinessChecker:     readinessChecker,
 	})
 
 	server := &http.Server{

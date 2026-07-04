@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 16
-- **Last Active**: 2026-07-03
+- **Total Sessions**: 24
+- **Last Active**: 2026-07-04
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~548 | Active |
+| `journal-1.md` | ~850 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,14 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 24 | 2026-07-04 | AI Gateway unified model provider exit | `1674ccb3`, `4f214828` | `L1nggTeam/refactor/ai-gateway-unified-exit` |
+| 23 | 2026-07-04 | Clean config entrypoint docs | `e22838d6` | `L1nggTeam/feat/ragflow-runtime-vendor` |
+| 22 | 2026-07-04 | Archive AI Gateway runtime tasks | `9dc4d945`, `24c35efa` | `L1nggTeam/feat/ragflow-runtime-vendor` |
+| 21 | 2026-07-04 | Harden File service production baseline | `7f61ca1e`, `c8f4ca1f` | `L1nggTeam/feat/file-service-production-hardening` |
+| 20 | 2026-07-04 | Config profile layer implementation | `3e4ff3c9` | `L1nggTeam/feat/ragflow-runtime-vendor` |
+| 19 | 2026-07-04 | Knowledge runtime on-demand worker | `922a771b` | `L1nggTeam/fix/bugfix` |
+| 18 | 2026-07-03 | Fix Knowledge runtime review edge cases | `84394519` | `L1nggTeam/feat/ragflow-runtime-vendor` |
+| 17 | 2026-07-03 | Fix Knowledge compatibility debt | `6e9138df`, `a18ee9f3` | `L1nggTeam/feat/ragflow-runtime-vendor` |
 | 16 | 2026-07-03 | PR #440 review fixes and upstream sync | `4ae208ee`, `9e8ae239`, `cf6fcf54`, `34d9af5c`, `00132413`, `95c63566`, `48613bb6`, `32daa6ef`, `f3f01f9b`, `1690a6af` | `L1nggTeam/feat/ragflow-runtime-vendor` |
 | 15 | 2026-06-29 | Knowledge document upload ingestion job | `2a6774c` | `L1nggTeam/feat/knowledge-upload-ingestion-job` |
 | 14 | 2026-06-29 | Label service documentation paths | `f3839e0` | `L1nggTeam/chore/github-auto-labels` |

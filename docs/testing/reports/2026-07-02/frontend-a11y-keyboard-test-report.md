@@ -47,13 +47,13 @@
 ### 不测范围
 
 - 不启动真实 Gateway/Auth/QA/Knowledge/Document/File 服务。
-- 不验证真实数据库、Redis、对象存储、Qdrant、Parser 或 AI provider。
+- 不验证真实数据库、Redis、对象存储、legacy vector index、Parser 或 AI provider。
 - 不做完整 WCAG 审计、视觉像素验收或真实后端端到端业务链路。
 
 ### 环境与前置条件
 
 - 依赖服务：无真实后端依赖；E2E 使用 Playwright route mock。
-- 数据库 / Redis / MinIO / Qdrant：未启动。
+- 数据库 / Redis / MinIO / legacy vector index：未启动。
 - 环境变量：使用前端测试默认 `VITE_API_BASE_URL=http://127.0.0.1/api/v1`。
 - 测试账号或 seed：E2E 内 mock 用户 `operator`；无真实账号。
 - 外部 provider 或模型：未使用。

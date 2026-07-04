@@ -46,7 +46,7 @@ class EncryptedStorageWrapper:
 
         logging.info(f"EncryptedStorageWrapper initialized with algorithm: {algorithm}")
 
-    def put(self, bucket, fnm, binary, tenant_id=None):
+    def put(self, bucket, fnm, binary, scope_id=None):
         """
         Encrypt and store data
         
@@ -54,37 +54,37 @@ class EncryptedStorageWrapper:
             bucket: Bucket name
             fnm: File name
             binary: Original binary data
-            tenant_id: Tenant ID (optional)
+            scope_id: runtime scope ID (optional)
             
         Returns:
             Storage result
         """
         if not self.encryption_enabled:
-            return self.storage_impl.put(bucket, fnm, binary, tenant_id)
+            return self.storage_impl.put(bucket, fnm, binary, scope_id)
 
         try:
             encrypted_binary = self.crypto.encrypt(binary)
 
-            return self.storage_impl.put(bucket, fnm, encrypted_binary, tenant_id)
+            return self.storage_impl.put(bucket, fnm, encrypted_binary, scope_id)
         except Exception as e:
             logging.exception(f"Failed to encrypt and store data: {bucket}/{fnm}, error: {str(e)}")
             raise
 
-    def get(self, bucket, fnm, tenant_id=None):
+    def get(self, bucket, fnm, scope_id=None):
         """
         Retrieve and decrypt data
         
         Args:
             bucket: Bucket name
             fnm: File name
-            tenant_id: Tenant ID (optional)
+            scope_id: runtime scope ID (optional)
             
         Returns:
             Decrypted binary data
         """
         try:
             # Get encrypted data
-            encrypted_binary = self.storage_impl.get(bucket, fnm, tenant_id)
+            encrypted_binary = self.storage_impl.get(bucket, fnm, scope_id)
 
             if encrypted_binary is None:
                 return None
@@ -100,33 +100,33 @@ class EncryptedStorageWrapper:
             logging.exception(f"Failed to get and decrypt data: {bucket}/{fnm}, error: {str(e)}")
             raise
 
-    def rm(self, bucket, fnm, tenant_id=None):
+    def rm(self, bucket, fnm, scope_id=None):
         """
         Delete data (same as original storage implementation, no decryption needed)
         
         Args:
             bucket: Bucket name
             fnm: File name
-            tenant_id: Tenant ID (optional)
+            scope_id: runtime scope ID (optional)
             
         Returns:
             Deletion result
         """
-        return self.storage_impl.rm(bucket, fnm, tenant_id)
+        return self.storage_impl.rm(bucket, fnm, scope_id)
 
-    def obj_exist(self, bucket, fnm, tenant_id=None):
+    def obj_exist(self, bucket, fnm, scope_id=None):
         """
         Check if object exists (same as original storage implementation, no decryption needed)
         
         Args:
             bucket: Bucket name
             fnm: File name
-            tenant_id: Tenant ID (optional)
+            scope_id: runtime scope ID (optional)
             
         Returns:
             Whether the object exists
         """
-        return self.storage_impl.obj_exist(bucket, fnm, tenant_id)
+        return self.storage_impl.obj_exist(bucket, fnm, scope_id)
 
     def health(self):
         """
@@ -151,7 +151,7 @@ class EncryptedStorageWrapper:
             return self.storage_impl.bucket_exists(bucket)
         return False
 
-    def get_presigned_url(self, bucket, fnm, expires, tenant_id=None):
+    def get_presigned_url(self, bucket, fnm, expires, scope_id=None):
         """
         Get presigned URL (if the original storage implementation has this method)
         
@@ -159,29 +159,29 @@ class EncryptedStorageWrapper:
             bucket: Bucket name
             fnm: File name
             expires: Expiration time
-            tenant_id: Tenant ID (optional)
+            scope_id: runtime scope ID (optional)
             
         Returns:
             Presigned URL
         """
         if hasattr(self.storage_impl, "get_presigned_url"):
-            return self.storage_impl.get_presigned_url(bucket, fnm, expires, tenant_id)
+            return self.storage_impl.get_presigned_url(bucket, fnm, expires, scope_id)
         return None
 
-    def scan(self, bucket, fnm, tenant_id=None):
+    def scan(self, bucket, fnm, scope_id=None):
         """
         Scan objects (if the original storage implementation has this method)
         
         Args:
             bucket: Bucket name
             fnm: File name prefix
-            tenant_id: Tenant ID (optional)
+            scope_id: runtime scope ID (optional)
             
         Returns:
             Scan results
         """
         if hasattr(self.storage_impl, "scan"):
-            return self.storage_impl.scan(bucket, fnm, tenant_id)
+            return self.storage_impl.scan(bucket, fnm, scope_id)
         return None
 
     def copy(self, src_bucket, src_path, dest_bucket, dest_path):

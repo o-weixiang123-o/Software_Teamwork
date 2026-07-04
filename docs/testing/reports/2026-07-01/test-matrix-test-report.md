@@ -55,7 +55,7 @@
 ### 环境与前置条件
 
 - 依赖服务：无。
-- 数据库 / Redis / MinIO / Qdrant：未启动，不需要。
+- 数据库 / Redis / MinIO / legacy vector index：未启动，不需要。
 - 环境变量：无。
 - 测试账号或 seed：无。
 - 外部 provider 或模型：无。
@@ -91,7 +91,7 @@
 | `bun run --cwd apps/web check` / `build` / `test:unit` / `test:e2e` | 本次未修改前端源码或前端依赖。 | 无。 | 不覆盖前端运行时行为；由 #401 和相关前端 PR 验证。 | #401 |
 | 后端服务 `go test ./...` / `go build ./cmd/server` | 本次未修改后端服务代码、OpenAPI、migration 或服务配置。 | 无。 | 不覆盖服务运行时行为；由各服务专项 issue 验证。 | #375 #388 #389 #386 #379 #397 #398 #400 #402 |
 | Docker/Compose config 或 Docker build | 本次未修改 Dockerfile、Compose、镜像源、deploy 配置或 Docker runbook。 | Docker daemon 未用于本轮验证。 | 不覆盖部署环境；由 #306 #399 #403 验证。 | #306 #399 #403 |
-| env-gated smoke / 真实 provider smoke / 人工验收 | 本任务只交付测试治理文档，不启动跨服务环境或外部 provider。 | PostgreSQL、Redis、Qdrant、MinIO、Parser、真实 provider key、人工演示环境。 | 不证明跨服务业务链路；矩阵已把这些验证分配给 #304 #125 #378 #397 到 #403。 | #304 #125 #378 #397 #398 #399 #400 #401 #402 #403 |
+| env-gated smoke / 真实 provider smoke / 人工验收 | 本任务只交付测试治理文档，不启动跨服务环境或外部 provider。 | PostgreSQL、Redis、legacy vector index、MinIO、Parser、真实 provider key、人工演示环境。 | 不证明跨服务业务链路；矩阵已把这些验证分配给 #304 #125 #378 #397 到 #403。 | #304 #125 #378 #397 #398 #399 #400 #401 #402 #403 |
 
 ## 6. 缺陷与处理记录
 

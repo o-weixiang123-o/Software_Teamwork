@@ -1,8 +1,11 @@
 import importlib
+import sys
 import tempfile
 import textwrap
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 
 def load_verifier():
@@ -28,7 +31,7 @@ class LocalSeedContractTests(unittest.TestCase):
             root = Path(directory)
             (root / "deploy" / "seeds").mkdir(parents=True)
             (root / "docs" / "runbooks").mkdir(parents=True)
-            (root / "deploy" / ".env.example").write_text(
+            (root / ".env.example").write_text(
                 "LOCAL_ADMIN_USERNAME=admin\n"
                 "LOCAL_ADMIN_PASSWORD=LocalDemoAdmin#12345\n"
                 "LOCAL_SUPER_ADMIN_USERNAME=superadmin\n"
@@ -38,12 +41,16 @@ class LocalSeedContractTests(unittest.TestCase):
                 "GOSUMDB=sum.golang.org\n"
                 "# POSTGRES_IMAGE=docker.m.daocloud.io/library/postgres:16-alpine\n"
                 "# REDIS_IMAGE=docker.m.daocloud.io/library/redis:7-alpine\n"
-                "# QDRANT_IMAGE=docker.m.daocloud.io/qdrant/qdrant:v1.18.2\n"
                 "# MINIO_IMAGE=docker.m.daocloud.io/minio/minio:RELEASE.2025-09-07T16-13-09Z\n"
                 "# MINIO_MC_IMAGE=docker.m.daocloud.io/minio/mc:RELEASE.2025-08-13T08-35-41Z\n"
                 "VENDOR_RUNTIME_URL=http://127.0.0.1:9380\n"
-                "KNOWLEDGE_AUTO_START_INGESTION=false\n"
-                "# DOC_ENGINE=elasticsearch\n",
+                "VENDOR_RUNTIME_SERVICE_TOKEN=local-dev-runtime-service-token-change-me\n"
+                "KNOWLEDGE_RUNTIME_SERVICE_TOKEN=local-dev-runtime-service-token-change-me\n"
+                "KNOWLEDGE_RUNTIME_READINESS_MODE=query\n"
+                "KNOWLEDGE_AUTO_START_INGESTION=true\n"
+                "KNOWLEDGE_RUNTIME_WORKER_IDLE_SHUTDOWN_SECONDS=300\n"
+                "KNOWLEDGE_RUNTIME_WORKER_IDLE_CHECK_SECONDS=15\n"
+                "DOC_ENGINE=elasticsearch\n",
                 encoding="utf-8",
             )
             (root / ".gitignore").write_text("/.local/\n*.pid\n", encoding="utf-8")
@@ -68,15 +75,18 @@ class LocalSeedContractTests(unittest.TestCase):
             )
             (root / "deploy" / "seeds" / "004-qa-default-knowledge-base.sql").write_text(
                 "\\connect qa_system\n"
-                "INSERT INTO qa_config_knowledge_bases (config_id, external_kb_id)\n"
-                "SELECT id, 'kb_local_demo' FROM qa_config_versions\n"
-                "ON CONFLICT (config_id, external_kb_id) DO UPDATE;\n"
-                "Local Demo Knowledge Base\n",
+                "keep QA's default knowledge-base list empty\n"
+                "defaultKnowledgeBaseIds\n"
+                "search all indexed\n"
+                "DELETE FROM qa_config_knowledge_bases WHERE external_kb_id = 'kb_local_demo';\n",
                 encoding="utf-8",
             )
             (root / "deploy" / "README.md").write_text(
-                "deploy/.env.example 是唯一默认配置来源\n"
-                "cp deploy/.env.example deploy/.env\n"
+                "configuration authority\n"
+                "config/base.yaml\n"
+                "config/dev.yaml\n"
+                ".env.local\n"
+                "cp .env.example .env.local\n"
                 "./scripts/local/dev-up.sh\n"
                 "./scripts/local/run-backend.sh\n"
                 "LOCAL_ADMIN_USERNAME=admin\n"
@@ -85,15 +95,28 @@ class LocalSeedContractTests(unittest.TestCase):
                 "LOCAL_SUPER_ADMIN_PASSWORD=LocalDemoAdmin#12345\n"
                 "admin / LocalDemoAdmin#12345\n"
                 "superadmin / LocalDemoAdmin#12345\n"
-                "Go modules 下载默认读取 `deploy/.env`\n"
-                "源选择采用新策略\n"
-                "旧的大陆优先默认镜像契约已废弃\n"
+                "Go modules 下载默认读取 profile\n"
+                "源选择采用官方默认源\n"
+                "active 第三方镜像值\n"
                 "默认使用官方源\n"
                 "--china\n"
                 "大陆镜像\n"
                 "GOPROXY=https://proxy.golang.org,direct\n"
                 "GOSUMDB=sum.golang.org\n"
                 "cleanup with down -v\n",
+                encoding="utf-8",
+            )
+            (root / "config").mkdir(parents=True)
+            (root / "config" / "README.md").write_text(
+                "configuration authority\nconfig/base.yaml\nconfig/dev.yaml\n.env.local\n",
+                encoding="utf-8",
+            )
+            (root / "config" / "base.yaml").write_text(
+                "COMPOSE_PROJECT_NAME:\n"
+                "POSTGRES_IMAGE:\nvalue: postgres:16-alpine\n"
+                "REDIS_IMAGE:\nvalue: redis:7-alpine\n"
+                "MINIO_IMAGE:\nvalue: minio/minio:RELEASE.2025-09-07T16-13-09Z\n"
+                "MINIO_MC_IMAGE:\nvalue: minio/mc:RELEASE.2025-08-13T08-35-41Z\n",
                 encoding="utf-8",
             )
             (root / "scripts" / "local").mkdir(parents=True)
@@ -108,7 +131,7 @@ class LocalSeedContractTests(unittest.TestCase):
                 "Check Docker status:\n"
                 "checking local tool dependencies\n"
                 "missing required local command(s):\n"
-                "Install Docker, Go, psql, uv, and curl\n"
+                "Install Docker, Go, psql, and uv\n"
                 "Install the missing host tool(s)\n"
                 "Mainland China network: rerun ./scripts/local/dev-up.sh --china.\n"
                 "preparing Knowledge runtime dependencies with China mirrors\n"
@@ -123,21 +146,21 @@ class LocalSeedContractTests(unittest.TestCase):
                 "docker.m.daocloud.io/library/postgres:16-alpine\n"
                 "goose@v3.27.1\n"
                 "psql\n"
-                "INFRA_SERVICES=(postgres redis qdrant minio)\n"
+                "INFRA_SERVICES=(postgres redis minio elasticsearch)\n"
+                "PULL_SERVICES=(postgres redis minio minio-init elasticsearch)\n"
                 "initializing MinIO buckets\n"
                 "--exit-code-from minio-init\n"
-                "docker compose -f deploy/docker-compose.yml --env-file deploy/.env logs minio-init\n"
+                "CONFIG_COMPOSE_ENV_FILE\n"
                 "001-local-demo-seed.sql\n"
                 "002-ai-gateway-model-profiles.sql\n"
                 "003-qa-document-mcp.sql\n"
                 "004-qa-default-knowledge-base.sql\n"
                 "--wait\n"
-                "--wait-timeout\n"
-                "initialize_qdrant_collection\n"
-                "QDRANT_URL\n"
-                "QDRANT_COLLECTION\n"
-                "EMBEDDING_DIMENSION\n"
-                "Cosine\n",
+                "--wait-timeout\n",
+                encoding="utf-8",
+            )
+            (root / "scripts" / "local" / "render_ai_gateway_local_seed.go").write_text(
+                "package main\n",
                 encoding="utf-8",
             )
             (root / "scripts" / "local" / "run-backend.sh").write_text(
@@ -161,6 +184,64 @@ class LocalSeedContractTests(unittest.TestCase):
                 "auth\nfile\nknowledge\n./cmd/adapter\ngo run \"$go_target\"\nai-gateway\nqa\ndocument\ngateway\n",
                 encoding="utf-8",
             )
+            (root / "scripts" / "local" / "run-knowledge-runtime-api.sh").write_text(
+                "knowledge runtime API startup: starting runtime API only\n"
+                "setsid or python3 is required\n"
+                "os.setsid()\n"
+                "--china\n"
+                "HF_ENDPOINT=https://hf-mirror.com\n"
+                "uv sync --python 3.13 --frozen --no-default-groups\n"
+                "uv run --no-sync --no-default-groups\n"
+                'start_service "knowledge-runtime-api"\n'
+                "This API-only helper does not start knowledge-runtime-worker.\n"
+                "./scripts/local/run-knowledge-parse-stack.sh\n",
+                encoding="utf-8",
+            )
+            (root / "scripts" / "local" / "run-knowledge-parse-stack.sh").write_text(
+                "knowledge parse stack startup: starting Knowledge parse stack\n"
+                "setsid or python3 is required\n"
+                "os.setsid()\n"
+                "--china\n"
+                "default root Compose infrastructure\n"
+                "KNOWLEDGE_RUNTIME_ES_URL\n"
+                "HF_ENDPOINT=https://hf-mirror.com\n"
+                "uv sync --python 3.13 --frozen --group worker\n"
+                'start_service "knowledge-runtime-worker"\n'
+                "For local Elasticsearch, rerun ./scripts/local/dev-up.sh\n"
+                ".local/knowledge-runtime/service_conf.yaml\n"
+                "KNOWLEDGE_RUNTIME_MODEL_API_KEY=<your SiliconFlow key>\n"
+                "KNOWLEDGE_VENDOR_EMBEDDING_ID=BAAI/bge-m3@default@SILICONFLOW\n"
+                "KNOWLEDGE_AUTO_START_INGESTION=true\n",
+                encoding="utf-8",
+            )
+            (root / "scripts" / "local" / "start-knowledge-runtime-worker.sh").write_text(
+                "knowledge runtime worker startup: starting worker only\n"
+                "setsid or python3 is required\n"
+                "os.setsid()\n"
+                "--china\n"
+                "HF_ENDPOINT=https://hf-mirror.com\n"
+                "uv sync --python 3.13 --frozen --group worker\n"
+                "knowledge-runtime-worker\n"
+                "waiting for knowledge-runtime-worker heartbeat\n"
+                "task_executor_heartbeats\n"
+                "KNOWLEDGE_RUNTIME_WORKER_IDLE_SHUTDOWN_SECONDS\n"
+                "knowledge-runtime-worker idle watcher started\n"
+                "watch-knowledge-runtime-worker-idle.sh\n"
+                "This worker-only helper does not start knowledge-runtime-api or knowledge adapter.\n",
+                encoding="utf-8",
+            )
+            (root / "scripts" / "local" / "watch-knowledge-runtime-worker-idle.sh").write_text(
+                "knowledge-runtime-worker idle watcher started\n"
+                "KNOWLEDGE_RUNTIME_WORKER_IDLE_SHUTDOWN_SECONDS\n"
+                "worker_queue_idle\n"
+                "pending\n"
+                "lag\n"
+                "current\n"
+                "stop_worker_group\n"
+                "cleanup_worker_heartbeat\n"
+                "valkey.Valkey\n",
+                encoding="utf-8",
+            )
             (root / "scripts" / "local" / "stop-backend.sh").write_text(
                 "[stop]\n"
                 "[ok]\n"
@@ -173,6 +254,11 @@ class LocalSeedContractTests(unittest.TestCase):
                 'kill -0 -- "-$pid"\n'
                 'kill -TERM -- "-$pid"\n'
                 'kill -KILL -- "-$pid"\n',
+                encoding="utf-8",
+            )
+            (root / "services" / "ai-gateway" / "cmd" / "local-seed").mkdir(parents=True)
+            (root / "services" / "ai-gateway" / "cmd" / "local-seed" / "main.go").write_text(
+                "package main\n",
                 encoding="utf-8",
             )
             (root / "docs" / "runbooks" / "local-integration.md").write_text(
@@ -194,12 +280,20 @@ class LocalSeedContractTests(unittest.TestCase):
             deploy_readme="唯一默认配置来源\n",
             runbook="",
             env_example="VENDOR_RUNTIME_URL=http://127.0.0.1:9380\n",
+            config_readme="",
+            config_base="",
             dev_up_script="",
+            ai_gateway_local_seed_renderer="",
             run_backend_script="",
+            run_knowledge_runtime_api_script="",
+            start_knowledge_runtime_worker_script="",
+            watch_knowledge_runtime_worker_idle_script="",
+            run_knowledge_parse_stack_script="",
             stop_backend_script="",
+            ai_gateway_local_seed_main="",
         )
 
-        self.assertIssueContains(issues, "# DOC_ENGINE=elasticsearch")
+        self.assertIssueContains(issues, "DOC_ENGINE:")
         self.assertIssueContains(issues, "./cmd/adapter")
 
     def test_verifier_reports_missing_local_runtime_gitignore(self) -> None:

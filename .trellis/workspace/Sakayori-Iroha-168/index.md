@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 10
+- **Total Sessions**: 11
 - **Last Active**: 2026-07-03
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~387 | Active |
+| `journal-1.md` | ~420 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 11 | 2026-07-03 | Fix PR 536 Docker policy | `a5b4402a` | `pr-536` |
 | 10 | 2026-07-03 | Refresh docs after recent PRs | `e64983a8` | `SakayoriTeam/docs/update-docs` |
 | 9 | 2026-07-02 | Refresh architecture docs | `2ebb6935` | `SakayoriTeam/docs/update-docs` |
 | 8 | 2026-07-02 | Gateway readyz semantics | `7ee5551e`, `b4a560a1` | `Special/docs/gateway-readyz-semantics` |

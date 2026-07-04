@@ -45,12 +45,12 @@ def resolution_checkpoint_key(entity_type: str, pairs: list[tuple[str, str]]) ->
     return stable_checkpoint_key("resolution", entity_type, normalized_pairs)
 
 
-def _checkpoint_index_key(tenant_id: str, kb_id: str, checkpoint_type: str) -> str:
-    return f"graphrag:checkpoint:{tenant_id}:{kb_id}:{checkpoint_type}:keys"
+def _checkpoint_index_key(scope_id: str, kb_id: str, checkpoint_type: str) -> str:
+    return f"graphrag:checkpoint:{scope_id}:{kb_id}:{checkpoint_type}:keys"
 
 
-def _checkpoint_data_key(tenant_id: str, kb_id: str, checkpoint_type: str, checkpoint_key: str) -> str:
-    return f"graphrag:checkpoint:{tenant_id}:{kb_id}:{checkpoint_type}:{checkpoint_key}"
+def _checkpoint_data_key(scope_id: str, kb_id: str, checkpoint_type: str, checkpoint_key: str) -> str:
+    return f"graphrag:checkpoint:{scope_id}:{kb_id}:{checkpoint_type}:{checkpoint_key}"
 
 
 def _decode_redis_value(value: Any) -> Any:
@@ -70,9 +70,9 @@ def _iter_checkpoint_keys(index_key: str, page_size: int | None):
     return redis_client.sscan_iter(index_key, count=_checkpoint_page_size(page_size))
 
 
-def _load_checkpoints_sync(tenant_id: str, kb_id: str, checkpoint_type: str, page_size: int | None) -> dict[str, Any]:
+def _load_checkpoints_sync(scope_id: str, kb_id: str, checkpoint_type: str, page_size: int | None) -> dict[str, Any]:
     checkpoints: dict[str, Any] = {}
-    index_key = _checkpoint_index_key(tenant_id, kb_id, checkpoint_type)
+    index_key = _checkpoint_index_key(scope_id, kb_id, checkpoint_type)
     try:
         checkpoint_keys = _iter_checkpoint_keys(index_key, page_size)
     except Exception:
@@ -82,7 +82,7 @@ def _load_checkpoints_sync(tenant_id: str, kb_id: str, checkpoint_type: str, pag
     for checkpoint_key in checkpoint_keys:
         checkpoint_key = _decode_redis_value(checkpoint_key)
         try:
-            value = REDIS_CONN.get(_checkpoint_data_key(tenant_id, kb_id, checkpoint_type, checkpoint_key))
+            value = REDIS_CONN.get(_checkpoint_data_key(scope_id, kb_id, checkpoint_type, checkpoint_key))
             value = _decode_redis_value(value)
             if not value:
                 continue
@@ -93,13 +93,13 @@ def _load_checkpoints_sync(tenant_id: str, kb_id: str, checkpoint_type: str, pag
     return checkpoints
 
 
-async def load_checkpoints(tenant_id: str, kb_id: str, checkpoint_type: str, *, page_size: int | None = None) -> dict[str, Any]:
-    return await thread_pool_exec(_load_checkpoints_sync, tenant_id, kb_id, checkpoint_type, page_size)
+async def load_checkpoints(scope_id: str, kb_id: str, checkpoint_type: str, *, page_size: int | None = None) -> dict[str, Any]:
+    return await thread_pool_exec(_load_checkpoints_sync, scope_id, kb_id, checkpoint_type, page_size)
 
 
-async def save_checkpoint(tenant_id: str, kb_id: str, checkpoint_type: str, checkpoint_key: str, payload: Any) -> bool:
-    index_key = _checkpoint_index_key(tenant_id, kb_id, checkpoint_type)
-    data_key = _checkpoint_data_key(tenant_id, kb_id, checkpoint_type, checkpoint_key)
+async def save_checkpoint(scope_id: str, kb_id: str, checkpoint_type: str, checkpoint_key: str, payload: Any) -> bool:
+    index_key = _checkpoint_index_key(scope_id, kb_id, checkpoint_type)
+    data_key = _checkpoint_data_key(scope_id, kb_id, checkpoint_type, checkpoint_key)
     try:
         redis_client = getattr(REDIS_CONN, "REDIS", None)
         if redis_client is None or not hasattr(redis_client, "pipeline"):
@@ -117,14 +117,14 @@ async def save_checkpoint(tenant_id: str, kb_id: str, checkpoint_type: str, chec
         return False
 
 
-async def cleanup_checkpoints(tenant_id: str, kb_id: str, checkpoint_type: str, *, page_size: int | None = None) -> bool:
-    index_key = _checkpoint_index_key(tenant_id, kb_id, checkpoint_type)
+async def cleanup_checkpoints(scope_id: str, kb_id: str, checkpoint_type: str, *, page_size: int | None = None) -> bool:
+    index_key = _checkpoint_index_key(scope_id, kb_id, checkpoint_type)
     try:
         cleaned_count = 0
         checkpoint_keys = _iter_checkpoint_keys(index_key, page_size)
         for checkpoint_key in checkpoint_keys:
             checkpoint_key = _decode_redis_value(checkpoint_key)
-            REDIS_CONN.delete(_checkpoint_data_key(tenant_id, kb_id, checkpoint_type, checkpoint_key))
+            REDIS_CONN.delete(_checkpoint_data_key(scope_id, kb_id, checkpoint_type, checkpoint_key))
             cleaned_count += 1
         REDIS_CONN.delete(index_key)
         logging.info("Cleaned up %d GraphRAG checkpoints type=%s kb=%s", cleaned_count, checkpoint_type, kb_id)

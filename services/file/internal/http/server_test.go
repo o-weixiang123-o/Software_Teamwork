@@ -45,7 +45,7 @@ func TestFileRoutesCreateGetContentAndDelete(t *testing.T) {
 	server := newHTTPTestServer(t)
 	content := "content"
 	checksum := sha256Hex(content)
-	create := newMultipartUploadRequest(t, "/internal/v1/files", "..\\policy.pdf", "application/pdf", content, nil, checksum)
+	create := newMultipartUploadRequest(t, "/internal/v1/files", "..\\policy.txt", "text/plain", content, nil, checksum)
 	setInternalCaller(create)
 	res := httptest.NewRecorder()
 	server.ServeHTTP(res, create)
@@ -63,10 +63,10 @@ func TestFileRoutesCreateGetContentAndDelete(t *testing.T) {
 	if created.Data.ID == "" || !strings.HasPrefix(created.Data.ID, "file_") {
 		t.Fatalf("file id = %q", created.Data.ID)
 	}
-	if created.Data.Filename != "policy.pdf" {
+	if created.Data.Filename != "policy.txt" {
 		t.Fatalf("filename = %q", created.Data.Filename)
 	}
-	if created.Data.ContentType != "application/pdf" || created.Data.SizeBytes != int64(len(content)) || created.Data.ChecksumSHA256 == nil || *created.Data.ChecksumSHA256 != checksum {
+	if created.Data.ContentType != "text/plain" || created.Data.SizeBytes != int64(len(content)) || created.Data.ChecksumSHA256 == nil || *created.Data.ChecksumSHA256 != checksum {
 		t.Fatalf("file metadata = %+v", created.Data)
 	}
 	if created.Data.DeletedAt != nil {
@@ -87,7 +87,7 @@ func TestFileRoutesCreateGetContentAndDelete(t *testing.T) {
 	if contentRes.Code != http.StatusOK {
 		t.Fatalf("content status = %d, body = %s", contentRes.Code, contentRes.Body.String())
 	}
-	if got := contentRes.Header().Get("Content-Type"); got != "application/pdf" {
+	if got := contentRes.Header().Get("Content-Type"); got != "text/plain" {
 		t.Fatalf("content type = %q", got)
 	}
 	if got := contentRes.Header().Get("Content-Length"); got != "7" {
@@ -268,6 +268,75 @@ func TestFileRoutesRequireConfiguredServiceToken(t *testing.T) {
 	server.ServeHTTP(validRes, valid)
 	if validRes.Code != http.StatusCreated {
 		t.Fatalf("valid token status = %d, body = %s", validRes.Code, validRes.Body.String())
+	}
+}
+
+func TestFileRoutesEnforceCallerPolicyByOperation(t *testing.T) {
+	server := newReadyHTTPTestServer(t, filehttp.Config{
+		MaxUploadBytes:       1024 * 1024,
+		AllowedCreateCallers: []string{"document"},
+		AllowedReadCallers:   []string{"qa"},
+		AllowedDeleteCallers: []string{"document"},
+	})
+
+	create := newMultipartUploadRequest(t, "/internal/v1/files", "policy.txt", "text/plain", "content", nil, "")
+	setCaller(create, "document")
+	createRes := httptest.NewRecorder()
+	server.ServeHTTP(createRes, create)
+	if createRes.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", createRes.Code, createRes.Body.String())
+	}
+	var created fileResponseBody
+	decodeJSON(t, createRes.Body, &created)
+
+	getAsDocument := internalRequestWithCaller(http.MethodGet, "/internal/v1/files/"+created.Data.ID, nil, "document")
+	getAsDocumentRes := httptest.NewRecorder()
+	server.ServeHTTP(getAsDocumentRes, getAsDocument)
+	if getAsDocumentRes.Code != http.StatusForbidden {
+		t.Fatalf("get as document status = %d, body = %s", getAsDocumentRes.Code, getAsDocumentRes.Body.String())
+	}
+
+	getAsQA := internalRequestWithCaller(http.MethodGet, "/internal/v1/files/"+created.Data.ID, nil, "qa")
+	getAsQARes := httptest.NewRecorder()
+	server.ServeHTTP(getAsQARes, getAsQA)
+	if getAsQARes.Code != http.StatusOK {
+		t.Fatalf("get as qa status = %d, body = %s", getAsQARes.Code, getAsQARes.Body.String())
+	}
+
+	contentAsQA := internalRequestWithCaller(http.MethodGet, "/internal/v1/files/"+created.Data.ID+"/content", nil, "qa")
+	contentAsQARes := httptest.NewRecorder()
+	server.ServeHTTP(contentAsQARes, contentAsQA)
+	if contentAsQARes.Code != http.StatusOK {
+		t.Fatalf("content as qa status = %d, body = %s", contentAsQARes.Code, contentAsQARes.Body.String())
+	}
+
+	deleteAsQA := internalRequestWithCaller(http.MethodDelete, "/internal/v1/files/"+created.Data.ID, nil, "qa")
+	deleteAsQARes := httptest.NewRecorder()
+	server.ServeHTTP(deleteAsQARes, deleteAsQA)
+	if deleteAsQARes.Code != http.StatusForbidden {
+		t.Fatalf("delete as qa status = %d, body = %s", deleteAsQARes.Code, deleteAsQARes.Body.String())
+	}
+
+	deleteAsDocument := internalRequestWithCaller(http.MethodDelete, "/internal/v1/files/"+created.Data.ID, nil, "document")
+	deleteAsDocumentRes := httptest.NewRecorder()
+	server.ServeHTTP(deleteAsDocumentRes, deleteAsDocument)
+	if deleteAsDocumentRes.Code != http.StatusNoContent {
+		t.Fatalf("delete as document status = %d, body = %s", deleteAsDocumentRes.Code, deleteAsDocumentRes.Body.String())
+	}
+}
+
+func TestFileRoutesRequireCallerWhenPolicyConfigured(t *testing.T) {
+	server := newReadyHTTPTestServer(t, filehttp.Config{
+		MaxUploadBytes:       1024 * 1024,
+		AllowedCreateCallers: []string{"document"},
+	})
+	req := newMultipartUploadRequest(t, "/internal/v1/files", "policy.txt", "text/plain", "content", nil, "")
+	req.Header.Del("X-Caller-Service")
+	res := httptest.NewRecorder()
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
 	}
 }
 
@@ -471,14 +540,22 @@ func authorizedRequest(method string, target string, body io.Reader) *http.Reque
 }
 
 func internalRequest(method string, target string, body io.Reader) *http.Request {
+	return internalRequestWithCaller(method, target, body, "knowledge")
+}
+
+func internalRequestWithCaller(method string, target string, body io.Reader, caller string) *http.Request {
 	req := httptest.NewRequest(method, target, body)
 	req.Header.Set("X-Request-Id", "req_test")
-	setInternalCaller(req)
+	setCaller(req, caller)
 	return req
 }
 
 func setInternalCaller(req *http.Request) {
-	req.Header.Set("X-Caller-Service", "knowledge")
+	setCaller(req, "knowledge")
+}
+
+func setCaller(req *http.Request, caller string) {
+	req.Header.Set("X-Caller-Service", caller)
 	req.Header.Set("X-Service-Token", "test-token")
 }
 

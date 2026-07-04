@@ -39,10 +39,12 @@ the command tool is disabled by default.
 
 ## Configuration
 
-The normal local startup path is the repository root `deploy/.env` plus
-`./scripts/local/dev-up.sh` and `./scripts/local/run-backend.sh`. QA itself does
-not load `.env` files and never stores tokens in source code; service-local
-tests may set only the variables they need.
+The normal local startup path uses repository `config/`, root `.env.local`,
+`./scripts/local/dev-up.sh`, and `./scripts/local/run-backend.sh`. QA itself
+does not load `.env` files and never stores tokens in source code;
+service-local tests may set only the variables they need. See
+[`../../config/README.md`](../../config/README.md) for the profile and secret
+workflow.
 
 AI Gateway variables:
 
@@ -54,11 +56,12 @@ AI Gateway variables:
 | `AI_GATEWAY_PROFILE_ID` | Optional explicit AI Gateway chat profile ID; required by the opt-in smoke. |
 | `AI_GATEWAY_TIMEOUT` | Model request timeout as a Go duration; defaults to `60s`. |
 | `AI_GATEWAY_STREAM` | Optional `true` to request AI Gateway `text/event-stream` completions; defaults to non-streaming JSON. |
-| `MODEL_ID` | Chat model name sent in the OpenAI-compatible request; defaults to `deepseek-chat`. |
+| `MODEL_ID` | Optional compatibility label. Leave empty to let AI Gateway derive the provider model from the selected/default profile. If set, it must exactly match the selected profile model. |
 
 QA does not store provider API keys or provider base URLs. Runtime provider
-credentials belong to AI Gateway model profiles, and QA only sends `profile_id`,
-model name, timeout, and generation parameters. `AI_GATEWAY_URL` is limited to
+credentials belong to AI Gateway model profiles, and QA sends `profile_id`,
+timeout, and generation parameters. `MODEL_ID` is optional and only acts as an
+exact-match guard when explicitly configured. `AI_GATEWAY_URL` is limited to
 the AI Gateway chat completions path on `localhost`, loopback, or `ai-gateway`
 using the standard internal port `8086`.
 
@@ -77,8 +80,7 @@ Prerequisites:
    profile may point to a controlled OpenAI-compatible provider or to a real
    provider that was explicitly configured for manual smoke testing.
 3. Ensure the QA service token is represented in
-   `AI_GATEWAY_SERVICE_TOKEN_HASHES` and `MODEL_ID` exactly matches the selected
-   profile model. See the
+   `AI_GATEWAY_SERVICE_TOKEN_HASHES`. See the
    [AI Gateway seed runbook](../../docs/services/ai-gateway/docs/seed-runbook.md).
 
 PowerShell:
@@ -90,7 +92,6 @@ $env:AI_GATEWAY_URL = "http://localhost:8086/internal/v1/chat/completions"
 $env:AI_GATEWAY_TOKEN = [Environment]::GetEnvironmentVariable('INTERNAL_SERVICE_TOKEN', 'User')
 $env:AI_GATEWAY_TOKEN_HEADER = "X-Service-Token"
 $env:AI_GATEWAY_PROFILE_ID = "replace-with-chat-profile-id"
-$env:MODEL_ID = "replace-with-exact-profile-model"
 go test ./internal/platform/modelclient -run '^TestAIGatewaySmoke$' -count=1 -v
 ```
 
@@ -103,16 +104,15 @@ export AI_GATEWAY_URL=http://localhost:8086/internal/v1/chat/completions
 export AI_GATEWAY_TOKEN="$INTERNAL_SERVICE_TOKEN"
 export AI_GATEWAY_TOKEN_HEADER=X-Service-Token
 export AI_GATEWAY_PROFILE_ID=replace-with-chat-profile-id
-export MODEL_ID=replace-with-exact-profile-model
 go test ./internal/platform/modelclient -run '^TestAIGatewaySmoke$' -count=1 -v
 ```
 
 `AI_GATEWAY_TOKEN` may be omitted when `INTERNAL_SERVICE_TOKEN` is set. Optional
 `AI_GATEWAY_TIMEOUT` uses Go duration syntax and defaults to `60s`. A successful
 run reports these subtests. When using the root local SQL seed, the initial
-pair is `AI_GATEWAY_PROFILE_ID=default-chat` and
-`MODEL_ID=local-placeholder-chat`; that placeholder profile still needs a
-reachable compatible provider/model before the positive call can succeed.
+profile is `AI_GATEWAY_PROFILE_ID=default-chat`; that placeholder profile still
+needs a reachable compatible provider/model before the positive call can
+succeed.
 
 ```text
 TestAIGatewaySmoke/successful_completion
@@ -130,7 +130,7 @@ provider response bodies, or provider API keys.
 | Token configuration is required | Set `AI_GATEWAY_TOKEN` or the fallback `INTERNAL_SERVICE_TOKEN`. |
 | Profile configuration is required | Set `AI_GATEWAY_PROFILE_ID` to an enabled chat profile. |
 | Successful completion returns `dependency_error` | Check AI Gateway readiness, profile credential status, provider availability, and logs for the emitted request ID. |
-| Request is rejected before provider invocation | Verify token hashes, `MODEL_ID` exact-match, and that the selected profile is enabled and not deleted. |
+| Request is rejected before provider invocation | Verify token hashes, optional `MODEL_ID` exact-match when set, and that the selected profile is enabled and not deleted. |
 
 This smoke does not start AI Gateway, create profiles, or exercise PostgreSQL QA
 sessions, Gateway/Auth, Knowledge retrieval, MCP, or frontend flows.
@@ -323,13 +323,13 @@ Stop the REPL with `exit` or `q`, then press `Ctrl+C` in terminal A.
 
 QA stores state in PostgreSQL and uses Redis for coordination. The canonical
 local start path is the root infra baseline from `deploy/`, which brings up
-`postgres`, `redis`, `qdrant`, `minio`, and `minio-init`. QA itself then runs on
-the host with the pinned `goose@v3.27.1` migration command.
+`postgres`, `redis`, `minio`, `minio-init`, and `elasticsearch`. QA
+itself then runs on the host with the pinned `goose@v3.27.1` migration command.
 
 Start root infra and apply local migrations/seed from the repository root:
 
 ```bash
-cp deploy/.env.example deploy/.env
+cp .env.example .env.local
 ./scripts/local/dev-up.sh
 ```
 
@@ -343,7 +343,8 @@ Reset the local database volume and re-apply migrations:
 
 ```bash
 ./scripts/local/stop-backend.sh
-docker compose -f deploy/docker-compose.yml --env-file deploy/.env down -v
+CONFIG_SECRET_FILE=.env.local ./scripts/config/load-profile.sh --print-compose-env
+docker compose -f deploy/docker-compose.yml --env-file .local/config/dev.env down -v
 ./scripts/local/dev-up.sh
 ```
 

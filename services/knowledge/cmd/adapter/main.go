@@ -13,7 +13,6 @@ import (
 
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/adapter"
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/adapterconfig"
-	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/aigateway"
 	kmcp "github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/mcp"
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/repository"
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/service"
@@ -39,7 +38,11 @@ func main() {
 			os.Exit(1)
 		}
 		defer pool.Close()
-		opts = append(opts, adapter.WithParserConfigService(service.New(repository.NewPostgresRepository(pool))))
+		repo := repository.NewPostgresRepository(pool)
+		opts = append(opts,
+			adapter.WithParserConfigService(service.New(repo)),
+			adapter.WithRuntimeKnowledgeBaseCatalog(repo),
+		)
 		logger.Info("parser config storage enabled", "service", "knowledge-adapter")
 	} else {
 		logger.Warn("DATABASE_URL or KNOWLEDGE_DATABASE_URL not set; parser-config routes will return dependency_error", "service", "knowledge-adapter")
@@ -49,15 +52,6 @@ func main() {
 	httpServer := &http.Server{
 		Addr:    cfg.HTTPAddr,
 		Handler: server.Handler(),
-	}
-
-	chatClient, err := aigateway.NewChatClientFromEnv()
-	if err != nil {
-		logger.Error("ai gateway client configuration failed", "service", "knowledge-adapter", "error", err)
-		os.Exit(1)
-	}
-	if chatClient != nil {
-		logger.Info("ai gateway client enabled for answer_from_knowledge", "service", "knowledge-adapter")
 	}
 
 	go func() {
@@ -71,14 +65,14 @@ func main() {
 	var mcpServer *http.Server
 	if cfg.MCPAddr != "" {
 		mcpCaller := kmcp.CallerContext{
-			UserID:       cfg.MCPUserID,
+			UserID:       cfg.MCPCallerID,
 			ServiceToken: cfg.ServiceToken,
 			Roles:        cfg.MCPRoles,
 			Permissions:  cfg.MCPPermissions,
 		}
 		mcpServer = &http.Server{
 			Addr:    cfg.MCPAddr,
-			Handler: kmcp.NewStreamableHTTPHandler(server, mcpCaller, chatClient),
+			Handler: kmcp.NewStreamableHTTPHandler(server, mcpCaller),
 		}
 		go func() {
 			logger.Info("knowledge MCP server listening", "addr", cfg.MCPAddr)

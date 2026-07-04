@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/qa/internal/platform/contextutil"
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/qa/internal/platform/localtools"
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/qa/internal/platform/mcpclient"
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/qa/internal/platform/modelclient"
@@ -202,11 +204,12 @@ func mapSessionAttachmentHits(chunks []service.SessionAttachmentChunk) []toolspk
 }
 
 type policyToolClient struct {
-	tools      agent.ToolClient
-	policy     *toolspkg.Policy
-	cachedDefs []agent.ToolDefinition
-	cachedOnce sync.Once
-	cachedErr  error
+	tools             agent.ToolClient
+	policy            *toolspkg.Policy
+	knowledgeMCPAlias string
+	cachedDefs        []agent.ToolDefinition
+	cachedOnce        sync.Once
+	cachedErr         error
 }
 
 func (p *policyToolClient) ListTools(ctx context.Context) ([]agent.ToolDefinition, error) {
@@ -241,10 +244,146 @@ func (p *policyToolClient) CallTool(ctx context.Context, name string, arguments 
 			break
 		}
 	}
+	if !p.policy.IsAllowed(name) {
+		return agent.ToolResult{}, fmt.Errorf("tool %q is not in the enabled whitelist", name)
+	}
+	guardedArguments, guardResult, err := p.guardKnowledgeMCPCall(ctx, name, arguments)
+	if err != nil {
+		return agent.ToolResult{}, err
+	}
+	if guardResult != nil {
+		return *guardResult, nil
+	}
+	arguments = guardedArguments
 	if err := p.policy.ValidateCall(name, arguments, toolDef); err != nil {
 		return agent.ToolResult{}, err
 	}
 	return p.tools.CallTool(ctx, name, arguments)
+}
+
+func (p *policyToolClient) guardKnowledgeMCPCall(ctx context.Context, name string, arguments json.RawMessage) (json.RawMessage, *agent.ToolResult, error) {
+	switch {
+	case p.isKnowledgeMCPTool(name, toolspkg.KnowledgeMCPToolSearch):
+		return guardKnowledgeMCPSearch(ctx, arguments)
+	case p.isKnowledgeMCPTool(name, toolspkg.KnowledgeMCPToolListDocuments):
+		return guardKnowledgeMCPListDocuments(ctx, arguments)
+	default:
+		return arguments, nil, nil
+	}
+}
+
+func (p *policyToolClient) isKnowledgeMCPTool(name string, toolName string) bool {
+	alias := strings.TrimSpace(p.knowledgeMCPAlias)
+	return alias != "" && name == alias+"__"+toolName
+}
+
+func guardKnowledgeMCPSearch(ctx context.Context, arguments json.RawMessage) (json.RawMessage, *agent.ToolResult, error) {
+	payload, err := decodeJSONObject(arguments)
+	if err != nil {
+		return nil, nil, err
+	}
+	requestKBIDs := normalizeKnowledgeMCPIDs(contextutil.KnowledgeBaseIDsFromContext(ctx))
+
+	if len(requestKBIDs) > 0 {
+		payload["knowledgeBaseIds"] = requestKBIDs
+		return marshalKnowledgeMCPArguments(payload)
+	}
+	if value, exists := payload["knowledgeBaseIds"]; exists {
+		provided, ok := knowledgeMCPStringSlice(value)
+		if !ok {
+			return arguments, nil, nil
+		}
+		payload["knowledgeBaseIds"] = provided
+		return marshalKnowledgeMCPArguments(payload)
+	}
+	return arguments, nil, nil
+}
+
+func guardKnowledgeMCPListDocuments(ctx context.Context, arguments json.RawMessage) (json.RawMessage, *agent.ToolResult, error) {
+	payload, err := decodeJSONObject(arguments)
+	if err != nil {
+		return nil, nil, err
+	}
+	requestKBIDs := normalizeKnowledgeMCPIDs(contextutil.KnowledgeBaseIDsFromContext(ctx))
+	target, _ := payload["knowledgeBaseId"].(string)
+	target = strings.TrimSpace(target)
+	if target == "" {
+		if len(requestKBIDs) != 1 {
+			result := knowledgeMCPToolFailure("invalid_arguments", "knowledgeBaseId is required when multiple knowledge bases are available")
+			return arguments, &result, nil
+		}
+		target = requestKBIDs[0]
+	}
+	payload["knowledgeBaseId"] = target
+	return marshalKnowledgeMCPArguments(payload)
+}
+
+func decodeJSONObject(arguments json.RawMessage) (map[string]any, error) {
+	if len(arguments) == 0 {
+		arguments = json.RawMessage(`{}`)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(arguments, &payload); err != nil {
+		return nil, err
+	}
+	if payload == nil {
+		payload = map[string]any{}
+	}
+	return payload, nil
+}
+
+func marshalKnowledgeMCPArguments(payload map[string]any) (json.RawMessage, *agent.ToolResult, error) {
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return nil, nil, err
+	}
+	return json.RawMessage(encoded), nil, nil
+}
+
+func knowledgeMCPStringSlice(value any) ([]string, bool) {
+	raw, ok := value.([]any)
+	if !ok {
+		return nil, false
+	}
+	ids := make([]string, 0, len(raw))
+	for _, item := range raw {
+		id, ok := item.(string)
+		if !ok {
+			return nil, false
+		}
+		ids = append(ids, id)
+	}
+	return normalizeKnowledgeMCPIDs(ids), true
+}
+
+func normalizeKnowledgeMCPIDs(ids []string) []string {
+	if len(ids) == 0 {
+		return ids
+	}
+	seen := make(map[string]struct{}, len(ids))
+	normalized := make([]string, 0, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		normalized = append(normalized, id)
+	}
+	return normalized
+}
+
+func knowledgeMCPToolFailure(code, message string) agent.ToolResult {
+	payload, _ := json.Marshal(map[string]any{
+		"error": map[string]string{
+			"code":    code,
+			"message": message,
+		},
+	})
+	return agent.ToolResult{Content: string(payload), IsError: true}
 }
 
 func (m *Manager) buildState(ctx context.Context, runtimeConfig service.RuntimeConfiguration) (*runtimeState, error) {
@@ -322,7 +461,7 @@ func (m *Manager) buildState(ctx context.Context, runtimeConfig service.RuntimeC
 		closeClients(clients)
 		return nil, fmt.Errorf("create tool policy: %w", err)
 	}
-	policyClient := &policyToolClient{tools: toolClient, policy: policy}
+	policyClient := &policyToolClient{tools: toolClient, policy: policy, knowledgeMCPAlias: m.cfg.KnowledgeMCPAlias}
 	model, err := modelclient.New(modelclient.Config{
 		Endpoint: runtimeConfig.LLM.Endpoint, Token: runtimeConfig.LLM.Token,
 		TokenHeader: runtimeConfig.LLM.TokenHeader, Model: runtimeConfig.LLM.Model,
@@ -353,6 +492,7 @@ func (m *Manager) buildState(ctx context.Context, runtimeConfig service.RuntimeC
 		ToolTimeout:            toolTimeout,
 		MaxToolResultBytes:     m.cfg.MaxToolResultBytes,
 		ReasoningFilterFactory: service.NewReasoningFilter,
+		ToolResultPolicy:       service.NewKnowledgeRetrievalStopPolicy(m.cfg.KnowledgeMCPAlias),
 	})
 	if err != nil {
 		closeClients(clients)

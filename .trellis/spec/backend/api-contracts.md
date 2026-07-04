@@ -166,7 +166,7 @@ prompts, vector payloads, or internal URLs to the frontend.
   `docs/architecture/service-boundaries.md` if ownership is new.
 - Base: proxy a domain-service route through gateway without changing the
   domain response shape, but still normalize errors to the gateway envelope.
-- Bad: add a frontend call directly to `services/knowledge` or embed Qdrant,
+- Bad: add a frontend call directly to `services/knowledge` or embed runtime index,
   MinIO, SQL, prompt, or report-generation logic in gateway.
 
 ### 6. Tests Required
@@ -195,7 +195,7 @@ For documentation-only contract changes:
 
 ```text
 frontend -> services/knowledge/search
-gateway handler -> Qdrant query -> raw vector payload response
+gateway handler -> runtime index query -> raw vector payload response
 ```
 
 #### Correct
@@ -389,7 +389,7 @@ document, and ai-gateway
   workflows.
 - Base: Compose uses Gateway `/readyz` for startup ordering while production
   readiness docs separately list service-level `/readyz` and provider smoke.
-- Bad: Gateway `/readyz` uploads a document, queries Qdrant, calls QA chat, or
+- Bad: Gateway `/readyz` uploads a document, queries runtime indexes, calls QA chat, or
   fails startup only because a real model provider credential has not been
   bootstrapped yet.
 
@@ -436,7 +436,7 @@ targeted smoke -> Gateway public API -> owner services -> File/Knowledge runtime
   `services/gateway/internal/http/*_test.go`,
   `services/knowledge/internal/http`, `services/knowledge/internal/service`,
   `services/knowledge/api/openapi.yaml`, Knowledge docs, `services/knowledge-runtime/**`,
-  and local host-run env wiring for RAGFlow runtime, Redis, MinIO,
+  and local host-run env wiring for Knowledge runtime, Redis, MinIO,
   Elasticsearch/doc engine, or AI Gateway.
 
 ### 2. Signatures
@@ -456,7 +456,7 @@ targeted smoke -> Gateway public API -> owner services -> File/Knowledge runtime
 ### 3. Contracts
 
 - Gateway must proxy these routes to Knowledge and must not implement chunking,
-  runtime content reads, Qdrant/doc-engine queries, embedding, rerank, or
+  runtime content reads, doc-engine queries, embedding, rerank, or
   visibility rules.
 - Gateway must inject `X-Request-Id`, `X-User-Id`, `X-User-Roles`,
   `X-User-Permissions`, `X-Forwarded-For`, `X-Forwarded-Proto`, and
@@ -464,7 +464,7 @@ targeted smoke -> Gateway public API -> owner services -> File/Knowledge runtime
 - Knowledge handlers must keep database, vendor runtime, embedding, and rerank
   access behind service/repository/platform interfaces.
 - `documents/{documentId}/content` must first authorize the Knowledge-owned
-  document, then stream raw bytes through the RAGFlow runtime/adapter boundary.
+  document, then stream raw bytes through the Knowledge runtime/adapter boundary.
   Do not return `file_ref`, object keys, File IDs, MinIO URLs, runtime URLs, or
   internal storage paths in JSON responses.
 - `knowledge-queries` must model retrieval as a resource creation, not a
@@ -491,7 +491,7 @@ targeted smoke -> Gateway public API -> owner services -> File/Knowledge runtime
 - Base: fake-backed contract tests cover active operation envelopes while
   runbooks document how to enable real runtime/doc engine or AI Gateway.
 - Bad: gateway returns `501` for an active Knowledge operation after the
-  Knowledge service route exists, or gateway directly reads RAGFlow runtime,
+  Knowledge service route exists, or gateway directly reads Knowledge runtime,
   File Service, Qdrant/doc engine, prompt/model providers, SQL rows, or
   generated sqlc types.
 
@@ -514,13 +514,13 @@ targeted smoke -> Gateway public API -> owner services -> File/Knowledge runtime
 
 ```text
 gateway /api/v1/documents/{documentId}/content -> File Service object URL
-gateway /api/v1/knowledge/search -> Qdrant search response payload
+gateway /api/v1/knowledge/search -> runtime index response payload
 ```
 
 #### Correct
 
 ```text
-gateway /api/v1/documents/{documentId}/content -> knowledge -> RAGFlow runtime/adapter bytes
+gateway /api/v1/documents/{documentId}/content -> knowledge -> Knowledge runtime/adapter bytes
 gateway /api/v1/knowledge-queries -> knowledge -> runtime/doc-engine candidates -> Knowledge DTO hydrate
 ```
 
@@ -614,7 +614,7 @@ owned message with no citations -> authorize message -> 200 []
 
 ### 1. Scope / Trigger
 
-- Trigger: adding or changing the RAGFlow-based runtime API/worker used by
+- Trigger: adding or changing the Knowledge runtime API/worker used by
   Knowledge ingestion and retrieval.
 - Applies to `services/knowledge-runtime/`, Knowledge vendor runtime clients
   under `services/knowledge/internal/vendorclient`, runtime parser configuration,
@@ -631,7 +631,10 @@ owned message with no citations -> authorize message -> 200 []
 - Knowledge environment keys:
   - `VENDOR_RUNTIME_URL`
   - `KNOWLEDGE_AUTO_START_INGESTION`
+  - `KNOWLEDGE_RUNTIME_READINESS_MODE`
   - runtime/storage/search keys required by host-run Knowledge runtime startup
+  - deployment-level worker scaling configuration, such as the KEDA Redis
+    Streams example under `deploy/k8s/`
 
 ### 3. Contracts
 
@@ -640,8 +643,15 @@ response envelopes, parser-config administration, and adapter error mapping.
 `services/knowledge-runtime` owns document parsing, chunking, embedding/index
 work, retrieval support, runtime task execution, and vendor storage/search
 details. Runtime routes must be registered through an explicit allowlist; do not
-expose upstream RAGFlow login/JWT/API-token, UI, file-management, or MCP
+expose bundled runtime login/JWT/API-token, UI, file-management, or MCP
 surfaces as product APIs.
+
+Runtime API startup must remain separate from worker startup. The API-only path
+uses the base Python dependency profile and must not require worker/browser/OCR
+packages such as `crawl4ai`, `onnxruntime-gpu`, `opencv-python`,
+`selenium-wire`, `spacy`, or `xgboost`. Full ingestion startup uses the worker
+dependency profile and is the only local helper that starts
+`rag/svr/task_executor.py`.
 
 The old standalone `services/parser` and `/internal/v1/parsed-documents` API are
 retired. Do not add `PARSER_SERVICE_BASE_URL` or Parser HTTP clients back to
@@ -665,11 +675,11 @@ Knowledge, QA, Gateway, or local integration scripts.
 - Base: Knowledge unit tests use fake vendor runtime clients while runtime E2E
   is gated by explicit local infrastructure.
 - Bad: restoring `services/parser`, adding a QA/Gateway direct parser client, or
-  exposing upstream RAGFlow auth/UI/MCP surfaces through the product boundary.
+  exposing bundled runtime auth/UI/MCP surfaces through the product boundary.
 
 ### 6. Tests Required
 
-- Knowledge vendor client/adapter tests assert route paths, propagated tenant
+- Knowledge vendor client/adapter tests assert route paths, propagated service
   headers, redirect blocking, sanitized failures, and error classification.
 - Runtime route registry tests assert only the allowlisted API modules are
   registered.
@@ -842,6 +852,134 @@ qa service -> ai-gateway /internal/v1/chat/completions
 qa owns messages, MCP tool calls, citations, and public SSE event shape
 ```
 
+## Scenario: AI Gateway Unified Model Provider Exit Policy
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing AI model/provider calls, provider SDK imports,
+  provider base URLs, OpenAI-compatible chat/embedding/rerank endpoints, model
+  profile runtime configuration, or docs/config that describe those paths.
+- Applies to `services/ai-gateway/`, `services/qa/`, `services/document/`,
+  `services/knowledge/`, `services/knowledge-runtime/`, `services/gateway/`,
+  `scripts/`, `config/`, `.github/`, and service boundary docs.
+- This scenario governs model/provider exits only. It does not change public
+  `services/gateway` business API routing or route ownership.
+
+### 2. Signatures
+
+- Repository policy check:
+
+```bash
+python3 scripts/check_ai_gateway_provider_policy.py
+python3 -m unittest scripts.tests.test_ai_gateway_provider_policy
+```
+
+- Inventory:
+
+```text
+docs/services/ai-gateway/docs/model-provider-exit-inventory.md
+```
+
+- Normal model invocation routes:
+
+```text
+POST /internal/v1/chat/completions
+POST /internal/v1/embeddings
+POST /internal/v1/rerankings
+```
+
+- Profile/config primitive:
+
+```text
+provider = ai-gateway
+profile_id = <AI Gateway model profile id>
+```
+
+### 3. Contracts
+
+- `services/ai-gateway` is the only normal repository exit for AI provider
+  traffic: chat, streaming chat, function-calling transport, embeddings,
+  rerankings, provider credentials, provider error normalization, invocation
+  audit, usage aggregation, and runtime model-profile selection.
+- Domain services own domain state and orchestration. QA owns sessions, Agent
+  loop, MCP/tool policy, tool-call records, citations, and QA settings.
+  Document owns report jobs/settings/files. Knowledge and Knowledge runtime own
+  ingestion, parsing, retrieval state, and index/runtime details.
+- `services/gateway` may expose public/admin routes for AI Gateway-owned model
+  profiles, but gateway production code must not call model providers, store
+  provider API keys, or expose AI Gateway `/internal/v1/**` model invocation
+  routes to frontend callers.
+- Direct provider SDK imports, provider base URLs, or non-internal
+  `/v1/chat/completions`, `/v1/embeddings`, and `/v1/rerank*` paths outside
+  `services/ai-gateway` are forbidden unless the path is explicitly allowlisted
+  in `scripts/check_ai_gateway_provider_policy.py` with a narrow rationale.
+- Knowledge runtime direct provider factories are allowed only as explicit
+  local/emergency fallbacks. They are non-default, bypass AI Gateway invocation
+  audit and usage aggregation, and require cleanup criteria in the inventory.
+- Legacy QA aggregate LLM settings may read old `provider=direct` rows only
+  when they target a trusted AI Gateway chat completions endpoint. New writes
+  must store `provider=ai-gateway` plus `profile_id` semantics and must not
+  persist endpoint/API-key material as the normal path.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| New direct provider SDK import outside `services/ai-gateway` | Policy check fails unless removed or narrowly allowlisted. |
+| New direct provider base URL or non-internal OpenAI-compatible endpoint outside `services/ai-gateway` | Policy check fails unless removed or narrowly allowlisted. |
+| Domain service needs chat, embedding, or rerank | Call AI Gateway internal routes with service token, caller service, request id, user context when available, and `profile_id`. |
+| Gateway public route needs model-profile administration | Proxy/normalize the AI Gateway-owned profile API; do not invoke the provider or persist API keys in gateway. |
+| Knowledge runtime fallback is selected explicitly | Document as local/emergency, non-default, outside AI Gateway audit/usage, with cleanup criteria. |
+| Legacy QA direct row points to an untrusted provider endpoint | Reject validation or connection testing; do not use it as a model call path. |
+| Provider returns raw error bodies, prompts, vectors, object keys, internal URLs, or credentials | Normalize and redact before returning or logging. |
+
+### 5. Good/Base/Bad Cases
+
+- Good: QA calls `POST /internal/v1/chat/completions` through its AI Gateway
+  client, passes `profile_id`, and stores only QA message/tool/citation state.
+- Good: Knowledge runtime embedding/rerank defaults use AI Gateway profiles and
+  provider invocation summaries are recorded by AI Gateway.
+- Base: an explicit Knowledge runtime local/emergency provider fallback remains
+  allowlisted with a cleanup note while AI Gateway runtime smoke coverage is
+  still incomplete.
+- Bad: adding `from openai import OpenAI` in QA, a SiliconFlow base URL in
+  Document, a provider SDK in Gateway, or an endpoint setting that lets domain
+  services bypass AI Gateway.
+
+### 6. Tests Required
+
+- Run `python3 scripts/check_ai_gateway_provider_policy.py` after model/provider
+  path, config, script, or docs changes.
+- Run `python3 -m unittest scripts.tests.test_ai_gateway_provider_policy` when
+  the policy script or its allowlist changes.
+- Run `cd services/ai-gateway && go test ./... && go build ./cmd/server` when
+  AI Gateway routes, providers, profiles, invocation records, usage aggregates,
+  or docs/contracts tied to implementation change.
+- Run the touched owner service checks. For QA settings/profile changes, run
+  `cd services/qa && go test ./... && go build ./cmd/server && go build ./cmd/agent`.
+- Run targeted Knowledge runtime tests only when runtime code, route
+  registration, provider factories, or fallback behavior changes; docs-only
+  inventory updates must state the remaining runtime smoke risk instead.
+- Run `git diff --check` before commit.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```text
+document -> https://api.siliconflow.cn/v1/chat/completions
+gateway -> OpenAI SDK -> provider
+qa settings response -> provider=direct, apiEndpoint, apiKeyLast4
+```
+
+#### Correct
+
+```text
+document -> ai-gateway /internal/v1/chat/completions with profile_id
+gateway -> public/admin model-profile route -> ai-gateway profile metadata only
+qa settings response -> provider=ai-gateway, profileId=<profile>
+```
+
 ## Scenario: AI Gateway Embeddings And Rerankings
 
 ### 1. Scope / Trigger
@@ -982,7 +1120,7 @@ GET    /internal/v1/documents/{documentId}/content
 Runtime content read:
 
 ```text
-Knowledge adapter -> RAGFlow runtime document/content route
+Knowledge adapter -> Knowledge runtime document/content route
 ```
 
 Database state involved:
@@ -990,7 +1128,7 @@ Database state involved:
 - Runtime document and task state is mapped to public Knowledge document status.
 - Runtime chunks are mapped to Knowledge `DocumentChunk` DTOs and query results.
 - Knowledge PostgreSQL may retain parser-config and migration-compatible fields,
-  but current document bytes/chunks/index facts come from RAGFlow runtime.
+  but current document bytes/chunks/index facts come from Knowledge runtime.
 
 ### 3. Contracts
 
@@ -1005,7 +1143,7 @@ Database state involved:
   fields or a body without `tags` must fail validation. Tags use the same
   trim/dedupe/max-count/max-length rules as document upload.
 - `DELETE /documents/{documentId}` applies the Knowledge document delete/hidden
-  semantics and delegates runtime document/chunk/index lifecycle to RAGFlow
+  semantics and delegates runtime document/chunk/index lifecycle to Knowledge
   runtime. It must not restore the old File/Qdrant cleanup worker path.
 - `GET /documents/{documentId}/chunks` must authorize the parent document. An
   existing document with no chunks, including pending processing states, returns
@@ -1035,10 +1173,10 @@ Database state involved:
   Knowledge authorizes `doc_1`, streams runtime/adapter bytes, and never returns
   runtime object storage details in JSON.
 - Base: deleting a document sets `deleted_at`, hides it from future reads, and
-  delegates runtime internal object/chunk/index lifecycle to RAGFlow runtime.
+  delegates runtime internal object/chunk/index lifecycle to Knowledge runtime.
 - Bad: Gateway returns `501` for active document lifecycle routes, Knowledge
   exposes `fileRef` or object-storage details, or deletion restores slow File
-  Service/Qdrant calls inside a PostgreSQL transaction.
+  Service or runtime-index calls inside a PostgreSQL transaction.
 
 ### 6. Tests Required
 
@@ -1076,14 +1214,14 @@ success streams bytes; errors stay sanitized and document-owned
 #### Wrong
 
 ```text
-DELETE /documents/doc_1 -> delete file object and Qdrant points while holding
+DELETE /documents/doc_1 -> delete file object and runtime index points while holding
 the document transaction; if cleanup fails the document stays visible
 ```
 
 #### Correct
 
 ```text
-DELETE /documents/doc_1 -> knowledge authorizes doc_1, delegates RAGFlow
+DELETE /documents/doc_1 -> knowledge authorizes doc_1, delegates Knowledge
 runtime document/chunk/index lifecycle, and returns 204 without exposing
 runtime storage details
 ```
@@ -1110,52 +1248,118 @@ POST /internal/v1/knowledge-queries
 GET|POST|PATCH|DELETE /internal/v1/parser-configs[/**]  # Phase 3b
 ```
 
-Vendor runtime mapping (adapter → RAGFlow):
+The document singleton routes are dataset-scoped even though the path only
+contains `documentId`. These routes must require `knowledgeBaseId` as a query
+parameter:
+
+```text
+GET /internal/v1/documents/{documentId}?knowledgeBaseId={knowledgeBaseId}
+PATCH /internal/v1/documents/{documentId}?knowledgeBaseId={knowledgeBaseId}
+DELETE /internal/v1/documents/{documentId}?knowledgeBaseId={knowledgeBaseId}
+GET /internal/v1/documents/{documentId}/chunks?knowledgeBaseId={knowledgeBaseId}
+GET /internal/v1/documents/{documentId}/content?knowledgeBaseId={knowledgeBaseId}
+```
+
+Adapter runtime mapping:
 
 ```text
 knowledge-bases -> /api/v1/datasets
 documents upload  -> /api/v1/datasets/{id}/documents?type=local
 documents parse   -> /api/v1/datasets/{id}/documents/parse  # auto after upload when KNOWLEDGE_AUTO_START_INGESTION=true
-documents CRUD    -> /api/v1/documents/{id}
-document metadata -> /api/v1/datasets/{kb}/documents?page=&page_size=&id={doc}
+document metadata/lookup -> /api/v1/datasets/{kb}/documents?page=&page_size=&id={doc}
+document update  -> /api/v1/datasets/{kb}/documents/{doc}
+document delete  -> DELETE /api/v1/datasets/{kb}/documents with ids[]
 chunks            -> /api/v1/datasets/{kb}/documents/{doc}/chunks
 content           -> /api/v1/datasets/{kb}/documents/{doc} (binary)
 knowledge-queries -> /api/v1/datasets/search
+```
+
+Runtime guardrail environment keys:
+
+```text
+KNOWLEDGE_RUNTIME_SCOPE_ID=knowledge_runtime
+METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT=10000
 ```
 
 ### 3. Contracts
 
 - Adapter must preserve Gateway-facing JSON envelopes and error codes; do not
   leak vendor `{code, message}` shapes to callers.
-- Adapter forwards tenant identity with `X-Tenant-Id` and `X-User-Id` set to
-  Gateway `X-User-Id`; RBAC checks stay in adapter using
-  `knowledge:read` / `knowledge:write` and admin permissions.
+- Adapter authenticates to the runtime with `X-Service-Token` only. Runtime
+  routes resolve a single configured `KNOWLEDGE_RUNTIME_SCOPE_ID`; product user
+  identity stays in Gateway/Auth/Knowledge and is not forwarded as runtime
+  identity. RBAC checks stay in adapter using `knowledge:read` /
+  `knowledge:write` and admin permissions.
+- Document singleton, chunk, and content routes must use the caller-provided
+  `knowledgeBaseId` to access dataset-scoped runtime routes. Do not scan every
+  knowledge base to infer document ownership.
 - Parser-config routes delegate to legacy goose PostgreSQL tables when
   `DATABASE_URL` is configured; without it they return `502 dependency_error`.
 - Document `PATCH` with `tags` maps to vendor dataset-document metadata updates;
   other fields remain validation errors until explicitly supported.
+- Invalid or non-object `chunkStrategy` JSON must return `400 validation_error`;
+  silently dropping the field is not allowed.
 - After upload, adapter mode queues vendor deepdoc ingestion via
   `POST /api/v1/datasets/{id}/documents/parse` when
   `KNOWLEDGE_AUTO_START_INGESTION` is true (default). Adapter mode does not call
-  `services/parser` or `PARSER_SERVICE_BASE_URL`.
+  `services/parser` or `PARSER_SERVICE_BASE_URL`, must not expose worker start
+  command configuration, and must not execute shell commands. The adapter calls
+  `/documents/parse` without pre-checking or waiting for a task executor
+  heartbeat; runtime worker startup, shutdown, and supervision are owned by the
+  deployment layer or explicit local helpers.
+- `KNOWLEDGE_RUNTIME_READINESS_MODE=ingestion` is the default readiness mode and
+  requires the runtime task executor heartbeat. `query` mode allows `/readyz` to
+  pass without that heartbeat when runtime API and query-time dependencies are
+  healthy, but `/internal/v1/runtime/status` must still report
+  `task_executor_ready` and `task_executor_count`.
+- Upload ingestion does not require the worker to be running at adapter startup.
+  Adapter mode calls `/documents/parse` when `KNOWLEDGE_AUTO_START_INGESTION`
+  is true. The deployment layer remains responsible for running or scaling the
+  runtime worker to consume queued Redis Stream tasks.
 - Object storage for uploaded documents uses vendor MinIO configuration
   (`software-teamwork-knowledge` bucket); Knowledge adapter does not call File
   Service for upload in vendor mode.
 - Vector retrieval uses vendor Elasticsearch or Infinity only; Qdrant is not used.
-- Gateway/Auth service owns identity; adapter forwards `X-User-Id` as vendor tenant
-  context. Vendor login/JWT/API-token surfaces remain disabled.
+- Gateway/Auth service owns identity; vendor login/JWT/API-token surfaces remain
+  disabled.
 - The vendored runtime HTTP surface must be registered through an explicit
   allowlist. Keep only the route modules needed for dataset, document, chunk,
   model/provider, system, and task workflows used by the adapter. Do not
-  expose upstream RAGFlow MCP, file-management, login/JWT/API-token, or UI-only
+  expose bundled runtime MCP, file-management, login/JWT/API-token, or UI-only
   routes as project runtime APIs.
 - Adapter dataset creation sends the embedding choice with vendor field
   `embedding_model`. The project env value uses the composite
   `<model>@<provider>` shape, for example `BAAI/bge-m3@SILICONFLOW`.
 - Adapter retrieval rerank config sends `rerank_id`. The runtime expects the
-  composite `<model>@<tenant>@<provider>` shape, for example
-  `BAAI/bge-reranker-v2-m3@default@SILICONFLOW`; a bare model name can resolve
+  composite `<model>@<profile>@<provider>` shape, for example
+  `BAAI/bge-reranker-v2-m3@default@AI_GATEWAY`; a bare model name can resolve
   to an empty provider and fail at runtime.
+- Retrieval trace must not invent runtime facts. Use configured runtime values
+  when available; use `runtime-managed` and `embeddingDimension: -1` when the
+  vendor runtime owns the value but does not expose it.
+- Vendor runtime error mapping must classify by stable HTTP status/code carried
+  by `vendorclient.APIError`; do not match free-form messages such as
+  "not found" or "invalid dataset".
+- Runtime route auth declarations must include `GATEWAY`. A valid
+  `X-Service-Token` is not sufficient for routes decorated only with legacy
+  `JWT`/`API`/`BETA` auth types.
+- Runtime scope is configured explicitly through `KNOWLEDGE_RUNTIME_SCOPE_ID`.
+  Auth must not synthesize runtime user, workspace, or membership rows.
+- Dataset-level RAPTOR/GraphRAG tasks use the explicit
+  `DATASET_SCOPE_TASK_DOC_ID` sentinel. Real source document IDs must not equal
+  the dataset-scope sentinel.
+- Empty or whitespace-only embedding chunks are non-indexable. Do not embed the
+  literal placeholder `"None"` as document content.
+- Metadata filter pushdown failures may fall back to in-memory filtering only
+  when the candidate document count is at or below
+  `METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT`; over-cap cases must fail clearly.
+  Lazy metadata loaders and doc-engine pagination must receive the configured
+  cap before materializing document metadata, and may fetch at most one extra
+  record or use a stable total count to prove the fallback is over-cap.
+- Missing retrieval indexes may return an empty result only when the runtime or
+  doc engine exposes a stable missing-index signal such as
+  `index_not_found_exception`. Other `*_not_found` failures from datasets,
+  models, providers, or dependencies must keep their typed error mapping.
 - Adapter-owned parser config trace fields such as
   `software_teamwork_parser_config` must not be forwarded into strict vendor
   runtime request bodies unless the vendor schema explicitly allows them.
@@ -1163,7 +1367,7 @@ knowledge-queries -> /api/v1/datasets/search
   the binary content route as JSON metadata; `GET /api/v1/datasets/{kb}/documents/{doc}`
   is the download/content path.
 - Runtime model initialization may upsert the env-selected embedding/rerank
-  provider, model instance, and tenant defaults at startup so new datasets do
+  provider, model instance, and scope defaults at startup so new datasets do
   not silently fall back to the vendor Builtin embedding model.
 - Vendor document `run` maps to Gateway status: `RUNNING` → `parsing`, `DONE` →
   `ready`, `FAIL`/`CANCEL` → `parse_failed`.
@@ -1184,9 +1388,21 @@ knowledge-queries -> /api/v1/datasets/search
 | Parser-config admin without admin permissions | `403 forbidden` |
 | Parser-config without `DATABASE_URL` in adapter mode | `502 dependency_error` |
 | Vendor runtime unreachable | `502 dependency_error` |
+| Runtime task executor heartbeat missing | Default `ingestion` mode returns degraded `/readyz`; `query` mode keeps `/readyz` ready but reports task executor diagnostics. |
+| Upload ingestion enabled while no worker is alive | Adapter still calls `/documents/parse`; deployment-owned worker scaling must consume the queued Redis Stream task. |
 | Runtime route module is outside the allowlist | It must not be registered or documented as active. |
+| Document singleton route omits `knowledgeBaseId` | `400 validation_error` with a `knowledgeBaseId` field error. |
+| Adapter scans all datasets to find one document | Treat as an adapter bug; require explicit dataset context or a bounded direct mapping. |
+| `chunkStrategy` is invalid JSON or not a JSON object | `400 validation_error`; do not silently omit `parser_config`. |
+| Vendor returns HTTP 401/403/404 with arbitrary text | Map by HTTP status to `unauthorized`/`forbidden`/`not_found`; do not inspect message substrings. |
+| Runtime route declares only legacy auth types | Reject as `unauthorized` even when `X-Service-Token` is valid. |
+| Missing runtime scope configuration | Use the documented default or reject auth clearly; never perform identity provisioning writes. |
+| Empty chunk reaches embedding/indexing | Skip it or return a validation error; never index a vector for `"None"`. |
+| Metadata fallback candidate set exceeds cap | Return a clear too-large/degraded error; pass the cap into the loader/doc-engine request and do not load the full set into memory. |
+| Retrieval raises `index_not_found_exception` for an uncreated index | Return an empty result payload. |
+| Retrieval raises another `not_found` dependency/model/provider error | Preserve typed error mapping; do not turn it into empty success by string matching. |
 | Dataset creation lacks `KNOWLEDGE_VENDOR_EMBEDDING_ID` in vendor mode | Startup/config error or documented fallback; do not claim external embedding E2E coverage. |
-| Rerank ID is not `<model>@<tenant>@<provider>` | Retrieval may return a sanitized `502 dependency_error`; fix env wiring instead of stripping rerank. |
+| Rerank ID is not `<model>@<profile>@<provider>` | Retrieval may return a sanitized `502 dependency_error`; fix env wiring instead of stripping rerank. |
 | Metadata lookup calls the binary content route and decodes JSON | Treat as an adapter bug; use dataset document-list metadata lookup. |
 | Runtime log input includes API keys/tokens/secrets | Redact before emitting logs; never rely on caller-side masking only. |
 
@@ -1195,24 +1411,32 @@ knowledge-queries -> /api/v1/datasets/search
 - Good: host-run runtime startup wires `VENDOR_RUNTIME_URL`,
   `KNOWLEDGE_VENDOR_EMBEDDING_ID`, `KNOWLEDGE_VENDOR_RERANK_ID`, and matching
   `KNOWLEDGE_RUNTIME_*` provider env keys; the runtime starts with an explicit
-  route allowlist and initializes tenant defaults for embedding and rerank.
+  route allowlist and initializes scope defaults for embedding and rerank.
 - Base: adapter unit tests use fake vendor HTTP servers to assert route paths,
   field names, metadata lookup, and sanitized vendor errors without starting
   the Python runtime.
 - Bad: forwarding parser trace fields into vendor JSON, calling the binary
   content route for metadata, using bare rerank model IDs, exposing upstream
-  RAGFlow MCP, or logging raw `sk-...` provider keys.
+  runtime MCP, or logging raw `sk-...` provider keys.
 
 ### 6. Tests Required
 
 - Runtime Python tests assert the route allowlist registers only supported
-  modules and that config logging redacts nested secret/token/API-key values.
+  modules, route auth rejects legacy-only declarations, scope handling is
+  explicit, and config logging redacts nested secret/token/API-key values.
 - Adapter Go contract tests assert dataset creation uses `embedding_model`,
   retrieval sends the configured `rerank_id`, parser trace fields are filtered,
-  and document metadata is loaded through the dataset document-list endpoint.
+  document routes require `knowledgeBaseId` without all-KB scans, invalid
+  `chunkStrategy` returns `validation_error`, stable vendor status drives error
+  classification, and document metadata is loaded through the dataset
+  document-list endpoint.
+- Runtime guardrail tests assert dataset-scope task IDs are explicit,
+  whitespace chunks are skipped or rejected before embedding, and metadata
+  fallback caps fail before unbounded in-memory scans.
 - Docker/Compose checks must include:
   `python3 scripts/check_docker_policy.py`,
-  `docker compose --env-file deploy/.env.example config --quiet`.
+  `CONFIG_SECRET_FILE=.env.example ./scripts/config/load-profile.sh --print-compose-env`,
+  `docker compose -f deploy/docker-compose.yml --env-file .local/config/dev.env config --quiet`.
 - For real runtime E2E, upload, parse, chunk, and query `DL_T_673-1999.pdf`
   when available; report document readiness, chunk count, query hit count, and
   the fact that no real provider key was committed.
@@ -1223,6 +1447,10 @@ knowledge-queries -> /api/v1/datasets/search
 
 ```text
 Compose env: KNOWLEDGE_VENDOR_RERANK_ID=BAAI/bge-reranker-v2-m3
+Adapter: DELETE /internal/v1/documents/{doc} -> scan every dataset to find kb
+Trace: embeddingModel=vendor-default, embeddingDimension=0
+Runtime auth: @login_required(auth_types=[AUTH_JWT, AUTH_API]) accepts service token
+Embedding: whitespace chunk -> encode("None") -> index vector
 Adapter: GET /api/v1/datasets/{kb}/documents/{doc} -> decode JSON metadata
 Runtime: auto-import every restful_apis module, including mcp_api and file_api
 Entrypoint: #!/usr/bin/env bash in an Alpine image without bash
@@ -1232,6 +1460,10 @@ Entrypoint: #!/usr/bin/env bash in an Alpine image without bash
 
 ```text
 Compose env: KNOWLEDGE_VENDOR_RERANK_ID=BAAI/bge-reranker-v2-m3@default@SILICONFLOW
+Adapter: DELETE /internal/v1/documents/{doc}?knowledgeBaseId={kb} -> dataset-scoped delete
+Trace: embeddingModel from config or runtime-managed, embeddingDimension=-1 when unavailable
+Runtime auth: route declaration must include GATEWAY before token is trusted
+Embedding: skip whitespace chunks before vector indexing
 Adapter: GET /api/v1/datasets/{kb}/documents?id={doc} -> read metadata
 Runtime: register only the project-required allowlisted route modules
 Entrypoint: #!/bin/sh with command args passed through Compose

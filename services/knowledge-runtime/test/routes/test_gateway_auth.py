@@ -1,9 +1,7 @@
-from contextlib import nullcontext
-from types import SimpleNamespace
+from pathlib import Path
 
-from api.utils.gateway_auth import SERVICE_TOKEN_HEADER, service_token_is_valid
-from api.utils.gateway_identity import normalize_gateway_principal_id
-from api.utils.gateway_tenant_provisioning import ensure_gateway_tenant_with_store
+from api.utils.gateway_auth import SERVICE_TOKEN_HEADER, route_allows_gateway_auth, service_token_is_valid
+from api.utils.runtime_scope import runtime_index_id, runtime_scope_id, runtime_subject
 
 
 def test_service_token_validation_fails_closed_when_env_unset(monkeypatch):
@@ -20,111 +18,47 @@ def test_service_token_validation_uses_constant_runtime_token(monkeypatch):
     assert not service_token_is_valid({})
 
 
-def test_gateway_principal_id_normalization_preserves_legacy_short_ids():
-    assert normalize_gateway_principal_id("usr_local_admin") == "usr_local_admin"
+def test_runtime_scope_defaults_to_single_global_namespace(monkeypatch):
+    monkeypatch.delenv("KNOWLEDGE_RUNTIME_SCOPE_ID", raising=False)
+
+    assert runtime_scope_id() == "knowledge_runtime"
 
 
-def test_gateway_principal_id_normalization_hashes_long_gateway_ids():
-    gateway_id = "usr_" + "a" * 32
-    normalized = normalize_gateway_principal_id(gateway_id)
+def test_runtime_scope_hashes_oversized_ids(monkeypatch):
+    monkeypatch.setenv("KNOWLEDGE_RUNTIME_SCOPE_ID", "runtime-" + "a" * 64)
+
+    normalized = runtime_scope_id()
 
     assert len(normalized) == 32
-    assert normalized.startswith("gw_")
-    assert normalize_gateway_principal_id(gateway_id) == normalized
-    assert normalized != gateway_id
+    assert normalized.startswith("rt_")
 
 
-def test_gateway_tenant_provisioning_is_idempotent_for_clean_runtime():
-    store = FakeGatewayTenantStore()
-    initialized = []
-    gateway_id = "usr_" + "b" * 32
-    runtime_id = normalize_gateway_principal_id(gateway_id)
+def test_runtime_subject_is_not_loaded_from_user_tables(monkeypatch):
+    monkeypatch.setenv("KNOWLEDGE_RUNTIME_SCOPE_ID", "runtime_scope")
 
-    defaults = {
-        "chat": "chat-model@Builtin",
-        "embedding": "embedding-model@Builtin",
-        "rerank": "rerank-model@Builtin",
-        "asr": "",
-        "image2text": "",
-        "parsers": "naive:General",
-    }
+    subject = runtime_subject()
 
-    first = ensure_gateway_tenant_with_store(
-        gateway_id,
-        store,
-        defaults=defaults,
-        id_factory=lambda: "relation_1",
-        model_initializer=initialized.append,
-    )
-    second = ensure_gateway_tenant_with_store(
-        gateway_id,
-        store,
-        defaults=defaults,
-        id_factory=lambda: "relation_2",
-        model_initializer=initialized.append,
-    )
-
-    assert first.id == runtime_id
-    assert second.id == runtime_id
-    assert store.create_user_count == 1
-    assert store.create_tenant_count == 1
-    assert store.create_user_tenant_count == 1
-    assert initialized == [runtime_id]
-    assert store.tenants[runtime_id]["embd_id"] == "embedding-model@Builtin"
-    assert store.tenants[runtime_id]["rerank_id"] == "rerank-model@Builtin"
-    assert store.user_tenants[(runtime_id, runtime_id)]["role"] == "owner"
+    assert subject.id == "runtime_scope"
+    assert subject.is_active == "1"
 
 
-class FakeGatewayTenantStore:
-    def __init__(self):
-        self.users = {}
-        self.tenants = {}
-        self.user_tenants = {}
-        self.create_user_count = 0
-        self.create_tenant_count = 0
-        self.create_user_tenant_count = 0
+def test_runtime_index_defaults_to_single_global_index(monkeypatch):
+    monkeypatch.delenv("KNOWLEDGE_RUNTIME_INDEX_ID", raising=False)
 
-    def atomic(self):
-        return nullcontext()
-
-    def get_user(self, runtime_id):
-        return _record(self.users.get(runtime_id))
-
-    def create_user(self, runtime_id, payload):
-        self.create_user_count += 1
-        self.users.setdefault(runtime_id, dict(payload))
-        return self.get_user(runtime_id)
-
-    def update_user(self, runtime_id, payload):
-        self.users[runtime_id].update(payload)
-
-    def get_tenant(self, runtime_id):
-        return _record(self.tenants.get(runtime_id))
-
-    def create_tenant(self, runtime_id, payload):
-        self.create_tenant_count += 1
-        self.tenants.setdefault(runtime_id, dict(payload))
-        return self.get_tenant(runtime_id)
-
-    def update_tenant(self, runtime_id, payload):
-        self.tenants[runtime_id].update(payload)
-
-    def get_user_tenant(self, user_id, tenant_id):
-        return _record(self.user_tenants.get((user_id, tenant_id)))
-
-    def create_user_tenant(self, user_id, tenant_id, payload):
-        self.create_user_tenant_count += 1
-        self.user_tenants.setdefault((user_id, tenant_id), dict(payload))
-        return self.get_user_tenant(user_id, tenant_id)
-
-    def update_user_tenant(self, relation_id, payload):
-        for record in self.user_tenants.values():
-            if record["id"] == relation_id:
-                record.update(payload)
-                return
+    assert runtime_index_id() == "runtime"
 
 
-def _record(value):
-    if value is None:
-        return None
-    return SimpleNamespace(**value)
+def test_runtime_route_auth_types_must_include_gateway():
+    assert route_allows_gateway_auth(None)
+    assert route_allows_gateway_auth(["JWT", "GATEWAY"])
+    assert not route_allows_gateway_auth(["JWT", "API", "BETA"])
+    assert not route_allows_gateway_auth([])
+
+
+def test_document_routes_do_not_keep_legacy_auth_only_declarations(monkeypatch):
+    monkeypatch.setenv("KNOWLEDGE_RUNTIME_SERVICE_TOKEN", "runtime-secret")
+    assert service_token_is_valid({SERVICE_TOKEN_HEADER: "runtime-secret"})
+
+    route_source = Path(__file__).parents[2] / "api" / "apps" / "restful_apis" / "document_api.py"
+    assert "@login_required(auth_types=[" not in route_source.read_text(encoding="utf-8")
+    assert not route_allows_gateway_auth(["JWT", "API", "BETA"])

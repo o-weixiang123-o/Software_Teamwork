@@ -157,7 +157,7 @@ function isProcessing(status: DocumentStatus): boolean {
 
 interface KnowledgeDocumentsPageProps {
   knowledgeBaseId?: string
-  onNavigateChunks?: (documentId: string) => void
+  onNavigateChunks?: (documentId: string, knowledgeBaseId: string) => void
 }
 
 export function KnowledgeDocumentsPage({
@@ -382,7 +382,7 @@ export function KnowledgeDocumentsPage({
       .filter(Boolean)
 
     updateMutation.mutate(
-      { id: editingDoc.id, tags },
+      { id: editingDoc.id, knowledgeBaseId: editingDoc.knowledgeBaseId, tags },
       {
         onSuccess: () => {
           setNotification({ type: 'success', text: '标签更新成功' })
@@ -406,23 +406,26 @@ export function KnowledgeDocumentsPage({
 
   const handleDelete = useCallback(() => {
     if (!deletingDoc) return
-    deleteMutation.mutate(deletingDoc.id, {
-      onSuccess: () => {
-        setNotification({ type: 'success', text: '文档已删除' })
-        setDeleteOpen(false)
-        setDeletingDoc(null)
+    deleteMutation.mutate(
+      { id: deletingDoc.id, knowledgeBaseId: deletingDoc.knowledgeBaseId },
+      {
+        onSuccess: () => {
+          setNotification({ type: 'success', text: '文档已删除' })
+          setDeleteOpen(false)
+          setDeletingDoc(null)
+        },
+        onError: (err: Error) => {
+          setNotification({
+            type: 'error',
+            text: formatGatewayCapabilityError(err, '文档删除'),
+          })
+        },
       },
-      onError: (err: Error) => {
-        setNotification({
-          type: 'error',
-          text: formatGatewayCapabilityError(err, '文档删除'),
-        })
-      },
-    })
+    )
   }, [deletingDoc, deleteMutation])
 
   const handleDownload = useCallback((doc: DocumentSummary) => {
-    getDocumentContent(doc.id)
+    getDocumentContent(doc.id, doc.knowledgeBaseId)
       .then((blob) => {
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
@@ -710,7 +713,7 @@ export function KnowledgeDocumentsPage({
                               <Button
                                 variant="ghost"
                                 size="icon-sm"
-                                onClick={() => onNavigateChunks(doc.id)}
+                                onClick={() => onNavigateChunks(doc.id, doc.knowledgeBaseId)}
                                 aria-label={`查看 ${doc.name} 分块`}
                                 title="查看分块"
                               >

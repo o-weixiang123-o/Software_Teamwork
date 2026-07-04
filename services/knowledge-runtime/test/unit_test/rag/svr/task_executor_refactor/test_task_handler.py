@@ -46,7 +46,7 @@ class TestTaskHandlerHandleTask:
         """Test handle_task delegates to handle()."""
         ctx = MagicMock()
         ctx.id = "task_1"
-        ctx.tenant_id = "tenant_1"
+        ctx.scope_id = "scope_1"
         ctx.kb_id = "kb_1"
         ctx.doc_id = "doc_1"
         ctx.has_canceled_func = MagicMock(return_value=False)
@@ -67,7 +67,7 @@ class TestTaskHandlerHandleTask:
         try:
             ctx = MagicMock()
             ctx.id = "task_1"
-            ctx.tenant_id = "tenant_1"
+            ctx.scope_id = "scope_1"
             ctx.kb_id = "kb_1"
             ctx.doc_id = "doc_1"
             ctx.has_canceled_func = MagicMock(return_value=True)
@@ -92,7 +92,7 @@ class TestTaskHandlerHandleTask:
         try:
             ctx = MagicMock()
             ctx.id = "task_1"
-            ctx.tenant_id = "tenant_1"
+            ctx.scope_id = "scope_1"
             ctx.kb_id = "kb_1"
             ctx.doc_id = "doc_1"
             ctx.has_canceled_func = MagicMock(return_value=True)
@@ -182,7 +182,7 @@ class TestTaskHandlerHandle:
         ctx = make_task_context()
 
         with patch("rag.svr.task_executor_refactor.task_handler.get_model_config_from_provider_instance") as mock_cfg, \
-             patch("rag.svr.task_executor_refactor.task_handler.get_tenant_default_model_by_type") as mock_default, \
+             patch("rag.svr.task_executor_refactor.task_handler.get_runtime_default_model_by_type") as mock_default, \
              patch("rag.svr.task_executor_refactor.task_handler.LLMBundle") as mock_bundle:
 
             mock_cfg.return_value = MagicMock()
@@ -217,7 +217,7 @@ class TestTaskHandlerBuildToc:
     def test_build_toc_with_empty_docs(self):
         """Test _build_toc returns None when run_toc_from_text returns empty."""
         ctx = MagicMock()
-        ctx.tenant_id = "tenant_1"
+        ctx.scope_id = "scope_1"
         ctx.llm_id = "llm_1"
         ctx.language = "en"
 
@@ -241,7 +241,7 @@ class TestTaskHandlerBuildToc:
     def test_build_toc_with_results(self):
         """Test _build_toc builds TOC chunk when results exist."""
         ctx = MagicMock()
-        ctx.tenant_id = "tenant_1"
+        ctx.scope_id = "scope_1"
         ctx.llm_id = "llm_1"
         ctx.language = "en"
 

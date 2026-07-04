@@ -8,6 +8,12 @@ import (
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/service"
 )
 
+const (
+	retrievalScopeHeader  = "X-Knowledge-Retrieval-Scope"
+	retrievalScopeProject = "project"
+	callerServiceQA       = "qa"
+)
+
 func (s *Server) requireServiceToken(w http.ResponseWriter, r *http.Request) bool {
 	if !strings.HasPrefix(r.URL.Path, "/internal/v1/") {
 		return true
@@ -55,6 +61,13 @@ func readScope(reqCtx service.RequestContext) (service.AccessScope, error) {
 		return service.AccessScope{}, service.ForbiddenError("knowledge read permission is required")
 	}
 	return scope, nil
+}
+
+func trustedProjectRetrievalScope(reqCtx service.RequestContext, r *http.Request) bool {
+	if !strings.EqualFold(strings.TrimSpace(r.Header.Get(retrievalScopeHeader)), retrievalScopeProject) {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(reqCtx.CallerService), callerServiceQA)
 }
 
 func mutationScope(reqCtx service.RequestContext) (service.AccessScope, error) {

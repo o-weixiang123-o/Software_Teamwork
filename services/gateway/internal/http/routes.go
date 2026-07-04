@@ -17,6 +17,7 @@ type routeSpec struct {
 
 var modelProfileAdminPermissions = []string{"system:admin", "admin:model-profile:write"}
 var parserConfigAdminPermissions = []string{"system:admin", "knowledge:admin", "admin:parser-config:write"}
+var knowledgeWritePermissions = []string{"system:admin", "knowledge:admin", "knowledge:write"}
 var dashboardAdminPermissions = []string{"system:admin"}
 var qaSettingsReadPermissions = []string{"qa:settings:read"}
 var qaSettingsWritePermissions = []string{"qa:settings:write"}
@@ -24,15 +25,15 @@ var userAdminRoles = []string{"admin", "super_admin"}
 
 var activeProxyRoutes = []routeSpec{
 	{Method: "GET", Pattern: "/api/v1/knowledge-bases", Owner: "knowledge", OperationID: "listKnowledgeBases"},
-	{Method: "POST", Pattern: "/api/v1/knowledge-bases", Owner: "knowledge", OperationID: "createKnowledgeBase"},
+	{Method: "POST", Pattern: "/api/v1/knowledge-bases", Owner: "knowledge", OperationID: "createKnowledgeBase", AdminPermissions: knowledgeWritePermissions},
 	{Method: "GET", Pattern: "/api/v1/knowledge-bases/{knowledgeBaseId}", Owner: "knowledge", OperationID: "getKnowledgeBase"},
-	{Method: "PATCH", Pattern: "/api/v1/knowledge-bases/{knowledgeBaseId}", Owner: "knowledge", OperationID: "updateKnowledgeBase"},
-	{Method: "DELETE", Pattern: "/api/v1/knowledge-bases/{knowledgeBaseId}", Owner: "knowledge", OperationID: "deleteKnowledgeBase"},
+	{Method: "PATCH", Pattern: "/api/v1/knowledge-bases/{knowledgeBaseId}", Owner: "knowledge", OperationID: "updateKnowledgeBase", AdminPermissions: knowledgeWritePermissions},
+	{Method: "DELETE", Pattern: "/api/v1/knowledge-bases/{knowledgeBaseId}", Owner: "knowledge", OperationID: "deleteKnowledgeBase", AdminPermissions: knowledgeWritePermissions},
 	{Method: "GET", Pattern: "/api/v1/knowledge-bases/{knowledgeBaseId}/documents", Owner: "knowledge", OperationID: "listKnowledgeBaseDocuments"},
-	{Method: "POST", Pattern: "/api/v1/knowledge-bases/{knowledgeBaseId}/documents", Owner: "knowledge", OperationID: "uploadKnowledgeBaseDocument"},
+	{Method: "POST", Pattern: "/api/v1/knowledge-bases/{knowledgeBaseId}/documents", Owner: "knowledge", OperationID: "uploadKnowledgeBaseDocument", AdminPermissions: knowledgeWritePermissions},
 	{Method: "GET", Pattern: "/api/v1/documents/{documentId}", Owner: "knowledge", OperationID: "getDocument"},
-	{Method: "PATCH", Pattern: "/api/v1/documents/{documentId}", Owner: "knowledge", OperationID: "updateDocument"},
-	{Method: "DELETE", Pattern: "/api/v1/documents/{documentId}", Owner: "knowledge", OperationID: "deleteDocument"},
+	{Method: "PATCH", Pattern: "/api/v1/documents/{documentId}", Owner: "knowledge", OperationID: "updateDocument", AdminPermissions: knowledgeWritePermissions},
+	{Method: "DELETE", Pattern: "/api/v1/documents/{documentId}", Owner: "knowledge", OperationID: "deleteDocument", AdminPermissions: knowledgeWritePermissions},
 	{Method: "GET", Pattern: "/api/v1/documents/{documentId}/chunks", Owner: "knowledge", OperationID: "listDocumentChunks"},
 	{Method: "GET", Pattern: "/api/v1/documents/{documentId}/content", Owner: "knowledge", OperationID: "getDocumentContent"},
 	{Method: "POST", Pattern: "/api/v1/knowledge-queries", Owner: "knowledge", OperationID: "createKnowledgeQuery", DownstreamPattern: "/internal/v1/knowledge-queries"},

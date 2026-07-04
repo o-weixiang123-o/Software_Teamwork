@@ -5,7 +5,7 @@ import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 import { lookupCitations } from '@/api/citations'
-import { getDocumentContent } from '@/api/knowledge'
+import { getDocumentContentFromEndpoint } from '@/api/knowledge'
 import ReportArtifactCard from '@/components/chat/report-artifact-card'
 import { InlineNotice } from '@/components/common'
 import { Button } from '@/components/ui/button'
@@ -33,10 +33,6 @@ type CitationLike = QACitation | QACitationDetail
 type MarkdownComponentProps = {
   children?: ReactNode
 } & Record<string, unknown>
-
-function citationDocumentId(citation: CitationLike): string {
-  return citation.documentId ?? citation.docId ?? ''
-}
 
 function citationDocumentName(citation: CitationLike): string {
   return citation.documentName ?? citation.docName ?? '未知文档'
@@ -129,13 +125,14 @@ function CitationTooltip({
           .join(',')}]`)
 
   async function handleDownload(citation: CitationLike) {
-    const documentId = citationDocumentId(citation)
-    if (!documentId || downloadingId) return
+    const source = (citation as QACitationDetail).source
+    const downloadEndpoint = source?.available ? source.downloadEndpoint : undefined
+    if (!downloadEndpoint || downloadingId) return
 
     setDownloadError(null)
     setDownloadingId(citation.id)
     try {
-      const blob = await getDocumentContent(documentId)
+      const blob = await getDocumentContentFromEndpoint(downloadEndpoint)
       const url = URL.createObjectURL(blob)
       downloadFromUrl(url, downloadFilename(citation))
       setTimeout(() => URL.revokeObjectURL(url), 1000)
@@ -176,11 +173,11 @@ function CitationTooltip({
 
           <div className="space-y-4">
             {effectiveCitations.map((citation) => {
-              const documentId = citationDocumentId(citation)
               const source = (citation as QACitationDetail).source
               const sourceAvailability = source?.available ?? citation.isSourceAvailable
               const sourceAvailable = sourceAvailability === true
               const sourceUnavailable = sourceAvailability === false
+              const downloadEndpoint = source?.available ? source.downloadEndpoint : undefined
               const score = formatPercent(citation.score)
               const rerankScore = formatPercent(citation.rerankScore)
               const content = citationContent(citation)
@@ -201,7 +198,7 @@ function CitationTooltip({
                         {citation.citationNo != null ? `[${citation.citationNo}]` : citation.id}
                       </div>
                     </div>
-                    {sourceAvailable && documentId && (
+                    {sourceAvailable && downloadEndpoint && (
                       <Button
                         aria-label="下载原文"
                         className="h-7 shrink-0 px-2"

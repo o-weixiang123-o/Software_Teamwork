@@ -104,6 +104,42 @@ func TestCompleteSendsFunctionToolsAndParsesToolCalls(t *testing.T) {
 	}
 }
 
+func TestCompleteOmitsModelWhenProfileOnly(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := request["model"]; ok {
+			t.Fatalf("request included model: %+v", request)
+		}
+		if request["profile_id"] != "profile-chat" {
+			t.Fatalf("profile_id = %#v, want profile-chat", request["profile_id"])
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+          "choices":[{
+            "message":{"role":"assistant","content":"ok"},
+            "finish_reason":"stop"
+          }],
+          "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
+        }`))
+	}))
+	defer server.Close()
+
+	client, err := New(Config{Endpoint: "http://localhost:8086/internal/v1/chat/completions", TokenHeader: "X-Service-Token", ProfileID: "profile-chat", MaxTokens: 100, Timeout: time.Second, transport: newTestTransport(t, server.URL)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	completion, err := client.Complete(context.Background(), []agent.Message{{Role: agent.RoleUser, Content: "hi"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completion.Message.Content != "ok" {
+		t.Fatalf("content = %q, want ok", completion.Message.Content)
+	}
+}
+
 func TestCompleteParsesReasoningContentFromJSONResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

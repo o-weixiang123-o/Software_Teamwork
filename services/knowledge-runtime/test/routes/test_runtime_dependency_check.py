@@ -66,3 +66,91 @@ def test_dependency_check_requires_key_for_external_embedding(tmp_path):
     )
 
     assert any("KNOWLEDGE_RUNTIME_MODEL_API_KEY is empty" in issue for issue in issues)
+
+
+def test_worker_dependency_check_requires_nltk_data(tmp_path):
+    path = write_config(tmp_path)
+
+    issues = deps.validate(
+        path,
+        environ={
+            "KNOWLEDGE_RUNTIME_REQUIRE_NLTK_DATA": "1",
+            "NLTK_DATA": str(tmp_path / "missing-nltk"),
+            "KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY": "SILICONFLOW",
+            "KNOWLEDGE_RUNTIME_EMBEDDING_MODEL": "BAAI/bge-m3",
+            "KNOWLEDGE_RUNTIME_MODEL_API_KEY": "sk-test",
+        },
+        http_checker=lambda _url: None,
+    )
+
+    assert any("Worker startup requires NLTK data" in issue for issue in issues)
+
+
+def test_worker_dependency_check_accepts_provisioned_nltk_data(tmp_path):
+    path = write_config(tmp_path)
+    nltk_data = tmp_path / "nltk_data"
+    (nltk_data / "tokenizers" / "punkt_tab").mkdir(parents=True)
+    (nltk_data / "corpora" / "wordnet").mkdir(parents=True)
+
+    issues = deps.validate(
+        path,
+        environ={
+            "KNOWLEDGE_RUNTIME_REQUIRE_NLTK_DATA": "1",
+            "NLTK_DATA": str(nltk_data),
+            "KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY": "SILICONFLOW",
+            "KNOWLEDGE_RUNTIME_EMBEDDING_MODEL": "BAAI/bge-m3",
+            "KNOWLEDGE_RUNTIME_MODEL_API_KEY": "sk-test",
+        },
+        http_checker=lambda _url: None,
+    )
+
+    assert issues == []
+
+
+def test_dependency_check_accepts_ai_gateway_embedding_with_service_token(tmp_path):
+    path = write_config(tmp_path)
+
+    issues = deps.validate(
+        path,
+        environ={
+            "KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY": "AI_GATEWAY",
+            "KNOWLEDGE_RUNTIME_EMBEDDING_MODEL": "BAAI/bge-m3",
+            "KNOWLEDGE_RUNTIME_AI_GATEWAY_SERVICE_TOKEN": "local-service-token",
+        },
+        http_checker=lambda _url: None,
+    )
+
+    assert issues == []
+
+
+def test_dependency_check_requires_ai_gateway_service_token(tmp_path):
+    path = write_config(tmp_path)
+
+    issues = deps.validate(
+        path,
+        environ={
+            "KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY": "AI_GATEWAY",
+            "KNOWLEDGE_RUNTIME_EMBEDDING_MODEL": "BAAI/bge-m3",
+        },
+        http_checker=lambda _url: None,
+    )
+
+    assert any("KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY=AI_GATEWAY requires" in issue for issue in issues)
+
+
+def test_dependency_check_validates_configured_rerank_credentials(tmp_path):
+    path = write_config(tmp_path)
+
+    issues = deps.validate(
+        path,
+        environ={
+            "KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY": "AI_GATEWAY",
+            "KNOWLEDGE_RUNTIME_EMBEDDING_MODEL": "BAAI/bge-m3",
+            "KNOWLEDGE_RUNTIME_AI_GATEWAY_SERVICE_TOKEN": "local-service-token",
+            "KNOWLEDGE_RUNTIME_RERANK_FACTORY": "SILICONFLOW",
+            "KNOWLEDGE_RUNTIME_RERANK_MODEL": "BAAI/bge-reranker-v2-m3",
+        },
+        http_checker=lambda _url: None,
+    )
+
+    assert any("KNOWLEDGE_RUNTIME_RERANK_FACTORY/MODEL are set" in issue for issue in issues)

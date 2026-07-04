@@ -332,7 +332,7 @@ paths:
         schema:
           type: integer
           minimum: 1
-          maximum: 200
+          maximum: 100
           default: 20
       responses:
         '200':
@@ -349,6 +349,11 @@ paths:
       summary: Create knowledge base
       operationId: createKnowledgeBase
       x-owner-service: knowledge
+      x-required-permissions:
+      - knowledge:write
+      - knowledge:admin
+      - system:admin
+      description: Create a knowledge base. Standard users with only `knowledge:read` cannot create knowledge bases.
       requestBody:
         required: true
         content:
@@ -388,6 +393,10 @@ paths:
       summary: Update knowledge base
       operationId: updateKnowledgeBase
       x-owner-service: knowledge
+      x-required-permissions:
+      - knowledge:write
+      - knowledge:admin
+      - system:admin
       requestBody:
         required: true
         content:
@@ -412,6 +421,11 @@ paths:
       summary: Delete knowledge base
       operationId: deleteKnowledgeBase
       x-owner-service: knowledge
+      x-required-permissions:
+      - knowledge:write
+      - knowledge:admin
+      - system:admin
+      description: Delete a knowledge base. Standard users with only `knowledge:read` cannot delete knowledge bases.
       responses:
         '204':
           description: Knowledge base deleted.
@@ -440,7 +454,7 @@ paths:
         schema:
           type: integer
           minimum: 1
-          maximum: 200
+          maximum: 100
           default: 20
       - name: status
         in: query
@@ -464,7 +478,11 @@ paths:
       summary: Upload a document to a knowledge base
       operationId: uploadKnowledgeBaseDocument
       x-owner-service: knowledge
-      description: Gateway exposes the knowledge-base document upload workflow. Knowledge service owns the document resource, knowledge-base association, metadata, ingestion state, chunks, embeddings, and retrieval lifecycle through its runtime adapter. Report templates, report materials, and generated report files are separate document-owned resources and must not be modeled through this path.
+      x-required-permissions:
+      - knowledge:write
+      - knowledge:admin
+      - system:admin
+      description: Gateway exposes the knowledge-base document upload workflow. Knowledge service owns the document resource, knowledge-base association, metadata, ingestion state, chunks, embeddings, and retrieval lifecycle through its runtime adapter. Standard users with only `knowledge:read` cannot upload documents. Report templates, report materials, and generated report files are separate document-owned resources and must not be modeled through this path.
       requestBody:
         required: true
         content:
@@ -493,6 +511,7 @@ paths:
   /api/v1/documents/{documentId}:
     parameters:
     - $ref: '#/components/parameters/DocumentId'
+    - $ref: '#/components/parameters/DocumentKnowledgeBaseId'
     get:
       tags:
       - knowledge
@@ -506,6 +525,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DocumentResponse'
+        '400':
+          $ref: '#/components/responses/Error'
         '404':
           $ref: '#/components/responses/Error'
     patch:
@@ -514,6 +535,10 @@ paths:
       summary: Update document tags
       operationId: updateDocument
       x-owner-service: knowledge
+      x-required-permissions:
+      - knowledge:write
+      - knowledge:admin
+      - system:admin
       requestBody:
         required: true
         content:
@@ -527,6 +552,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DocumentResponse'
+        '400':
+          $ref: '#/components/responses/Error'
         '404':
           $ref: '#/components/responses/Error'
       description: Update knowledge-owned document metadata only. File service base object metadata and knowledge-owned processing fields are not mutated by this operation.
@@ -536,15 +563,22 @@ paths:
       summary: Delete document
       operationId: deleteDocument
       x-owner-service: knowledge
+      x-required-permissions:
+      - knowledge:write
+      - knowledge:admin
+      - system:admin
       responses:
         '204':
           description: Document deleted.
+        '400':
+          $ref: '#/components/responses/Error'
         '404':
           $ref: '#/components/responses/Error'
-      description: Delete the knowledge-owned document resource. Knowledge service coordinates RAGFlow runtime document, chunk, and index lifecycle through its document adapter; no File reference is exposed in the public contract.
+      description: Delete the knowledge-owned document resource. Knowledge service coordinates Knowledge runtime document, chunk, and index lifecycle through its document adapter; no File reference is exposed in the public contract.
   /api/v1/documents/{documentId}/chunks:
     parameters:
     - $ref: '#/components/parameters/DocumentId'
+    - $ref: '#/components/parameters/DocumentKnowledgeBaseId'
     get:
       tags:
       - knowledge
@@ -565,7 +599,7 @@ paths:
         schema:
           type: integer
           minimum: 1
-          maximum: 500
+          maximum: 100
           default: 50
       responses:
         '200':
@@ -587,6 +621,7 @@ paths:
       x-owner-service: knowledge
       parameters:
       - $ref: '#/components/parameters/DocumentId'
+      - $ref: '#/components/parameters/DocumentKnowledgeBaseId'
       responses:
         '200':
           description: Original file stream.
@@ -595,6 +630,8 @@ paths:
               schema:
                 type: string
                 format: binary
+        '400':
+          $ref: '#/components/responses/Error'
         '404':
           $ref: '#/components/responses/Error'
       description: Return the original knowledge document content through gateway. Knowledge service owns the document content resource and serves it through the Knowledge runtime boundary.
@@ -605,7 +642,9 @@ paths:
       summary: Create knowledge query
       operationId: createKnowledgeQuery
       x-owner-service: knowledge
-      description: Run a resource-mode knowledge retrieval query. Query execution is modeled as creating a knowledge-query resource, not as an action-style search path.
+      x-required-permissions:
+      - knowledge:read
+      description: Run a resource-mode knowledge retrieval query. Query execution is modeled as creating a knowledge-query resource, not as an action-style search path. Standard users have `knowledge:read` by default and may use this retrieval endpoint directly. Empty or uncreated runtime indexes return 201 with an empty results array. Invalid dataset combinations, document filters, or metadata filters return validation_error. Missing or hidden knowledge bases return not_found. Runtime retrieval, runtime authentication, model, or index infrastructure failures return dependency_error.
       requestBody:
         required: true
         content:
@@ -621,7 +660,13 @@ paths:
                 $ref: '#/components/schemas/KnowledgeQueryResponse'
         '400':
           $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
         '404':
+          $ref: '#/components/responses/Error'
+        '502':
           $ref: '#/components/responses/Error'
   /api/v1/admin/users:
     get:
@@ -2632,7 +2677,9 @@ paths:
       summary: Create QA retrieval test run
       operationId: createQARetrievalTestRun
       x-owner-service: qa
-      description: Creates an administrator retrieval experience test for QA settings. Knowledge retrieval remains owned by the knowledge service; QA stores the test run and sanitized result snapshot.
+      x-required-permissions:
+      - qa:use
+      description: Creates a QA retrieval experience test for the authenticated user. Standard users with `qa:use` may run retrieval tests; QA settings, metrics, and model connection tests remain management-only resources. Knowledge retrieval remains owned by the knowledge service; QA stores the test run and sanitized result snapshot.
       requestBody:
         required: true
         content:
@@ -2664,6 +2711,9 @@ paths:
       summary: Get QA retrieval test run
       operationId: getQARetrievalTestRun
       x-owner-service: qa
+      x-required-permissions:
+      - qa:use
+      description: Returns a QA retrieval test run owned by the authenticated user.
       responses:
         '200':
           description: QA retrieval test run.
@@ -2877,6 +2927,14 @@ components:
       required: true
       schema:
         type: string
+    DocumentKnowledgeBaseId:
+      name: knowledgeBaseId
+      in: query
+      required: true
+      description: Required knowledge base context for runtime-backed document detail, chunk, and content operations; the adapter must not infer it by scanning all knowledge bases.
+      schema:
+        type: string
+        minLength: 1
     ReportId:
       name: reportId
       in: path
@@ -3736,7 +3794,6 @@ components:
           nullable: true
         embeddingDimension:
           type: integer
-          minimum: 1
           nullable: true
         metadata:
           $ref: '#/components/schemas/JsonObject'
@@ -3770,6 +3827,11 @@ components:
           type: array
           items:
             type: string
+          description: >
+            Optional QA retrieval narrowing scope. When omitted and the active
+            QA config has no defaultKnowledgeBaseIds, QA uses the project-wide
+            knowledge pool rather than the current user's Knowledge management
+            visibility.
         topK:
           type: integer
           minimum: 1
@@ -3836,7 +3898,6 @@ components:
       - embeddingProvider
       - embeddingModel
       - embeddingDimension
-      - qdrantCollection
       - searchTopK
       - scoreThreshold
       - hitCount
@@ -3848,9 +3909,8 @@ components:
           type: string
         embeddingDimension:
           type: integer
-          minimum: 1
-        qdrantCollection:
-          type: string
+          minimum: -1
+          description: Runtime-managed dimension; -1 means unavailable from the vendor runtime.
         searchTopK:
           type: integer
           minimum: 1
@@ -6154,7 +6214,7 @@ components:
                 type: string
               downloadEndpoint:
                 type: string
-                description: Gateway document content endpoint when the original source is available.
+                description: Gateway document content endpoint, including the required knowledgeBaseId query, when the original source is available to the current user.
     QACitationListResponse:
       type: object
       required:
@@ -6232,6 +6292,9 @@ components:
           type: array
           items:
             type: string
+          description: >
+            Optional default QA retrieval allowlist. An empty list means QA does
+            not narrow retrieval and uses the project-wide knowledge pool.
         knowledgeBases:
           type: array
           items:
@@ -6305,6 +6368,9 @@ components:
           type: array
           items:
             type: string
+          description: >
+            Optional default QA retrieval allowlist. An empty list means QA does
+            not narrow retrieval and uses the project-wide knowledge pool.
         knowledgeBases:
           type: array
           items:
@@ -6395,7 +6461,6 @@ components:
       required:
       - provider
       - profileId
-      - modelName
       properties:
         provider:
           type: string
@@ -6431,7 +6496,6 @@ components:
       required:
       - provider
       - profileId
-      - modelName
       properties:
         provider:
           type: string
@@ -6507,6 +6571,11 @@ components:
           type: array
           items:
             type: string
+          description: >
+            Optional QA retrieval narrowing scope. When omitted and the active
+            QA config has no defaultKnowledgeBaseIds, QA uses the project-wide
+            knowledge pool rather than the current user's Knowledge management
+            visibility.
         retrieval:
           $ref: '#/components/schemas/QARetrievalOptions'
         overrides:

@@ -53,7 +53,7 @@ func TestLoadDefaultConfiguration(t *testing.T) {
 	if cfg.AIGatewayURL != defaultAIGatewayURL ||
 		cfg.AIGatewayToken != "test-service-token" ||
 		cfg.AIGatewayTokenHeader != defaultAIGatewayTokenHeader ||
-		cfg.ModelID != "deepseek-chat" ||
+		cfg.ModelID != "" ||
 		cfg.AIGatewayStream {
 		t.Fatalf("unexpected AI Gateway defaults: %+v", cfg)
 	}

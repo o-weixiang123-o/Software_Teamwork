@@ -372,7 +372,7 @@ Tool contracts:
 - CRUD tools → matching `/internal/v1/knowledge-bases*` and `/internal/v1/documents*` adapter routes.
 - `create_document` → decode `fileContentBase64`, `Bridge.DoMultipart` to upload route.
 
-Do **not** expose RAGFlow upstream MCP (`--enable-mcpserver`) as the product tool surface.
+Do **not** expose the bundled runtime MCP (`--enable-mcpserver`) as the product tool surface.
 
 ### 4. Validation & Error Matrix
 
@@ -388,7 +388,7 @@ Do **not** expose RAGFlow upstream MCP (`--enable-mcpserver`) as the product too
 
 - Good: QA calls `search_knowledge` via Streamable HTTP; Knowledge forwards to adapter; citations returned for QA snapshot projection.
 - Base: MCP disabled; Gateway REST on `:8083` only.
-- Bad: QA calls RAGFlow runtime MCP on `:9382`; duplicate auth models; bypass adapter contract.
+- Bad: QA calls Knowledge runtime MCP on `:9382`; duplicate auth models; bypass adapter contract.
 
 ### 6. Tests Required
 
@@ -402,7 +402,7 @@ Do **not** expose RAGFlow upstream MCP (`--enable-mcpserver`) as the product too
 
 ```text
 Document service -> knowledge-runtime :9380 /api/v1/datasets/search
-QA -> RAGFlow MCP with API key auth
+QA -> runtime MCP with API key auth
 ```
 
 #### Correct
@@ -411,4 +411,196 @@ QA -> RAGFlow MCP with API key auth
 QA MCP Client -> KNOWLEDGE_MCP_ADDR (Streamable HTTP)
 Knowledge MCP -> Bridge -> adapter handlers -> vendorclient -> knowledge-runtime
 answer_from_knowledge -> Bridge retrieval -> KNOWLEDGE_AI_GATEWAY_URL chat
+```
+
+## Scenario: QA Project-Global Knowledge Retrieval
+
+### 1. Scope / Trigger
+
+- Trigger: changing QA long-term RAG scope, QA retrieval test authorization, QA
+  `defaultKnowledgeBaseIds`, Knowledge MCP search behavior, Knowledge
+  `knowledge-queries`, citation generation, citation source visibility checks,
+  Auth role seeds, or runtime identity configuration.
+- QA owns user-facing permission to ask questions. Knowledge owns persistent
+  knowledge bases, documents, parsing, embedding, and retrieval execution.
+- Session attachments are a separate temporary QA context source and must not be
+  inserted into persistent Knowledge indexes as part of QA ask handling.
+
+### 2. Signatures
+
+QA direct retrieval uses the Knowledge internal resource:
+
+```text
+POST /internal/v1/knowledge-queries
+```
+
+Trusted QA retrieval headers:
+
+```text
+X-Service-Token: <internal service token>
+X-Caller-Service: qa
+X-Knowledge-Retrieval-Scope: project
+X-User-Id: <authenticated QA user for audit context>
+X-Request-Id: <optional request id>
+```
+
+QA citation source validation uses the normal Knowledge document read resource
+and must include the concrete knowledge base:
+
+```text
+GET /internal/v1/documents/{documentId}?knowledgeBaseId={knowledgeBaseId}
+X-Service-Token: <internal service token>
+X-Caller-Service: qa
+X-User-Id: <authenticated QA user>
+X-User-Permissions: <gateway/auth permissions, including knowledge:read for standard users>
+X-Request-Id: <optional request id>
+```
+
+QA retrieval test runs use the QA resource:
+
+```text
+POST /internal/v1/retrieval-test-runs
+GET  /internal/v1/retrieval-test-runs/{testRunId}
+X-Service-Token: <internal service token>
+X-User-Id: <authenticated QA user>
+X-User-Permissions: <gateway/auth permissions, including qa:use for standard users>
+X-Request-Id: <optional request id>
+```
+
+Knowledge runtime identity configuration:
+
+```text
+KNOWLEDGE_PROJECT_RUNTIME_USER_ID=<runtime user id>
+```
+
+Default:
+
+```text
+KNOWLEDGE_PROJECT_RUNTIME_USER_ID defaults to KNOWLEDGE_MCP_USER_ID
+KNOWLEDGE_MCP_USER_ID defaults to knowledge_mcp_service
+```
+
+### 3. Contracts
+
+- QA `defaultKnowledgeBaseIds` is an optional narrowing allowlist for long-term
+  Knowledge retrieval. Empty means "do not narrow", not "disable RAG".
+- A QA request with no explicit `knowledgeBaseIds` and an empty active
+  `defaultKnowledgeBaseIds` must use the project-wide QA RAG pool.
+- A non-empty active `defaultKnowledgeBaseIds` becomes the default retrieval
+  scope when the request omits `knowledgeBaseIds`.
+- When both non-empty defaults and explicit request `knowledgeBaseIds` exist,
+  QA must reject IDs outside the default allowlist before calling Knowledge.
+- A standard QA user does not need Knowledge management `knowledge:read` to
+  retrieve through QA's trusted path.
+- In this project, Auth grants `knowledge:read` to the `standard` role so
+  normal users can open cited Knowledge sources through the regular document,
+  chunk, and content APIs, and so they can use direct
+  `/api/v1/knowledge-queries` retrieval.
+- In this project, Auth grants `qa:use` to the `standard` role so normal users
+  can create and read their own QA retrieval test runs. QA settings, LLM
+  connection tests, and QA metrics remain management-only resources.
+- Knowledge management APIs keep normal `knowledge:read` / `knowledge:write`
+  authorization. Only trusted QA retrieval uses
+  `X-Knowledge-Retrieval-Scope: project`.
+- Knowledge resolves the project pool by listing/searching runtime datasets
+  visible to `KNOWLEDGE_PROJECT_RUNTIME_USER_ID`.
+- QA must send the project retrieval scope header for direct
+  `knowledge-queries` retrieval only. It must not send the project scope header
+  when checking citation source availability or document content access.
+- QA citation source checks must pass both `knowledgeBaseId` and `documentId`;
+  missing values fail closed and do not trigger a project-wide document scan.
+- Citation download links use
+  `/api/v1/documents/{documentId}/content?knowledgeBaseId={knowledgeBaseId}`.
+- Knowledge MCP search may omit `knowledgeBaseIds`; an empty list delegates to
+  the adapter's project/runtime pool. The QA MCP guard still injects narrowed
+  IDs when request/default QA scope is non-empty.
+- Disabling long-term RAG is done by removing `search_knowledge` /
+  `knowledge__search` from the enabled tool list, not by setting an empty
+  default knowledge-base list.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Direct Knowledge caller lacks `knowledge:read` and has no trusted QA project scope header | `403 forbidden`. |
+| Standard user with `knowledge:read` calls direct `knowledge-queries` | Retrieval proceeds through the normal Knowledge read path. |
+| Trusted QA caller has project scope header and user lacks `knowledge:read` | Retrieval proceeds under project runtime identity. |
+| QA user with `qa:use` creates a retrieval test run | QA stores a user-owned retrieval test and calls Knowledge retrieval without exposing settings secrets. |
+| QA retrieval test caller lacks `qa:use` | `403 forbidden`. |
+| Caller reads another user's retrieval test run | `404 not_found` through repository owner filtering. |
+| QA citation source check sends project scope header | Contract violation; source checks must use user-scoped document read. |
+| QA citation source lacks `knowledgeBaseId` or `documentId` | Source availability is false; do not call Knowledge. |
+| Standard user opens cited source and has `knowledge:read` | Knowledge returns document/content through normal read authorization. |
+| QA default allowlist is non-empty and request includes an outside KB id | QA rejects before retrieval or returns an error tool result; do not call Knowledge with the outside id. |
+| Request/default scope is empty and project runtime identity has no visible KBs | Knowledge returns `400 validation_error` for no project knowledge bases. |
+| Runtime rejects an explicit/default KB under project identity | Map to the existing sanitized Knowledge/QA dependency or forbidden error path. |
+
+### 5. Good/Base/Bad Cases
+
+- Good: QA asks with no KB filter, Knowledge receives trusted project scope,
+  expands dataset ids with `KNOWLEDGE_PROJECT_RUNTIME_USER_ID`, and searches the
+  project pool.
+- Good: QA config has `defaultKnowledgeBaseIds=["kb_a"]`; direct and MCP
+  retrieval both use only `kb_a` unless the request supplies a subset.
+- Base: Knowledge search UI calls the same `knowledge-queries` endpoint with
+  `knowledge:read`; it keeps user-scoped read authorization.
+- Base: QA retrieval test UI calls `retrieval-test-runs` with `qa:use`; it does
+  not require `qa:settings:*` and cannot read full QA settings or metrics.
+- Base: QA citation lookup calls Knowledge document detail with
+  `knowledgeBaseId` and user permissions; no project scope header is present.
+- Bad: require the end user's `knowledge:read` for QA answers, use the end user's
+  runtime identity to expand empty QA retrieval scope, or interpret empty defaults
+  as disabled RAG.
+- Bad: use project retrieval scope to validate citation document availability,
+  because that can mark a source downloadable even when the user cannot read the
+  concrete document through Knowledge APIs.
+
+### 6. Tests Required
+
+- QA service tests: empty default preserves global retrieval semantics; non-empty
+  default narrows; outside explicit IDs are rejected.
+- QA Knowledge client tests: trusted retrieval includes
+  `X-Knowledge-Retrieval-Scope: project`; citation source checks omit it,
+  include `knowledgeBaseId`, and propagate user permissions.
+- Knowledge adapter tests: trusted QA `knowledge-queries` without
+  `knowledge:read` uses project runtime identity for dataset listing and search.
+- Knowledge adapter tests: document detail/chunk/content reads require
+  `knowledge:read` and `knowledgeBaseId`; project retrieval scope does not
+  bypass document read authorization.
+- Auth migration tests or review: `standard` has `knowledge:read` after all
+  migrations, including existing databases upgraded by the patch migration.
+- QA HTTP tests: `retrieval-test-runs` accepts `qa:use`, rejects callers without
+  `qa:use`, and reads runs through owner-filtered repository calls.
+- Frontend route tests: direct knowledge search requires `knowledge:read`, QA
+  retrieval test requires `qa:use`, and admin-only settings routes still require
+  settings/admin authorities.
+- Knowledge MCP/QA manager tests: MCP `search_knowledge` can omit IDs for global
+  scope and receives injected narrowed IDs when QA scope is non-empty.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```text
+QA user without knowledge:read
+-> QA forwards only X-User-Id
+-> Knowledge readScope rejects retrieval with 403
+```
+
+#### Correct
+
+```text
+QA user with qa:use
+-> QA forwards X-Caller-Service: qa and X-Knowledge-Retrieval-Scope: project
+-> Knowledge keeps X-User-Id for audit context
+-> Knowledge lists/searches using KNOWLEDGE_PROJECT_RUNTIME_USER_ID
+```
+
+#### Citation Source Correct
+
+```text
+Standard QA user opens citation
+-> QA validates source with documentId + knowledgeBaseId and normal user permissions
+-> Knowledge readScope authorizes knowledge:read
+-> Gateway serves /api/v1/documents/{documentId}/content?knowledgeBaseId={knowledgeBaseId}
 ```

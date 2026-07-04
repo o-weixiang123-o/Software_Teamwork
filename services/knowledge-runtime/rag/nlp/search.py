@@ -28,10 +28,11 @@ from common.float_utils import get_float
 from common.constants import PAGERANK_FLD, TAG_FLD
 from common.tag_feature_utils import parse_tag_features
 from common import settings
+from api.utils.runtime_scope import runtime_index_id
 
 from common.misc_utils import thread_pool_exec
 
-def index_name(uid): return f"ragflow_{uid}"
+def index_name(_uid=None): return f"ragflow_{runtime_index_id()}"
 
 
 class Dealer:
@@ -400,7 +401,7 @@ class Dealer:
         return self.dataStore.get_scores(res)
 
     async def fetch_chunk_vectors(self, chunk_ids: list[str],
-                                  tenant_ids: str | list[str],
+                                  scope_ids: str | list[str],
                                   kb_ids: list[str],
                                   dim: int) -> dict[str, list[float]]:
         """
@@ -411,10 +412,10 @@ class Dealer:
         """
         if not chunk_ids:
             return {}
-        if isinstance(tenant_ids, str):
-            idx_names = [index_name(tid) for tid in tenant_ids.split(",")]
+        if isinstance(scope_ids, str):
+            idx_names = [index_name(tid) for tid in scope_ids.split(",")]
         else:
-            idx_names = [index_name(tid) for tid in tenant_ids]
+            idx_names = [index_name(tid) for tid in scope_ids]
         vec_field = f"q_{dim}_vec"
         res = await thread_pool_exec(
             self.dataStore.search,
@@ -574,7 +575,7 @@ class Dealer:
             self,
             question,
             embd_mdl,
-            tenant_ids,
+            scope_ids,
             kb_ids,
             page,
             page_size,
@@ -613,10 +614,10 @@ class Dealer:
         }
         logging.debug(f"[Search] global_offset={global_offset}, rerank_limit={RERANK_LIMIT}, page_size={page_size}, page={page}")
 
-        if isinstance(tenant_ids, str):
-            tenant_ids = tenant_ids.split(",")
+        if isinstance(scope_ids, str):
+            scope_ids = scope_ids.split(",")
 
-        idx_names = [index_name(tid) for tid in tenant_ids]
+        idx_names = [index_name(tid) for tid in scope_ids]
         sres = await self.search(req, idx_names, kb_ids, embd_mdl, highlight,
                            rank_feature=rank_feature)
         # Temporary retrieval-side guard: prune chunks whose parent document no
@@ -774,7 +775,7 @@ class Dealer:
         tbl = self.dataStore.sql(sql, fetch_size, format)
         return tbl
 
-    def chunk_list(self, doc_id: str, tenant_id: str,
+    def chunk_list(self, doc_id: str, scope_id: str,
                    kb_ids: list[str], max_count=1024,
                    offset=0,
                    fields=["docnm_kwd", "content_with_weight", "img_id"],
@@ -807,7 +808,7 @@ class Dealer:
             limit = bs if retrieve_all else min(bs, max_count - p)
             if limit <= 0:
                 break
-            es_res = self.dataStore.search(fields, [], condition, [], orderBy, p, limit, index_name(tenant_id),
+            es_res = self.dataStore.search(fields, [], condition, [], orderBy, p, limit, index_name(scope_id),
                                            kb_ids)
             dict_chunks = self.dataStore.get_fields(es_res, fields)
             for id, doc in dict_chunks.items():
@@ -820,20 +821,20 @@ class Dealer:
             p += limit
         return res
 
-    def all_tags(self, tenant_id: str, kb_ids: list[str], S=1000):
-        if not self.dataStore.index_exist(index_name(tenant_id), kb_ids[0]):
+    def all_tags(self, scope_id: str, kb_ids: list[str], S=1000):
+        if not self.dataStore.index_exist(index_name(scope_id), kb_ids[0]):
             return []
-        res = self.dataStore.search([], [], {}, [], OrderByExpr(), 0, 0, index_name(tenant_id), kb_ids, ["tag_kwd"])
+        res = self.dataStore.search([], [], {}, [], OrderByExpr(), 0, 0, index_name(scope_id), kb_ids, ["tag_kwd"])
         return self.dataStore.get_aggregation(res, "tag_kwd")
 
-    def all_tags_in_portion(self, tenant_id: str, kb_ids: list[str], S=1000):
-        res = self.dataStore.search([], [], {}, [], OrderByExpr(), 0, 0, index_name(tenant_id), kb_ids, ["tag_kwd"])
+    def all_tags_in_portion(self, scope_id: str, kb_ids: list[str], S=1000):
+        res = self.dataStore.search([], [], {}, [], OrderByExpr(), 0, 0, index_name(scope_id), kb_ids, ["tag_kwd"])
         res = self.dataStore.get_aggregation(res, "tag_kwd")
         total = np.sum([c for _, c in res])
         return {t: (c + 1) / (total + S) for t, c in res}
 
-    def tag_content(self, tenant_id: str, kb_ids: list[str], doc, all_tags, topn_tags=3, keywords_topn=30, S=1000):
-        idx_nm = index_name(tenant_id)
+    def tag_content(self, scope_id: str, kb_ids: list[str], doc, all_tags, topn_tags=3, keywords_topn=30, S=1000):
+        idx_nm = index_name(scope_id)
         match_txt = self.qryr.paragraph(doc["title_tks"] + " " + doc["content_ltks"], doc.get("important_kwd", []),
                                         keywords_topn)
         res = self.dataStore.search([], [], {}, [match_txt], OrderByExpr(), 0, 0, idx_nm, kb_ids, ["tag_kwd"])
@@ -846,11 +847,11 @@ class Dealer:
         doc[TAG_FLD] = {a.replace(".", "_"): c for a, c in tag_fea if c > 0}
         return True
 
-    def tag_query(self, question: str, tenant_ids: str | list[str], kb_ids: list[str], all_tags, topn_tags=3, S=1000):
-        if isinstance(tenant_ids, str):
-            idx_nms = index_name(tenant_ids)
+    def tag_query(self, question: str, scope_ids: str | list[str], kb_ids: list[str], all_tags, topn_tags=3, S=1000):
+        if isinstance(scope_ids, str):
+            idx_nms = index_name(scope_ids)
         else:
-            idx_nms = [index_name(tid) for tid in tenant_ids]
+            idx_nms = [index_name(tid) for tid in scope_ids]
         match_txt, _ = self.qryr.question(question, min_match=0.0)
         res = self.dataStore.search([], [], {}, [match_txt], OrderByExpr(), 0, 0, idx_nms, kb_ids, ["tag_kwd"])
         aggs = self.dataStore.get_aggregation(res, "tag_kwd")
@@ -861,11 +862,11 @@ class Dealer:
                          key=lambda x: x[1] * -1)[:topn_tags]
         return {a.replace(".", "_"): max(1, c) for a, c in tag_fea}
 
-    async def retrieval_by_toc(self, query: str, chunks: list[dict], tenant_ids: list[str], chat_mdl, topn: int = 6):
+    async def retrieval_by_toc(self, query: str, chunks: list[dict], scope_ids: list[str], chat_mdl, topn: int = 6):
         from rag.prompts.generator import relevant_chunks_with_toc # moved from the top of the file to avoid circular import
         if not chunks:
             return []
-        idx_nms = [index_name(tid) for tid in tenant_ids]
+        idx_nms = [index_name(tid) for tid in scope_ids]
         ranks, doc_id2kb_id = {}, {}
         for ck in chunks:
             if ck["doc_id"] not in ranks:
@@ -925,10 +926,10 @@ class Dealer:
 
         return sorted(chunks, key=lambda x: x["similarity"] * -1)[:topn]
 
-    def retrieval_by_children(self, chunks: list[dict], tenant_ids: list[str]):
+    def retrieval_by_children(self, chunks: list[dict], scope_ids: list[str]):
         if not chunks:
             return []
-        idx_nms = [index_name(tid) for tid in tenant_ids]
+        idx_nms = [index_name(tid) for tid in scope_ids]
         mom_chunks = defaultdict(list)
         i = 0
         while i < len(chunks):

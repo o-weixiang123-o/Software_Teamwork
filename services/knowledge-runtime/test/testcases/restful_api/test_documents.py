@@ -221,7 +221,7 @@ def test_documents_list_error_and_sorting_contract(rest_client, create_dataset, 
             "/datasets//documents",
             None,
             102,
-            "lacks permission for dataset 'documents'",
+            "not found",
         ),
         (
             "invalid dataset id",

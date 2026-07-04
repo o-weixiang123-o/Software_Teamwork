@@ -15,18 +15,18 @@
 #
 from datetime import datetime
 
-from peewee import fn, JOIN
+from peewee import fn
 
-from api.db import TenantPermission
-from api.db.db_models import DB, Document, Knowledgebase, User
+from common import settings
+from api.db.db_models import DB, Document, Knowledgebase
 from api.db.services.common_service import CommonService
 from common.time_utils import current_timestamp, datetime_format
 from api.db.services import duplicate_name
-from api.db.services.user_service import TenantService
 from common.misc_utils import get_uuid
 from common.constants import StatusEnum
 from api.constants import DATASET_NAME_LIMIT
 from api.utils.api_utils import get_parser_config, get_data_error_result
+from api.utils.runtime_model_config import default_model_id
 
 
 class KnowledgebaseService(CommonService):
@@ -41,7 +41,7 @@ class KnowledgebaseService(CommonService):
     - Document parsing status verification
     - Knowledge base access control
     - Parser configuration management
-    - Tenant-based dataset organization
+    - Global runtime-scope dataset organization
 
     Attributes:
         model: The Knowledgebase model class for database operations.
@@ -49,23 +49,8 @@ class KnowledgebaseService(CommonService):
     model = Knowledgebase
 
     @classmethod
-    def _visibility_and_status_filter(cls, joined_tenant_ids, user_id):
-        """
-        Build a Peewee filter expression representing knowledgebase visibility
-        for a given user, combined with a valid-status constraint.
-
-        Visibility rules:
-        - Team KBs (`permission == TenantPermission.TEAM`) owned by any tenant in `joined_tenant_ids`
-        - KBs owned by the current user (`tenant_id == user_id`)
-        Always constrained to `StatusEnum.VALID`.
-        """
-        return (
-            (
-                (cls.model.tenant_id.in_(joined_tenant_ids) & (cls.model.permission == TenantPermission.TEAM.value))
-                | (cls.model.tenant_id == user_id)
-            )
-            & (cls.model.status == StatusEnum.VALID.value)
-        )
+    def _valid_status_filter(cls):
+        return cls.model.status == StatusEnum.VALID.value
 
     @classmethod
     @DB.connection_context()
@@ -93,9 +78,10 @@ class KnowledgebaseService(CommonService):
                 1. The dataset doesn't exist
                 2. The user is not the creator of the dataset
         """
-        # Check if a dataset can be deleted by a user
-        docs = cls.model.select(
-            cls.model.id).where(cls.model.id == kb_id, cls.model.created_by == user_id).paginate(0, 1)
+        docs = cls.model.select(cls.model.id).where(
+            cls.model.id == kb_id,
+            cls.model.status == StatusEnum.VALID.value,
+        ).paginate(0, 1)
         docs = docs.dicts()
         if not docs:
             return False
@@ -152,14 +138,14 @@ class KnowledgebaseService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def get_by_tenant_ids(cls, joined_tenant_ids, user_id,
+    def get_by_scope_ids(cls, joined_scope_ids, user_id,
                           page_number, items_per_page,
                           orderby, desc, keywords,
                           parser_id=None
                           ):
-        # Get knowledge bases by tenant IDs with pagination and filtering
+        # Get knowledge bases by runtime scope IDs with pagination and filtering
         # Args:
-        #     joined_tenant_ids: List of tenant IDs
+        #     joined_scope_ids: List of runtime scope IDs
         #     user_id: Current user ID
         #     page_number: Page number for pagination
         #     items_per_page: Number of items per page
@@ -175,26 +161,21 @@ class KnowledgebaseService(CommonService):
             cls.model.name,
             cls.model.language,
             cls.model.description,
-            cls.model.tenant_id,
-            cls.model.permission,
+            cls.model.scope_id,
             cls.model.doc_num,
             cls.model.token_num,
             cls.model.chunk_num,
             cls.model.parser_id,
             cls.model.embd_id,
-            User.nickname,
-            User.avatar.alias('tenant_avatar'),
             cls.model.update_time
         ]
         if keywords:
-            kbs = cls.model.select(*fields).join(User, on=(cls.model.tenant_id == User.id)).where(
-                cls._visibility_and_status_filter(joined_tenant_ids, user_id),
+            kbs = cls.model.select(*fields).where(
+                cls._valid_status_filter(),
                 fn.LOWER(cls.model.name).contains(keywords.lower()),
             )
         else:
-            kbs = cls.model.select(*fields).join(User, on=(cls.model.tenant_id == User.id)).where(
-                cls._visibility_and_status_filter(joined_tenant_ids, user_id),
-            )
+            kbs = cls.model.select(*fields).where(cls._valid_status_filter())
         if parser_id:
             kbs = kbs.where(cls.model.parser_id == parser_id)
         if desc:
@@ -211,13 +192,12 @@ class KnowledgebaseService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def get_all_kb_by_tenant_ids(cls, tenant_ids, user_id):
+    def get_all_kb_by_scope_ids(cls, scope_ids, user_id):
         # will get all permitted kb, be cautious.
         fields = [
             cls.model.name,
             cls.model.avatar,
             cls.model.language,
-            cls.model.permission,
             cls.model.doc_num,
             cls.model.token_num,
             cls.model.chunk_num,
@@ -225,8 +205,7 @@ class KnowledgebaseService(CommonService):
             cls.model.create_date,
             cls.model.update_date
         ]
-        # find team kb and owned kb
-        kbs = cls.model.select(*fields).where(cls._visibility_and_status_filter(tenant_ids, user_id))
+        kbs = cls.model.select(*fields).where(cls._valid_status_filter())
         # sort by create_time asc
         kbs.order_by(cls.model.create_time.asc())
         # maybe cause slow query by deep paginate, optimize later.
@@ -243,16 +222,16 @@ class KnowledgebaseService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def get_kb_ids(cls, tenant_id):
-        # Get all dataset IDs for a tenant
+    def get_kb_ids(cls, scope_id):
+        # Get all dataset IDs for a scope
         # Args:
-        #     tenant_id: Tenant ID
+        #     scope_id: runtime scope ID
         # Returns:
         #     List of dataset IDs
         fields = [
             cls.model.id,
         ]
-        kbs = cls.model.select(*fields).where(cls.model.tenant_id == tenant_id)
+        kbs = cls.model.select(*fields).where(cls._valid_status_filter())
         kb_ids = [kb.id for kb in kbs]
         return kb_ids
 
@@ -351,16 +330,16 @@ class KnowledgebaseService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def get_by_name(cls, kb_name, tenant_id):
-        # Get dataset by name and tenant ID
+    def get_by_name(cls, kb_name, scope_id):
+        # Get dataset by name and runtime scope ID
         # Args:
         #     kb_name: Knowledge base name
-        #     tenant_id: Tenant ID
+        #     scope_id: runtime scope ID
         # Returns:
         #     Tuple of (exists, knowledge_base)
         kb = cls.model.select().where(
             (cls.model.name == kb_name)
-            & (cls.model.tenant_id == tenant_id)
+            & (cls.model.scope_id == scope_id)
             & (cls.model.status == StatusEnum.VALID.value)
         )
         if kb:
@@ -382,7 +361,7 @@ class KnowledgebaseService(CommonService):
         cls,
         *,
         name: str,
-        tenant_id: str,
+        scope_id: str,
         parser_id: str | None = None,
         **kwargs
     ):
@@ -404,44 +383,38 @@ class KnowledgebaseService(CommonService):
         if len(dataset_name.encode("utf-8")) > DATASET_NAME_LIMIT:
             return False, get_data_error_result(message=f"Dataset name length is {len(dataset_name)} which is large than {DATASET_NAME_LIMIT}")
 
-        # Deduplicate name within tenant
+        # Runtime uses a single global namespace, so names are deduplicated globally.
         dataset_name = duplicate_name(
             cls.query,
             name=dataset_name,
-            tenant_id=tenant_id,
             status=StatusEnum.VALID.value,
         )
-
-        # Verify tenant exists
-        ok, _t = TenantService.get_by_id(tenant_id)
-        if not ok:
-            return False, get_data_error_result(message="Tenant not found.")
 
         # Build payload
         kb_id = get_uuid()
         payload = {
             "id": kb_id,
             "name": dataset_name,
-            "tenant_id": tenant_id,
-            "created_by": tenant_id,
+            "scope_id": scope_id,
+            "created_by": scope_id,
             "parser_id": (parser_id or "naive"),
             **kwargs # Includes optional fields such as description, language, permission, avatar, parser_config, etc.
         }
 
         # Update parser_config (always override with validated default/merged config)
         payload["parser_config"] = get_parser_config(parser_id, kwargs.get("parser_config"))
-        payload["parser_config"]["llm_id"] = _t.llm_id
+        payload["parser_config"]["llm_id"] = default_model_id("chat") or settings.CHAT_MDL
 
         return True, payload
 
 
     @classmethod
     @DB.connection_context()
-    def get_list(cls, joined_tenant_ids, user_id,
+    def get_list(cls, joined_scope_ids, user_id,
                  page_number, items_per_page, orderby, desc, id, name, keywords, parser_id=None):
         # Get list of knowledge bases with filtering and pagination
         # Args:
-        #     joined_tenant_ids: List of tenant IDs
+        #     joined_scope_ids: List of runtime scope IDs
         #     user_id: Current user ID
         #     page_number: Page number for pagination
         #     items_per_page: Number of items per page
@@ -464,7 +437,7 @@ class KnowledgebaseService(CommonService):
         if parser_id:
             kbs = kbs.where(cls.model.parser_id == parser_id)
 
-        kbs = kbs.where(cls._visibility_and_status_filter(joined_tenant_ids, user_id))
+        kbs = kbs.where(cls._valid_status_filter())
 
         if desc:
             kbs = kbs.order_by(cls.model.getter_by(orderby).desc())
@@ -492,14 +465,7 @@ class KnowledgebaseService(CommonService):
         if kb.status != StatusEnum.VALID.value:
             return False
 
-        if kb.tenant_id == user_id:
-            return True
-
-        if kb.permission != TenantPermission.TEAM.value:
-            return False
-
-        joined_tenants = TenantService.get_joined_tenants_by_user_id(user_id)
-        return any(tenant["tenant_id"] == kb.tenant_id for tenant in joined_tenants)
+        return True
 
     @classmethod
     @DB.connection_context()
@@ -583,11 +549,11 @@ class KnowledgebaseService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def get_null_tenant_embd_id_row(cls):
+    def get_null_runtime_embd_id_row(cls):
         fields = [
             cls.model.id,
-            cls.model.tenant_id,
+            cls.model.scope_id,
             cls.model.embd_id
         ]
-        objs = cls.model.select(*fields).where(cls.model.tenant_embd_id.is_null())
+        objs = cls.model.select(*fields).where(cls.model.runtime_embd_id.is_null())
         return list(objs)

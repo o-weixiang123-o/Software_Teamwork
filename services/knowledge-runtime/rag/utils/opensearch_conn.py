@@ -135,7 +135,7 @@ class OSConnection(DocStoreConnection):
 
         weights = settings.OS.get("hybrid_search_weights", [0.5, 0.5])
         pipeline_body = {
-            "description": "RAGFlow hybrid search normalization pipeline (BM25 + KNN).",
+            "description": "Knowledge runtime hybrid search normalization pipeline (BM25 + KNN).",
             "phase_results_processors": [
                 {"normalization-processor": {
                     "normalization": {"technique": "min_max"},
@@ -184,11 +184,11 @@ class OSConnection(DocStoreConnection):
 
     def create_doc_meta_idx(self, index_name: str):
         """
-        Create a per-tenant document metadata index on OpenSearch.
+        Create a global runtime-scope document metadata index on OpenSearch.
 
         Mirrors ESConnectionBase.create_doc_meta_idx so that the
         DocMetadataService dispatches uniformly across ES and OS backends.
-        Index name pattern: ragflow_doc_meta_{tenant_id}
+        Index name pattern: ragflow_doc_meta_{scope_id}
         """
         if self.index_exist(index_name, ""):
             return True
@@ -247,7 +247,7 @@ class OSConnection(DocStoreConnection):
         Return the document count for an index, or -1 if the call fails.
 
         Used by DocMetadataService._drop_empty_metadata_table to decide whether
-        a per-tenant metadata index is empty without paying a full search.
+        a global runtime-scope metadata index is empty without paying a full search.
         """
         try:
             response = self.os.count(index=index_name)
@@ -290,7 +290,7 @@ class OSConnection(DocStoreConnection):
 
     def delete_idx(self, indexName: str, knowledgebaseId: str):
         if len(knowledgebaseId) > 0:
-            # The index need to be alive after any kb deletion since all kb under this tenant are in one index.
+            # The index need to be alive after any kb deletion since all kb under this scope are in one index.
             return
         try:
             self.os.indices.delete(index=indexName, allow_no_indices=True)
@@ -725,7 +725,7 @@ class OSConnection(DocStoreConnection):
             elif v is not None:
                 raise Exception("Condition value must be int, str or list.")
 
-        # If no filters were added, use match_all (for tenant-wide operations)
+        # If no filters were added, use match_all (for runtime-scope-wide operations)
         if not bool_query.filter and not bool_query.must and not bool_query.must_not:
             qry = Q("match_all")
         else:

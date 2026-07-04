@@ -38,3 +38,12 @@ go build ./cmd/server
 go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$AI_GATEWAY_DATABASE_URL" up
 AI_GATEWAY_TEST_DATABASE_URL="postgres://postgres:postgres@localhost:5432/ai_gateway_test?sslmode=disable" go test ./internal/repository -run '^TestPostgresRepositoryDBSmoke$' -count=1 -v
 ```
+
+For local provider credentials, `./scripts/local/dev-up.sh` applies the local
+env seed overlay after SQL demo seed only when `AI_GATEWAY_LOCAL_SEED_ENABLED=true`.
+Set that flag plus `AI_GATEWAY_LOCAL_PROVIDER`,
+`AI_GATEWAY_LOCAL_PROVIDER_BASE_URL`, `AI_GATEWAY_LOCAL_PROVIDER_API_KEY`,
+`AI_GATEWAY_LOCAL_CHAT_MODEL`, `AI_GATEWAY_LOCAL_EMBEDDING_MODEL`,
+`AI_GATEWAY_LOCAL_EMBEDDING_DIMENSIONS`, `AI_GATEWAY_LOCAL_RERANK_MODEL`, and
+`AI_GATEWAY_LOCAL_RERANK_TOP_N` in `.env.local`; the overlay encrypts the API
+key and updates the default local profiles without printing the key.

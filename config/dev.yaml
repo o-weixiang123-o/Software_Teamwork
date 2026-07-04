@@ -1,0 +1,13 @@
+version: 1
+profile: dev
+extends: base
+description: Local development profile. Secrets come from .env.local or process env.
+env:
+  COMPOSE_PROJECT_NAME:
+    value: software-teamwork-local
+  FILE_MINIO_BUCKET:
+    value: software-teamwork-local
+  KNOWLEDGE_RUNTIME_READINESS_MODE:
+    value: query
+  AI_GATEWAY_LOCAL_SEED_ENABLED:
+    value: "false"

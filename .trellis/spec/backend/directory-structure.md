@@ -37,7 +37,7 @@ deploy/
 
 Use the same service-local layout for every Go service unless a service has a
 clear reason to omit a directory. `services/knowledge-runtime/` is the explicit
-non-Go runtime exception: it is the vendored RAGFlow runtime boundary behind the
+non-Go runtime exception: it is the vendored Knowledge runtime boundary behind the
 Go Knowledge adapter and should not be forced into the Go module layout.
 
 ---
@@ -72,7 +72,7 @@ Directory responsibilities:
 | `internal/http/` | HTTP handlers, middleware, request/response DTOs |
 | `internal/service/` | Business use cases and orchestration |
 | `internal/repository/` | PostgreSQL persistence and transaction boundaries |
-| `internal/platform/` | Clients for Redis, Qdrant, MinIO, or other infrastructure |
+| `internal/platform/` | Clients for Redis, MinIO, runtime doc engines, or other infrastructure |
 | `api/` | Public or internal HTTP contract documentation |
 | `migrations/` | Service-owned PostgreSQL migrations |
 
@@ -145,4 +145,4 @@ rewrite of ingestion, retrieval, storage, and gateway proxy behavior.
 - Importing another service's internal packages instead of calling its HTTP API.
 - Creating a root-level Go module that makes all services build together.
 - Storing deployment-only configuration inside service source directories.
-- Allowing handlers to contain SQL, Qdrant queries, or MinIO object logic directly.
+- Allowing handlers to contain SQL, runtime doc-engine queries, or MinIO object logic directly.

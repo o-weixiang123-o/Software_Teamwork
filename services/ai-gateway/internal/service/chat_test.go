@@ -65,6 +65,9 @@ func TestCreateChatCompletionRecordsOnlySafeInvocationSummary(t *testing.T) {
 			if req.APIKey != "sk-secret-value" {
 				t.Fatalf("provider API key = %q", req.APIKey)
 			}
+			if rawString(req.Payload["model"]) != "provider-model" {
+				t.Fatalf("provider model = %q, want profile model", rawString(req.Payload["model"]))
+			}
 			if _, ok := req.Payload["tools"]; !ok {
 				t.Fatalf("tools were not passed through")
 			}
@@ -92,7 +95,6 @@ func TestCreateChatCompletionRecordsOnlySafeInvocationSummary(t *testing.T) {
 	_, err := svc.CreateChatCompletion(context.Background(), ChatCompletionInput{
 		RequestContext: RequestContext{RequestID: "req_chat", CallerService: "qa", UserID: "user_1"},
 		Payload: map[string]json.RawMessage{
-			"model":    json.RawMessage(`"alias"`),
 			"messages": json.RawMessage(`[{"role":"user","content":"full prompt text"}]`),
 			"tools":    json.RawMessage(`[{"type":"function","function":{"name":"search","parameters":{"type":"object","properties":{"query":{"type":"string"}}}}]`),
 		},
@@ -150,7 +152,6 @@ func TestCreateChatCompletionRecordsProviderStatusOnOpenAIError(t *testing.T) {
 	_, err := svc.CreateChatCompletion(context.Background(), ChatCompletionInput{
 		RequestContext: RequestContext{RequestID: "req_rate_limited", CallerService: "qa", UserID: "user_1"},
 		Payload: map[string]json.RawMessage{
-			"model":    json.RawMessage(`"alias"`),
 			"messages": json.RawMessage(`[{"role":"user","content":"full prompt text"}]`),
 		},
 	})
@@ -195,7 +196,6 @@ func TestCreateChatCompletionRecordsCancelledInvocationAfterRequestCancel(t *tes
 	_, err := svc.CreateChatCompletion(ctx, ChatCompletionInput{
 		RequestContext: RequestContext{RequestID: "req_cancelled", CallerService: "qa", UserID: "user_1"},
 		Payload: map[string]json.RawMessage{
-			"model":    json.RawMessage(`"alias"`),
 			"messages": json.RawMessage(`[{"role":"user","content":"full prompt text"}]`),
 		},
 	})
@@ -207,6 +207,48 @@ func TestCreateChatCompletionRecordsCancelledInvocationAfterRequestCancel(t *tes
 	}
 	if repo.invocations[0].Status != InvocationCancelled || repo.attempts[0].Status != InvocationCancelled {
 		t.Fatalf("status invocation=%s attempt=%s, want cancelled", repo.invocations[0].Status, repo.attempts[0].Status)
+	}
+}
+
+func TestCreateChatCompletionRejectsModelOutsideProfile(t *testing.T) {
+	repo := newMemoryRepository()
+	called := false
+	svc := NewWithChatProvider(repo, mustEncryptor(t), 60000, fakeChatProvider{
+		complete: func(context.Context, ProviderChatRequest) (ProviderChatResult, error) {
+			called = true
+			return ProviderChatResult{}, nil
+		},
+	})
+	isDefault := true
+	if _, err := svc.CreateModelProfile(context.Background(), RequestContext{UserID: "user_1"}, CreateModelProfileInput{
+		Name:              "default-chat",
+		Purpose:           PurposeChat,
+		Provider:          ProviderOpenAICompatible,
+		BaseURL:           "https://provider.example/v1",
+		Model:             "provider-model",
+		APIKey:            "sk-secret-value",
+		IsDefault:         &isDefault,
+		SupportsStreaming: &isDefault,
+	}); err != nil {
+		t.Fatalf("CreateModelProfile() error = %v", err)
+	}
+
+	_, err := svc.CreateChatCompletion(context.Background(), ChatCompletionInput{
+		RequestContext: RequestContext{RequestID: "req_chat_mismatch", CallerService: "qa", UserID: "user_1"},
+		Payload: map[string]json.RawMessage{
+			"model":    json.RawMessage(`"other-model"`),
+			"messages": json.RawMessage(`[{"role":"user","content":"full prompt text"}]`),
+		},
+	})
+	openErr, ok := err.(*OpenAIError)
+	if !ok || openErr.Param != "model" || openErr.Type != "invalid_request_error" {
+		t.Fatalf("CreateChatCompletion() error = %#v, want model validation error", err)
+	}
+	if called {
+		t.Fatalf("provider was called for mismatched chat model")
+	}
+	if len(repo.invocations) != 0 || len(repo.attempts) != 0 {
+		t.Fatalf("recorded invocations=%d attempts=%d, want 0/0", len(repo.invocations), len(repo.attempts))
 	}
 }
 

@@ -48,7 +48,7 @@ class TestGetRaptorChunkFieldMap:
                 with patch("rag.svr.task_executor_refactor.raptor_utils.collect_raptor_chunk_ids") as mock_collect:
                     mock_collect.return_value = {"chunk_1"}
 
-                    result = await get_raptor_chunk_field_map("doc_1", "tenant_1", "kb_1")
+                    result = await get_raptor_chunk_field_map("doc_1", "scope_1", "kb_1")
 
                     assert "chunk_1" in result
         finally:
@@ -79,7 +79,7 @@ class TestGetRaptorChunkFieldMap:
                 with patch("rag.svr.task_executor_refactor.raptor_utils.collect_raptor_chunk_ids") as mock_collect:
                     mock_collect.return_value = set()  # Primary has no RAPTOR chunks
 
-                    _ = await get_raptor_chunk_field_map("doc_1", "tenant_1", "kb_1")
+                    _ = await get_raptor_chunk_field_map("doc_1", "scope_1", "kb_1")
 
                     # Should have called thread_pool_exec twice (primary + fallback)
                     assert mock_thread.call_count == 2
@@ -113,7 +113,7 @@ class TestGetRaptorChunkFieldMap:
                     mock_collect.return_value = set()  # Primary has no RAPTOR chunks
 
                     # Fallback will raise exception, but it should be caught
-                    result = await get_raptor_chunk_field_map("doc_1", "tenant_1", "kb_1")
+                    result = await get_raptor_chunk_field_map("doc_1", "scope_1", "kb_1")
 
                     # Should return primary result (empty)
                     assert result == {}
@@ -137,7 +137,7 @@ class TestDeleteRaptorChunks:
             with patch("rag.svr.task_executor_refactor.raptor_utils.thread_pool_exec") as mock_thread:
                 mock_thread.return_value = 0
 
-                _ = await delete_raptor_chunks("doc_1", "tenant_1", "kb_1", keep_method=None)
+                _ = await delete_raptor_chunks("doc_1", "scope_1", "kb_1", keep_method=None)
 
                 mock_thread.assert_called_once()
                 # Verify delete was called with correct condition
@@ -155,7 +155,7 @@ class TestDeleteRaptorChunks:
             with patch("rag.svr.task_executor_refactor.raptor_utils.collect_raptor_chunk_ids") as mock_collect:
                 mock_collect.return_value = set()  # No stale chunks
 
-                result = await delete_raptor_chunks("doc_1", "tenant_1", "kb_1", keep_method="raptor")
+                result = await delete_raptor_chunks("doc_1", "scope_1", "kb_1", keep_method="raptor")
 
                 assert result == 0
                 mock_collect.assert_called_once()
@@ -182,7 +182,7 @@ class TestDeleteRaptorChunks:
                     with patch("rag.svr.task_executor_refactor.raptor_utils.thread_pool_exec") as mock_thread:
                         mock_thread.return_value = 0
 
-                        _ = await delete_raptor_chunks("doc_1", "tenant_1", "kb_1", keep_method="raptor")
+                        _ = await delete_raptor_chunks("doc_1", "scope_1", "kb_1", keep_method="raptor")
 
                         # Should have called delete for stale chunks
                         mock_thread.assert_called_once()
@@ -211,7 +211,7 @@ class TestDeleteRaptorChunks:
                         mock_thread.return_value = 0
 
                         with patch("rag.svr.task_executor_refactor.raptor_utils.logging.info") as mock_log:
-                            await delete_raptor_chunks("doc_1", "tenant_1", "kb_1", keep_method="raptor")
+                            await delete_raptor_chunks("doc_1", "scope_1", "kb_1", keep_method="raptor")
 
                             # Should have logged the removal
                             mock_log.assert_called()

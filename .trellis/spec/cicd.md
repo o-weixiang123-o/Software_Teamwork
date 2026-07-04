@@ -24,7 +24,9 @@ deploy/docker-compose.yml
 ```
 
 Current Docker target: local infrastructure Compose only. Business services and
-the RAGFlow Knowledge runtime API/worker run on the host.
+the Knowledge runtime API/worker run on the host. Local Elasticsearch is
+the only optional Compose profile service, used as Knowledge runtime
+infrastructure when explicitly enabled from local env.
 
 ---
 
@@ -568,7 +570,8 @@ env:
   COMPOSE_FILE: ${{ matrix.compose-file }}
 run: |
   compose_file="$COMPOSE_FILE"
-  docker compose -f "$compose_file" --env-file deploy/.env.example config --quiet
+  CONFIG_SECRET_FILE=.env.example ./scripts/config/load-profile.sh --print-compose-env
+  docker compose -f "$compose_file" --env-file .local/config/dev.env config --quiet
 ```
 
 ## Scenario: Gateway Active API Contract Workflow
@@ -835,22 +838,25 @@ jobs:
 
 ## Docker Infra Compose
 
-Repository Docker usage is infrastructure-only. The root Compose file may pull
-and start only:
+Repository Docker usage is infrastructure-only. The root Compose default path
+may pull and start only:
 
 ```text
 postgres
 redis
-qdrant
 minio
 minio-init
+elasticsearch
 ```
 
 Rules:
 
 - Do not add business services, migration jobs, seed jobs, frontend, Parser, or
   service runtime containers to the root Compose baseline.
-- Do not add `build:` entries to `deploy/docker-compose.yml`.
+- Do not add profile services to `deploy/docker-compose.yml`; local
+  infrastructure services belong to the default service set.
+- Do not add `build:` entries to `deploy/docker-compose.yml`. Elasticsearch must
+  use a pinned image variable, not a local build.
 - Compose infrastructure images must keep pinned defaults and may expose
   full-image override variables for local or enterprise registries. Do not use
   `latest` as a default or documented normal path.
@@ -859,7 +865,7 @@ Rules:
   `sum.golang.org` as the committed defaults.
 - Mainland China users must still have a first-class explicit mirror mode.
   Prefer `registry rewrite > daemon mirror > proxy`: registry rewrite is
-  selected by `dev-up.sh --china` or local untracked `deploy/.env` overrides,
+  selected by `dev-up.sh --china` or local untracked `.env.local` overrides,
   daemon mirrors are local machine state, and proxies are last-resort
   environment state. Keep these paths documented and diagnosable.
 - Docker/Compose PR checks must run `python3 scripts/check_docker_policy.py`
@@ -884,17 +890,19 @@ Rules:
 ## Local Integration Runtime
 
 Local integration uses `deploy/docker-compose.yml` only for shared
-infrastructure. Business services run on the host.
+infrastructure. Business services run on the host. Local Elasticsearch is
+Compose-managed infrastructure, not a business service container, and starts by
+default because it is the active Knowledge runtime doc engine.
 
 Required local sequence:
 
-1. Copy local defaults with `cp deploy/.env.example deploy/.env`.
+1. Copy local secret placeholders with `cp .env.example .env.local`.
 2. Run `./scripts/local/dev-up.sh` to pull/start infra, wait for long-running
    service health, run the one-shot `minio-init`, apply any configured
-   legacy/test-only Qdrant collection initialization, host migrations, and
+   host migrations, and
    local seed. Current Knowledge indexing is prepared by the host-run Knowledge
-   runtime/doc engine, not by restoring Go-side Qdrant bootstrap as a required
-   default.
+   runtime/doc engine, not by restoring Go-side index bootstrap as a required
+   default. This step starts `elasticsearch` as default active RAG infra.
 3. Start or keep available the host-run Knowledge runtime API/worker when
    running Knowledge ingestion/retrieval scenarios.
 4. Run `./scripts/local/run-backend.sh` to start Auth, File, Knowledge,
@@ -904,39 +912,50 @@ Required local sequence:
 Runtime rules:
 
 - Store real runtime secrets outside the repository.
-- Use `deploy/.env.example` as the single default local configuration source.
-  Startup scripts may load `deploy/.env`, but must not duplicate service env
-  defaults or generate env files for the user.
-- Treat missing active DaoCloud/TUNA/goproxy.cn entries in `deploy/.env.example`
-  as intentional under the current source policy, not as a mainland registry
+- Use `config/` as the single committed local configuration source for
+  non-sensitive defaults and profile overrides. Root `.env.example` is the
+  local secret template, and startup scripts render runtime env through
+  `scripts/config/load-profile.sh`.
+- Treat missing active DaoCloud/TUNA/goproxy.cn entries in committed profiles as
+  intentional under the current source policy, not as a mainland registry
   regression. `scripts/check_docker_policy.py` should reject active committed
   `*_IMAGE` mirror defaults while allowing commented examples and local
-  untracked overrides.
+  untracked `.env.local` overrides.
 - `run-backend.sh` must not prepare or start the retired standalone Parser.
-  Knowledge parsing runs through the RAGFlow runtime API/worker path.
-- Keep `UV_DEFAULT_INDEX` in `deploy/.env.example` as the default host-run uv
+  Knowledge parsing runs through the Knowledge runtime API/worker path.
+- Keep `UV_DEFAULT_INDEX` in `config/base.yaml` as the default host-run uv
   package index, using official PyPI by default. Mainland China mirror usage
   must be explicit, preferably through `dev-up.sh --china` which prepares
-  Knowledge runtime dependencies/artifacts, or local untracked env overrides.
+  Knowledge runtime dependencies/artifacts, or local untracked `.env.local`
+  overrides.
   `ragflow_deps/download_deps.py --china` remains the manual fallback when that
   preparation was intentionally skipped. It affects Python dependency downloads
   only; Docker registry rewrite remains the Compose image path.
 - Treat `services/knowledge-runtime/**` and its host-run API/worker scripts as
   the local runtime contract for Knowledge parsing and retrieval changes.
-- Keep `GOPROXY` and `GOSUMDB` in `deploy/.env.example` as the default host-run
+- `run-knowledge-parse-stack.sh` must not run direct `docker build` or
+  `docker run` for Elasticsearch. It verifies the configured
+  `KNOWLEDGE_RUNTIME_ES_URL` and starts host-run runtime processes; local
+  Elasticsearch lifecycle belongs to the default root Compose infra started by
+  `dev-up.sh`.
+- `HF_ENDPOINT=https://hf-mirror.com` must not be active in committed defaults
+  or forced by runtime scripts in official-default mode. Mainland China runtime
+  model download mirrors are explicit through
+  `run-knowledge-parse-stack.sh --china` or local untracked env overrides.
+- Keep `GOPROXY` and `GOSUMDB` in `config/base.yaml` as the default host-run
   Go module proxy/checksum settings, using official upstream values by default.
   Mainland China mirror usage must be explicit through `dev-up.sh --china`,
-  `run-backend.sh --china`, or local untracked env overrides. They affect
+  `run-backend.sh --china`, or local untracked `.env.local` overrides. They affect
   `dev-up.sh` goose migrations and `run-backend.sh` Go service startup, not
   Docker image pulls or Knowledge runtime uv downloads.
 - `dev-up.sh` must check effective Go module settings before host-run goose
   migrations, and `run-backend.sh` must preflight each host-run Go service with
   `go mod download` before forking service processes. If `--china` is passed,
   local scripts may use mainland China mirrors for the current process without
-  rewriting `deploy/.env`. If an old `deploy/.env` still contains mirror values
-  while `--china` was not passed, scripts should warn but respect that local
-  config. If module download fails, it should fail visibly in the terminal with
-  the current effective values and remediation guidance.
+  rewriting `config/` or `.env.local`. If local profile output contains mirror
+  values while `--china` was not passed, scripts should warn but respect that
+  user configuration. If module download fails, it should fail visibly in the
+  terminal with the current effective values and remediation guidance.
 - Host-run process management is part of the local startup contract:
   `run-backend.sh` should start service commands in managed process groups and
   `stop-backend.sh` should stop those process groups, not just wrapper PIDs.
@@ -953,7 +972,7 @@ Runtime rules:
 - Seeded local AI Gateway profiles should use `http://localhost:11434/v1` for
   the host-run default path; container-only hostnames such as
   `host.docker.internal` must fail the local seed/startup contract.
-- Use named volumes for PostgreSQL, Qdrant, and MinIO persistence.
+- Use named volumes for PostgreSQL, MinIO, and Elasticsearch persistence.
 - Keep frontend and browser traffic routed through Gateway.
 - Health checks for infra stay in Compose; service health checks are host-run
   `/healthz` and `/readyz` calls.

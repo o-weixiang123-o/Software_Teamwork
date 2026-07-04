@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -186,7 +187,7 @@ func (r cancelAfterCompletedCitationRunner) RunWithObserver(_ context.Context, i
 	tool := agent.Message{
 		Role:    agent.RoleTool,
 		Name:    "search_knowledge",
-		Content: `{"results":[{"documentId":"doc-1","documentName":"Doc","chunkId":"chunk-1","text":"quoted"}]}`,
+		Content: `{"results":[{"knowledgeBaseId":"kb-1","documentId":"doc-1","documentName":"Doc","chunkId":"chunk-1","text":"quoted"}]}`,
 	}
 	final := agent.Message{Role: agent.RoleAssistant, Content: "answer with citation"}
 	messages := append(append([]agent.Message(nil), input...), tool, final)
@@ -538,11 +539,12 @@ func (maxIterationsAgentRunner) RunWithToolResultCallback(ctx context.Context, i
 }
 
 type fakeRuntimeProvider struct {
-	runner         AgentRunner
-	prompt         string
-	maxIterations  int
-	overallTimeout time.Duration
-	retrieval      RetrievalSettings
+	runner                  AgentRunner
+	prompt                  string
+	maxIterations           int
+	overallTimeout          time.Duration
+	retrieval               RetrievalSettings
+	defaultKnowledgeBaseIDs []string
 }
 
 func (p fakeRuntimeProvider) Acquire() (RuntimeSnapshot, func(), error) {
@@ -554,7 +556,8 @@ func (p fakeRuntimeProvider) Acquire() (RuntimeSnapshot, func(), error) {
 		Runner: p.runner, SystemPrompt: p.prompt, LLMModel: "deepseek-v4-pro", LLMProfileID: "default",
 		QAConfigVersionID: "qa-config-id", LLMConfigVersionID: "llm-config-id",
 		MaxIterations: maxIterations, OverallTimeout: p.overallTimeout,
-		RetrievalSettings: p.retrieval,
+		RetrievalSettings:       p.retrieval,
+		DefaultKnowledgeBaseIDs: p.defaultKnowledgeBaseIDs,
 	}, func() {}, nil
 }
 
@@ -562,12 +565,12 @@ type fakeCitationSourceChecker struct {
 	availability               map[string]bool
 	failWhenContextIsCancelled bool
 	userID                     string
-	documentIDs                []string
+	refs                       []CitationSourceRef
 }
 
-func (c *fakeCitationSourceChecker) CheckCitationSources(ctx context.Context, userID string, documentIDs []string) (map[string]bool, error) {
+func (c *fakeCitationSourceChecker) CheckCitationSources(ctx context.Context, userID string, refs []CitationSourceRef) (map[string]bool, error) {
 	c.userID = userID
-	c.documentIDs = append([]string(nil), documentIDs...)
+	c.refs = append([]CitationSourceRef(nil), refs...)
 	if c.failWhenContextIsCancelled {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -623,6 +626,63 @@ func TestAskRejectsUnsupportedDataAnalysis(t *testing.T) {
 	appErr, ok := Classify(err)
 	if !ok || appErr.Code != CodeUnsupportedIntent {
 		t.Fatalf("error = %v, want unsupported_intent", err)
+	}
+}
+
+func TestAskAddsAttachmentAndKnowledgeRAGDirective(t *testing.T) {
+	repository := &fakeRepository{conversation: Conversation{ID: "conversation-id", OwnerUserID: "user-id", Title: "新对话", Status: "active"}}
+	runner := &fakeAgentRunner{}
+	qa, err := NewQAService(repository, fakeRuntimeProvider{runner: runner, prompt: "system prompt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = qa.Ask(context.Background(), "user-id", "conversation-id", AskInput{
+		Message:          "结合附件和知识库回答",
+		Mode:             "knowledge_qa",
+		AttachmentIDs:    []string{"att-1"},
+		KnowledgeBaseIDs: []string{"kb-1"},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.input) < 2 || runner.input[1].Role != agent.RoleSystem {
+		t.Fatalf("runner messages=%+v, want request directive system message", runner.input)
+	}
+	directive := runner.input[1].Content
+	for _, want := range []string{
+		"search_session_attachments",
+		"do not replace long-term knowledge-base RAG",
+		"search_knowledge or knowledge__search",
+		"restrict it to: kb-1",
+	} {
+		if !strings.Contains(directive, want) {
+			t.Fatalf("directive=%q, want %q", directive, want)
+		}
+	}
+}
+
+func TestAskAllowsKnowledgeBaseIDsWhenDefaultKnowledgeBaseListEmpty(t *testing.T) {
+	repository := &fakeRepository{conversation: Conversation{ID: "conversation-id", OwnerUserID: "user-id", Title: "新对话", Status: "active"}}
+	runner := &fakeAgentRunner{}
+	qa, err := NewQAService(repository, fakeRuntimeProvider{
+		runner:                  runner,
+		prompt:                  "system prompt",
+		defaultKnowledgeBaseIDs: []string{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err = qa.Ask(context.Background(), "user-id", "conversation-id", AskInput{
+		Message:          "查询知识库",
+		Mode:             "knowledge_qa",
+		KnowledgeBaseIDs: []string{"kb-any"},
+	}, nil); err != nil {
+		t.Fatalf("Ask returned error with empty default KB list: %v", err)
+	}
+	if len(runner.input) < 2 || !strings.Contains(runner.input[1].Content, "restrict it to: kb-any") {
+		t.Fatalf("runner directive=%+v, want requested KB restriction guidance", runner.input)
 	}
 }
 
@@ -709,11 +769,12 @@ func TestListMessagesRevalidatesEmbeddedCitationSources(t *testing.T) {
 			ConversationID: "conversation-id",
 			Role:           agent.RoleAssistant,
 			Citations: []Citation{{
-				ID:         "citation-id",
-				MessageID:  "assistant-message-id",
-				CitationNo: 1,
-				DocumentID: "doc-1",
-				Text:       "saved quote",
+				ID:              "citation-id",
+				MessageID:       "assistant-message-id",
+				CitationNo:      1,
+				DocumentID:      "doc-1",
+				KnowledgeBaseID: "kb-1",
+				Text:            "saved quote",
 			}},
 		}},
 	}
@@ -721,18 +782,18 @@ func TestListMessagesRevalidatesEmbeddedCitationSources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	checker := &fakeCitationSourceChecker{availability: map[string]bool{"doc-1": true}}
+	checker := &fakeCitationSourceChecker{availability: map[string]bool{CitationSourceRefKey("kb-1", "doc-1"): true}}
 	qa.SetCitationSourceChecker(checker)
 
 	page, err := qa.ListMessages(context.Background(), "user-id", "conversation-id", MessageListOptions{IncludeCitations: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if checker.userID != "user-id" || len(checker.documentIDs) != 1 || checker.documentIDs[0] != "doc-1" {
-		t.Fatalf("source checker called with user=%q documents=%v", checker.userID, checker.documentIDs)
+	if checker.userID != "user-id" || !reflect.DeepEqual(checker.refs, []CitationSourceRef{{KnowledgeBaseID: "kb-1", DocumentID: "doc-1"}}) {
+		t.Fatalf("source checker called with user=%q refs=%v", checker.userID, checker.refs)
 	}
 	citation := page.Items[0].Citations[0]
-	if !citation.IsSourceAvailable || citation.Source == nil || !citation.Source.Available || citation.Source.DownloadEndpoint != "/api/v1/documents/doc-1/content" {
+	if !citation.IsSourceAvailable || citation.Source == nil || !citation.Source.Available || citation.Source.DownloadEndpoint != "/api/v1/documents/doc-1/content?knowledgeBaseId=kb-1" {
 		t.Fatalf("embedded citation source was not revalidated: %+v", citation)
 	}
 }
@@ -874,7 +935,7 @@ func TestAskRevalidatesFinalCitationsAfterRequestContextCancelled(t *testing.T) 
 	}
 	qa.now = func() time.Time { return now }
 	checker := &fakeCitationSourceChecker{
-		availability:               map[string]bool{"doc-1": true},
+		availability:               map[string]bool{CitationSourceRefKey("kb-1", "doc-1"): true},
 		failWhenContextIsCancelled: true,
 	}
 	qa.SetCitationSourceChecker(checker)
@@ -891,8 +952,8 @@ func TestAskRevalidatesFinalCitationsAfterRequestContextCancelled(t *testing.T) 
 	if !repository.finalization.Citations[0].IsSourceAvailable {
 		t.Fatalf("citation source availability was lost after request cancellation: %+v", repository.finalization.Citations[0])
 	}
-	if checker.userID != "user-id" || len(checker.documentIDs) != 1 || checker.documentIDs[0] != "doc-1" {
-		t.Fatalf("checker user=%q documents=%v", checker.userID, checker.documentIDs)
+	if checker.userID != "user-id" || !reflect.DeepEqual(checker.refs, []CitationSourceRef{{KnowledgeBaseID: "kb-1", DocumentID: "doc-1"}}) {
+		t.Fatalf("checker user=%q refs=%v", checker.userID, checker.refs)
 	}
 }
 
@@ -1172,7 +1233,7 @@ func TestAskPersistsCitationSnapshotsFromKnowledgeToolResults(t *testing.T) {
 		t.Fatal(err)
 	}
 	qa.now = func() time.Time { return now }
-	qa.SetCitationSourceChecker(&fakeCitationSourceChecker{availability: map[string]bool{"doc-1": true}})
+	qa.SetCitationSourceChecker(&fakeCitationSourceChecker{availability: map[string]bool{CitationSourceRefKey("kb-1", "doc-1"): true}})
 	result, err := qa.Ask(context.Background(), "user-id", "conversation-id", AskInput{Message: "find citation", Mode: "knowledge_qa"}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -1190,7 +1251,7 @@ func TestAskPersistsCitationSnapshotsFromKnowledgeToolResults(t *testing.T) {
 	if citation.DocumentID != "doc-1" || citation.DocID != "doc-1" || citation.DocumentName != "Boiler Manual" || citation.DocName != "Boiler Manual" {
 		t.Fatalf("unexpected citation document fields: %+v", citation)
 	}
-	if citation.Source == nil || !citation.Source.Available || citation.Source.DownloadEndpoint != "/api/v1/documents/doc-1/content" {
+	if citation.Source == nil || !citation.Source.Available || citation.Source.DownloadEndpoint != "/api/v1/documents/doc-1/content?knowledgeBaseId=kb-1" {
 		t.Fatalf("unexpected citation source: %+v", citation.Source)
 	}
 	if strings.Contains(fmt.Sprintf("%#v", result.Citations), "FULL RAW DOCUMENT BODY") || strings.Contains(fmt.Sprintf("%#v", repository.savedEvents), "FULL RAW DOCUMENT BODY") {
@@ -1233,7 +1294,7 @@ func TestAskStreamsCitationDeltaFromKnowledgeMCPSearchTool(t *testing.T) {
 		t.Fatal(err)
 	}
 	qa.now = func() time.Time { return now }
-	qa.SetCitationSourceChecker(&fakeCitationSourceChecker{availability: map[string]bool{"doc-1": true}})
+	qa.SetCitationSourceChecker(&fakeCitationSourceChecker{availability: map[string]bool{CitationSourceRefKey("kb-1", "doc-1"): true}})
 
 	result, err := qa.Ask(context.Background(), "user-id", "conversation-id", AskInput{Message: "find citation", Mode: "knowledge_qa"}, nil)
 	if err != nil {
@@ -1278,7 +1339,7 @@ func TestAskDeduplicatesStreamingCitationSnapshots(t *testing.T) {
 		t.Fatal(err)
 	}
 	qa.now = func() time.Time { return now }
-	qa.SetCitationSourceChecker(&fakeCitationSourceChecker{availability: map[string]bool{"doc-1": true}})
+	qa.SetCitationSourceChecker(&fakeCitationSourceChecker{availability: map[string]bool{CitationSourceRefKey("kb-1", "doc-1"): true}})
 
 	result, err := qa.Ask(context.Background(), "user-id", "conversation-id", AskInput{Message: "find repeated citation", Mode: "knowledge_qa"}, nil)
 	if err != nil {
@@ -1323,7 +1384,7 @@ func TestAskSSEPayloadsDoNotLeakPromptRawToolOrProviderSecrets(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		qa.SetCitationSourceChecker(&fakeCitationSourceChecker{availability: map[string]bool{"doc-1": true}})
+		qa.SetCitationSourceChecker(&fakeCitationSourceChecker{availability: map[string]bool{CitationSourceRefKey("kb-1", "doc-1"): true}})
 		var observed []ProgressEvent
 		_, err = qa.Ask(context.Background(), "user-id", "conversation-id", AskInput{Message: "find citation", Mode: "knowledge_qa"}, func(event ProgressEvent) {
 			observed = append(observed, event)
@@ -1669,7 +1730,7 @@ func TestContainsUnsafeReasoningContentRejectsInternalConnectionReferences(t *te
 		"http://postgres.service.consul:5432",
 		"http://minio.local:9000",
 		"localhost:9000",
-		"qdrant:6333",
+		"elasticsearch:9200",
 		"postgres.service.consul:5432",
 		"DATABASE_URL=postgres://postgres:postgres@localhost:5432/app",
 		"connection_string=host=knowledge-vendor port=9380",
@@ -1700,7 +1761,7 @@ func TestAskEmitsCitationDeltaForFallbackAgentMessageCitations(t *testing.T) {
 		t.Fatal(err)
 	}
 	qa.now = func() time.Time { return now }
-	qa.SetCitationSourceChecker(&fakeCitationSourceChecker{availability: map[string]bool{"doc-1": true}})
+	qa.SetCitationSourceChecker(&fakeCitationSourceChecker{availability: map[string]bool{CitationSourceRefKey("kb-1", "doc-1"): true}})
 
 	result, err := qa.Ask(context.Background(), "user-id", "conversation-id", AskInput{Message: "find citation", Mode: "knowledge_qa"}, nil)
 	if err != nil {
@@ -1753,6 +1814,37 @@ func TestExtractCitationsFromToolResultSupportsKnowledgeSummaryFields(t *testing
 	}
 }
 
+func TestKnowledgeRetrievalStopPolicySuppressesKnowledgeToolsAfterCitationHit(t *testing.T) {
+	policy := NewKnowledgeRetrievalStopPolicy("knowledge")
+	decision := policy(agent.ToolObservation{
+		Type:     agent.EventToolCompleted,
+		ToolName: "knowledge__search",
+		Result:   citationToolResultContent,
+	})
+
+	if decision.AppendSystemMessage == "" {
+		t.Fatal("expected final-answer directive")
+	}
+	if !containsStringInSlice(decision.SuppressToolPrefixes, "knowledge__") {
+		t.Fatalf("suppressed prefixes=%v, want knowledge__", decision.SuppressToolPrefixes)
+	}
+	if !containsStringInSlice(decision.SuppressToolNames, "search_knowledge") {
+		t.Fatalf("suppressed names=%v, want search_knowledge", decision.SuppressToolNames)
+	}
+}
+
+func TestKnowledgeRetrievalStopPolicyIgnoresEmptyKnowledgeResults(t *testing.T) {
+	decision := KnowledgeRetrievalStopPolicy(agent.ToolObservation{
+		Type:     agent.EventToolCompleted,
+		ToolName: "knowledge__search",
+		Result:   `{"results":[]}`,
+	})
+
+	if decision.AppendSystemMessage != "" || len(decision.SuppressToolNames) != 0 || len(decision.SuppressToolPrefixes) != 0 {
+		t.Fatalf("unexpected policy decision for empty result: %+v", decision)
+	}
+}
+
 func TestNormalizeCitationMarksUnavailableSourceAndSanitizesMetadata(t *testing.T) {
 	citation := NormalizeCitation(Citation{
 		ID:           "citation-id",
@@ -1786,6 +1878,15 @@ func TestNormalizeCitationMarksUnavailableSourceAndSanitizesMetadata(t *testing.
 	if _, ok := nested["internalUrl"]; ok {
 		t.Fatalf("internal URL leaked in nested metadata: %#v", nested)
 	}
+}
+
+func containsStringInSlice(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func assertSSEEventTypesSeen(t *testing.T, events []ProgressEvent, expected ...string) {

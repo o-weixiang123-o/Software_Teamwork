@@ -194,7 +194,7 @@ func assertNoDocumentInternals(t *testing.T, body string) {
 		"minio",
 		"X-Amz-Signature",
 		"provider.internal",
-		"qdrant",
+		"elasticsearch",
 		"prompt=",
 		"sk-",
 	} {

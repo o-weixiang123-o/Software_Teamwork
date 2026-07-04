@@ -69,13 +69,14 @@ class TestEmbeddingUtilsPrepareTexts:
         # Table tags should be replaced with spaces
         assert "<table>" not in contents[0]
 
-    def test_prepare_texts_whitespace_only_becomes_none(self):
-        """Test that whitespace-only content becomes 'None'."""
+    def test_prepare_texts_skips_whitespace_only_content(self):
+        """Test that whitespace-only content is not sent for embedding."""
         docs = [
             {"docnm_kwd": "Title1", "content_with_weight": "   \n\n  "},
         ]
         titles, contents = EmbeddingUtils.prepare_texts_for_embedding(docs)
-        assert contents == ["None"]
+        assert titles == []
+        assert contents == []
 
     def test_prepare_texts_default_title(self):
         """Test that missing docnm_kwd uses 'Title' as default."""
@@ -263,13 +264,13 @@ class TestEmbeddingUtilsInternals:
         assert "<td>" not in result
 
     def test_handle_whitespace(self):
-        """Test _handle_whitespace replaces whitespace-only with placeholder."""
-        assert EmbeddingUtils._handle_whitespace("   \n  ") == "None"
+        """Test _handle_whitespace marks whitespace-only content non-indexable."""
+        assert EmbeddingUtils._handle_whitespace("   \n  ") is None
         assert EmbeddingUtils._handle_whitespace("  text  ") == "  text  "
 
     def test_handle_whitespace_with_empty_string(self):
         """Test _handle_whitespace with empty string."""
-        assert EmbeddingUtils._handle_whitespace("") == "None"
+        assert EmbeddingUtils._handle_whitespace("") is None
 
 
 class TestEmbeddingUtilsConstants:
@@ -283,6 +284,7 @@ class TestEmbeddingUtilsConstants:
         """Test DEFAULT_TITLE_PLACEHOLDER value."""
         assert EmbeddingUtils.DEFAULT_TITLE_PLACEHOLDER == "Title"
 
-    def test_content_placeholder_for_whitespace(self):
-        """Test CONTENT_PLACEHOLDER_FOR_WHITESPACE value."""
-        assert EmbeddingUtils.CONTENT_PLACEHOLDER_FOR_WHITESPACE == "None"
+    def test_non_indexable_content_marker(self):
+        """Test whitespace-only content marker is not the old literal placeholder."""
+        assert EmbeddingUtils.NON_INDEXABLE_CONTENT is None
+        assert EmbeddingUtils.CONTENT_PLACEHOLDER_FOR_WHITESPACE is None

@@ -472,7 +472,7 @@ class DoclingParser(RAGFlowPdfParser):
                     chunk_text = chunk_data["chunk"].get("text", "")
                 
                 if isinstance(chunk_text, str) and chunk_text.strip():
-                    # Feed the pre-sliced chunks directly into RAGFlow's expected format
+                    # Feed the pre-sliced chunks directly into the runtime parser format.
                     sections.extend(self._sections_from_remote_text(chunk_text, parse_method=parse_method))
                     
             if callback:
@@ -482,7 +482,7 @@ class DoclingParser(RAGFlowPdfParser):
 
             self.logger.warning("[Docling] Native chunking returned no usable chunks; trying standard response parsing.")
 
-        # --- FALLBACK: Standard RAGFlow parsing for older docling servers ---
+        # --- FALLBACK: standard runtime response parsing for older docling servers ---
         docs = self._extract_remote_document_entries(response_json)
         if not docs:
             raise RuntimeError("[Docling] remote response does not contain parsed documents.")

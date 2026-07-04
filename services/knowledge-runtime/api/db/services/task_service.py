@@ -20,23 +20,41 @@ import xxhash
 from datetime import datetime
 
 from api.db.db_utils import bulk_insert_into_db
-from deepdoc.parser import PdfParser
 from peewee import JOIN
 from api.db.db_models import DB, File2Document, File
 from api.db import FileType
-from api.db.db_models import Task, Document, Knowledgebase, Tenant
+from api.db.db_models import Task, Document, Knowledgebase
 from api.db.services.common_service import CommonService
 from api.db.services.document_service import DocumentService
 from common.misc_utils import get_uuid
 from common.time_utils import current_timestamp, get_format_time
 from common.constants import StatusEnum, TaskStatus, MAXIMUM_PAGE_NUMBER, MAXIMUM_TASK_PAGE_NUMBER
-from deepdoc.parser.excel_parser import RAGFlowExcelParser
 from rag.utils.redis_conn import REDIS_CONN
 from common import settings
 from rag.nlp import search
+from api.utils.runtime_model_config import default_model_id
 
-GRAPH_RAPTOR_FAKE_DOC_ID = "graph_raptor_x"
+DATASET_SCOPE_TASK_DOC_ID = "graph_raptor_x"
+# Backward-compatible alias for existing imports. New code should use
+# DATASET_SCOPE_TASK_DOC_ID to make the Task.doc_id sentinel explicit.
+GRAPH_RAPTOR_FAKE_DOC_ID = DATASET_SCOPE_TASK_DOC_ID
 TASK_MAX_LOG_LENGTH = int(os.environ.get("TASK_MAX_LOG_LENGTH", 3000)) # TEXT MAX is 64 KiB bytes!
+
+
+def _pdf_total_page_number(filename: str, file_bin: bytes) -> int | None:
+    from deepdoc.parser import PdfParser
+
+    return PdfParser.total_page_number(filename, file_bin)
+
+
+def _excel_row_number(filename: str, file_bin: bytes) -> int | None:
+    from deepdoc.parser.excel_parser import RAGFlowExcelParser
+
+    return RAGFlowExcelParser.row_number(filename, file_bin)
+
+
+def is_dataset_scope_task_doc_id(doc_id: str) -> bool:
+    return str(doc_id or "") == DATASET_SCOPE_TASK_DOC_ID
 
 def trim_header_by_lines(text: str, max_length) -> str:
     # Trim header text to maximum length while preserving line breaks
@@ -76,7 +94,7 @@ class TaskService(CommonService):
         """Retrieve detailed task information by task ID.
 
         This method fetches comprehensive task details including associated document,
-        dataset, and tenant information. It also handles task retry logic and
+        dataset, and scope information. It also handles task retry logic and
         progress updates.
 
         Args:
@@ -86,7 +104,9 @@ class TaskService(CommonService):
             dict: Task details dictionary containing all task information and related metadata.
                  Returns None if task is not found or has exceeded retry limit.
         """
-        doc_id = cls.model.doc_id
+        doc_join = cls.model.doc_id == Document.id
+        if doc_ids:
+            doc_join = Document.id == doc_ids[0]
         fields = [
             cls.model.id,
             cls.model.doc_id,
@@ -100,26 +120,26 @@ class TaskService(CommonService):
             Document.type,
             Document.location,
             Document.size,
-            Knowledgebase.tenant_id,
+            Knowledgebase.scope_id,
             Knowledgebase.language,
             Knowledgebase.embd_id,
             Knowledgebase.pagerank,
             Knowledgebase.parser_config.alias("kb_parser_config"),
-            Tenant.img2txt_id,
-            Tenant.asr_id,
-            Tenant.llm_id,
             cls.model.update_time,
         ]
         docs = (
             cls.model.select(*fields)
-                .join(Document, on=(doc_id == Document.id))
+                .join(Document, on=doc_join)
                 .join(Knowledgebase, on=(Document.kb_id == Knowledgebase.id))
-                .join(Tenant, on=(Knowledgebase.tenant_id == Tenant.id))
                 .where(cls.model.id == task_id)
         )
         docs = list(docs.dicts())
         if not docs:
             return None
+
+        docs[0]["img2txt_id"] = default_model_id("image2text")
+        docs[0]["asr_id"] = default_model_id("speech2text")
+        docs[0]["llm_id"] = default_model_id("chat")
 
         msg = f"\n{datetime.now().strftime('%H:%M:%S')} Task has been received."
         prog = random.random() / 10.0
@@ -357,6 +377,18 @@ class TaskService(CommonService):
         return cls.model.delete().where(cls.model.doc_id.in_(doc_ids)).execute()
 
 
+def _mark_parse_scheduling_failed(doc_id: str, message: str):
+    now = get_format_time()
+    DocumentService.update_by_id(doc_id, {
+        "progress": -1,
+        "run": TaskStatus.FAIL.value,
+        "progress_msg": message,
+        "process_begin_at": now,
+        "update_time": current_timestamp(),
+        "update_date": now,
+    })
+
+
 def queue_tasks(doc: dict, bucket: str, name: str, priority: int):
     """Create and queue document processing tasks.
 
@@ -392,7 +424,7 @@ def queue_tasks(doc: dict, bucket: str, name: str, priority: int):
 
     if doc["type"] == FileType.PDF.value:
         file_bin = settings.STORAGE_IMPL.get(bucket, name)
-        pages = PdfParser.total_page_number(doc["name"], file_bin)
+        pages = _pdf_total_page_number(doc["name"], file_bin)
         if pages is None:
             pages = 0
         page_size = doc["parser_config"].get("task_page_size") or 12
@@ -413,7 +445,9 @@ def queue_tasks(doc: dict, bucket: str, name: str, priority: int):
 
     elif doc["parser_id"] == "table":
         file_bin = settings.STORAGE_IMPL.get(bucket, name)
-        rn = RAGFlowExcelParser.row_number(doc["name"], file_bin)
+        rn = _excel_row_number(doc["name"], file_bin)
+        if rn is None:
+            rn = 0
         for i in range(0, rn, 3000):
             task = new_task()
             task["from_page"] = i
@@ -421,6 +455,13 @@ def queue_tasks(doc: dict, bucket: str, name: str, priority: int):
             parse_task_array.append(task)
     else:
         parse_task_array.append(new_task())
+
+    if not parse_task_array:
+        _mark_parse_scheduling_failed(
+            doc["id"],
+            "No parse tasks were created. The file may be empty, encrypted, or unsupported.",
+        )
+        return
 
     # Determine suffix based on parser_id (consistent with SAAS version line 444)
     suffix = "common" if doc["parser_id"] != "resume" else "resume"
@@ -452,7 +493,7 @@ def queue_tasks(doc: dict, bucket: str, name: str, priority: int):
             if pre_task["chunk_ids"]:
                 pre_chunk_ids.extend(pre_task["chunk_ids"].split())
         if pre_chunk_ids:
-            settings.docStoreConn.delete({"id": pre_chunk_ids}, search.index_name(chunking_config["tenant_id"]),
+            settings.docStoreConn.delete({"id": pre_chunk_ids}, search.index_name(chunking_config["scope_id"]),
                                          chunking_config["kb_id"])
     DocumentService.update_by_id(doc["id"], {"chunk_num": ck_num})
 

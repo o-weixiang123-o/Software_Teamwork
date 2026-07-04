@@ -93,6 +93,18 @@ temp/
 *.pid
 *.seed
 
+# Knowledge runtime local artifacts
+services/knowledge-runtime/.venv/
+services/knowledge-runtime/rag/res/deepdoc/
+services/knowledge-runtime/ragflow_deps/tika-server*.jar*
+services/knowledge-runtime/ragflow_deps/chrome*
+services/knowledge-runtime/ragflow_deps/chromedriver*
+services/knowledge-runtime/ragflow_deps/huggingface.co/
+services/knowledge-runtime/ragflow_deps/libssl*.deb
+services/knowledge-runtime/ragflow_deps/nltk_data/
+services/knowledge-runtime/ragflow_deps/cl100k_base.tiktoken
+services/knowledge-runtime/ragflow_deps/uv-*.tar.gz
+
 # Build artifacts shared by services
 bin/
 debug/

@@ -2,11 +2,11 @@ package mcp_test
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -16,7 +16,6 @@ import (
 
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/adapter"
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/adapterconfig"
-	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/aigateway"
 	kmcp "github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/mcp"
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/service"
 )
@@ -30,6 +29,7 @@ type fakeVendorState struct {
 	documents  map[string]map[string]any
 	docContent map[string][]byte
 	parseCalls []string
+	searchBody []byte
 }
 
 func newFakeVendorState() *fakeVendorState {
@@ -56,6 +56,9 @@ func startFakeVendor(t *testing.T, state *fakeVendorState) *httptest.Server {
 			for _, item := range state.datasets {
 				items = append(items, item)
 			}
+			sort.Slice(items, func(i, j int) bool {
+				return stringField(items[i], "id") < stringField(items[j], "id")
+			})
 			writeVendorJSON(w, http.StatusOK, map[string]any{"code": 0, "data": items, "total_datasets": len(items)})
 			return
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/datasets":
@@ -114,6 +117,38 @@ func startFakeVendor(t *testing.T, state *fakeVendorState) *httptest.Server {
 			state.docContent[docID] = content
 			writeVendorJSON(w, http.StatusOK, map[string]any{"code": 0, "data": doc})
 			return
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/documents") && strings.Contains(r.URL.Path, "/chunks"):
+			parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/v1/datasets/"), "/")
+			if len(parts) < 4 || parts[1] != "documents" || parts[3] != "chunks" {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			kbID := parts[0]
+			docID := parts[2]
+			chunkID := strings.TrimSpace(r.URL.Query().Get("id"))
+			items := make([]map[string]any, 0)
+			for _, chunk := range state.chunks {
+				if stringField(chunk, "kb_id", "dataset_id") != kbID || stringField(chunk, "doc_id", "document_id") != docID {
+					continue
+				}
+				id := stringField(chunk, "id", "chunk_id")
+				if chunkID != "" && id != chunkID {
+					continue
+				}
+				items = append(items, chunk)
+			}
+			if chunkID != "" && len(items) == 0 {
+				writeVendorJSON(w, http.StatusOK, map[string]any{"code": 404, "message": "Chunk not found!", "data": false})
+				return
+			}
+			writeVendorJSON(w, http.StatusOK, map[string]any{
+				"code": 0,
+				"data": map[string]any{
+					"total":  len(items),
+					"chunks": items,
+				},
+			})
+			return
 		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/documents") && !strings.Contains(r.URL.Path, "/chunks"):
 			parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/v1/datasets/"), "/")
 			if len(parts) == 2 && parts[1] == "documents" {
@@ -124,7 +159,13 @@ func startFakeVendor(t *testing.T, state *fakeVendorState) *httptest.Server {
 						items = append(items, doc)
 					}
 				}
-				writeVendorJSON(w, http.StatusOK, map[string]any{"code": 0, "data": items, "total": len(items)})
+				writeVendorJSON(w, http.StatusOK, map[string]any{
+					"code": 0,
+					"data": map[string]any{
+						"total": len(items),
+						"docs":  items,
+					},
+				})
 				return
 			}
 			docID := strings.TrimPrefix(r.URL.Path, "/api/v1/documents/")
@@ -136,6 +177,7 @@ func startFakeVendor(t *testing.T, state *fakeVendorState) *httptest.Server {
 			writeVendorJSON(w, http.StatusOK, map[string]any{"code": 0, "data": doc})
 			return
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/datasets/search":
+			state.searchBody, _ = io.ReadAll(r.Body)
 			writeVendorJSON(w, http.StatusOK, map[string]any{
 				"code": 0,
 				"data": map[string]any{
@@ -197,12 +239,60 @@ func writeVendorJSON(w http.ResponseWriter, status int, payload map[string]any) 
 	_ = json.NewEncoder(w).Encode(payload)
 }
 
-func connectInMemory(t *testing.T, adapterServer *adapter.Server, caller kmcp.CallerContext, chatClient *aigateway.ChatClient) *sdkmcp.ClientSession {
+type runtimeCatalogStub struct {
+	kbs  []service.RuntimeKnowledgeBase
+	docs []service.RuntimeDocument
+}
+
+func (s runtimeCatalogStub) ListRuntimeKnowledgeBases(_ context.Context, ids []string) ([]service.RuntimeKnowledgeBase, error) {
+	if len(ids) == 0 {
+		return append([]service.RuntimeKnowledgeBase(nil), s.kbs...), nil
+	}
+	wanted := map[string]struct{}{}
+	for _, id := range ids {
+		wanted[id] = struct{}{}
+	}
+	out := []service.RuntimeKnowledgeBase{}
+	for _, item := range s.kbs {
+		if _, ok := wanted[item.ID]; ok {
+			out = append(out, item)
+		}
+	}
+	return out, nil
+}
+
+func (s runtimeCatalogStub) GetRuntimeDocument(_ context.Context, id string) (service.RuntimeDocument, error) {
+	for _, item := range s.docs {
+		if item.ID == id {
+			return item, nil
+		}
+	}
+	return service.RuntimeDocument{}, service.ErrNotFound
+}
+
+func (s runtimeCatalogStub) ListRuntimeDocuments(_ context.Context, ids []string) ([]service.RuntimeDocument, error) {
+	if len(ids) == 0 {
+		return append([]service.RuntimeDocument(nil), s.docs...), nil
+	}
+	wanted := map[string]struct{}{}
+	for _, id := range ids {
+		wanted[id] = struct{}{}
+	}
+	out := []service.RuntimeDocument{}
+	for _, item := range s.docs {
+		if _, ok := wanted[item.ID]; ok {
+			out = append(out, item)
+		}
+	}
+	return out, nil
+}
+
+func connectInMemory(t *testing.T, adapterServer *adapter.Server, caller kmcp.CallerContext) *sdkmcp.ClientSession {
 	t.Helper()
 	if caller.ServiceToken == "" {
 		caller.ServiceToken = testServiceToken
 	}
-	server := kmcp.NewInMemoryServer(adapterServer, caller, chatClient)
+	server := kmcp.NewInMemoryServer(adapterServer, caller)
 	transport1, transport2 := sdkmcp.NewInMemoryTransports()
 	if _, err := server.Connect(context.Background(), transport1, nil); err != nil {
 		t.Fatalf("connect MCP server: %v", err)
@@ -232,7 +322,7 @@ func TestToolsListReturnsV1Catalog(t *testing.T) {
 		UserID:      "usr_test",
 		RequestID:   "req_test",
 		Permissions: service.PermissionKnowledgeRead,
-	}, nil)
+	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -287,7 +377,7 @@ func TestSearchKnowledgeReturnsAdapterResults(t *testing.T) {
 		UserID:      "usr_test",
 		RequestID:   "req_search",
 		Permissions: service.PermissionKnowledgeRead,
-	}, nil)
+	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -347,8 +437,9 @@ func TestSearchKnowledgeReturnsAdapterResults(t *testing.T) {
 	}
 }
 
-func TestSearchKnowledgeRequiresKnowledgeBaseIDs(t *testing.T) {
+func TestSearchKnowledgeAllowsEmptyKnowledgeBaseIDsForGlobalSearch(t *testing.T) {
 	state := newFakeVendorState()
+	state.datasets["kb_test"] = map[string]any{"id": "kb_test", "name": "Safety KB"}
 	vendor := startFakeVendor(t, state)
 	defer vendor.Close()
 
@@ -360,7 +451,7 @@ func TestSearchKnowledgeRequiresKnowledgeBaseIDs(t *testing.T) {
 	session := connectInMemory(t, adapterServer, kmcp.CallerContext{
 		UserID:      "usr_test",
 		Permissions: service.PermissionKnowledgeRead,
-	}, nil)
+	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -368,14 +459,14 @@ func TestSearchKnowledgeRequiresKnowledgeBaseIDs(t *testing.T) {
 	result, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "search",
 		Arguments: map[string]any{
-			"query": "missing kb ids",
+			"query": "global search",
 		},
 	})
 	if err != nil {
 		t.Fatalf("CallTool: %v", err)
 	}
-	if !result.IsError {
-		t.Fatalf("expected tool error, got %+v", result)
+	if result.IsError {
+		t.Fatalf("unexpected tool error: %+v", result)
 	}
 }
 
@@ -393,7 +484,7 @@ func TestSearchKnowledgeWithDocumentIDs(t *testing.T) {
 		UserID:      "usr_test",
 		RequestID:   "req_search_docids",
 		Permissions: service.PermissionKnowledgeRead,
-	}, nil)
+	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -414,231 +505,41 @@ func TestSearchKnowledgeWithDocumentIDs(t *testing.T) {
 	}
 }
 
-func TestCreateKnowledgeBaseRequiresWritePermission(t *testing.T) {
-	t.Skip("create_knowledge_base is not published in the v1 MCP read-only contract")
+func TestGetDocumentResolvesKnowledgeBaseFromRuntimeCatalog(t *testing.T) {
 	state := newFakeVendorState()
+	state.documents["doc_test"] = map[string]any{
+		"id": "doc_test", "kb_id": "kb_test", "dataset_id": "kb_test",
+		"name": "Manual.pdf", "type": "pdf", "run": "DONE", "chunk_count": 2,
+	}
 	vendor := startFakeVendor(t, state)
 	defer vendor.Close()
 
+	catalog := runtimeCatalogStub{
+		kbs: []service.RuntimeKnowledgeBase{
+			{ID: "kb_test", ChunkCount: 2},
+		},
+		docs: []service.RuntimeDocument{
+			{ID: "doc_test", KnowledgeBaseID: "kb_test", ChunkCount: 2},
+		},
+	}
 	adapterServer := adapter.NewServer(adapterconfig.Config{
 		ServiceVersion:   "test",
 		VendorRuntimeURL: vendor.URL,
 		ServiceToken:     testServiceToken,
-	}, nil)
+	}, nil, adapter.WithRuntimeKnowledgeBaseCatalog(catalog))
 	session := connectInMemory(t, adapterServer, kmcp.CallerContext{
 		UserID:      "usr_test",
+		RequestID:   "req_get_doc",
 		Permissions: service.PermissionKnowledgeRead,
-	}, nil)
+	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	result, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "create_knowledge_base",
+		Name: "get_document",
 		Arguments: map[string]any{
-			"name": "Should Fail",
-		},
-	})
-	if err != nil {
-		t.Fatalf("CallTool: %v", err)
-	}
-	if !result.IsError {
-		t.Fatalf("expected tool error, got %+v", result)
-	}
-}
-
-func TestCreateAndListKnowledgeBases(t *testing.T) {
-	t.Skip("knowledge base CRUD is not published in the v1 MCP read-only contract")
-	state := newFakeVendorState()
-	vendor := startFakeVendor(t, state)
-	defer vendor.Close()
-
-	adapterServer := adapter.NewServer(adapterconfig.Config{
-		ServiceVersion:   "test",
-		VendorRuntimeURL: vendor.URL,
-		ServiceToken:     testServiceToken,
-	}, nil)
-	session := connectInMemory(t, adapterServer, kmcp.CallerContext{
-		UserID:      "usr_test",
-		Permissions: service.PermissionKnowledgeWrite,
-	}, nil)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	createResult, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "create_knowledge_base",
-		Arguments: map[string]any{
-			"name":        "Manuals",
-			"description": "Test KB",
-		},
-	})
-	if err != nil {
-		t.Fatalf("CallTool create: %v", err)
-	}
-	if createResult.IsError {
-		t.Fatalf("unexpected create error: %+v", createResult)
-	}
-	createPayload, _ := json.Marshal(createResult.StructuredContent)
-	var created struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
-	}
-	if err := json.Unmarshal(createPayload, &created); err != nil {
-		t.Fatalf("decode create output: %v", err)
-	}
-	if created.ID == "" || created.Name != "Manuals" {
-		t.Fatalf("created=%+v", created)
-	}
-
-	listResult, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name:      "list_knowledge_bases",
-		Arguments: map[string]any{},
-	})
-	if err != nil {
-		t.Fatalf("CallTool list: %v", err)
-	}
-	if listResult.IsError {
-		t.Fatalf("unexpected list error: %+v", listResult)
-	}
-	listPayload, _ := json.Marshal(listResult.StructuredContent)
-	var listed struct {
-		Data []map[string]any `json:"data"`
-	}
-	if err := json.Unmarshal(listPayload, &listed); err != nil {
-		t.Fatalf("decode list output: %v body=%s", err, string(listPayload))
-	}
-	if len(listed.Data) != 1 {
-		t.Fatalf("listed data=%+v", listed.Data)
-	}
-}
-
-func TestCreateDocumentUpload(t *testing.T) {
-	t.Skip("create_document is not published in the v1 MCP read-only contract")
-	state := newFakeVendorState()
-	vendor := startFakeVendor(t, state)
-	defer vendor.Close()
-
-	adapterServer := adapter.NewServer(adapterconfig.Config{
-		ServiceVersion:     "test",
-		VendorRuntimeURL:   vendor.URL,
-		ServiceToken:       testServiceToken,
-		AutoStartIngestion: true,
-	}, nil)
-	session := connectInMemory(t, adapterServer, kmcp.CallerContext{
-		UserID:      "usr_test",
-		Permissions: service.PermissionKnowledgeWrite,
-	}, nil)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	kbResult, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "create_knowledge_base",
-		Arguments: map[string]any{
-			"name": "Upload KB",
-		},
-	})
-	if err != nil || kbResult.IsError {
-		t.Fatalf("create kb: err=%v result=%+v", err, kbResult)
-	}
-	kbPayload, _ := json.Marshal(kbResult.StructuredContent)
-	var kb struct {
-		ID string `json:"id"`
-	}
-	_ = json.Unmarshal(kbPayload, &kb)
-
-	content := base64.StdEncoding.EncodeToString([]byte("hello ingestion"))
-	uploadResult, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "create_document",
-		Arguments: map[string]any{
-			"knowledgeBaseId":   kb.ID,
-			"fileName":          "notes.txt",
-			"fileContentBase64": content,
-		},
-	})
-	if err != nil {
-		t.Fatalf("CallTool upload: %v", err)
-	}
-	if uploadResult.IsError {
-		t.Fatalf("unexpected upload error: %+v", uploadResult)
-	}
-	uploadPayload, _ := json.Marshal(uploadResult.StructuredContent)
-	var uploaded struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
-	}
-	if err := json.Unmarshal(uploadPayload, &uploaded); err != nil {
-		t.Fatalf("decode upload: %v", err)
-	}
-	if uploaded.ID == "" || uploaded.Name != "notes.txt" {
-		t.Fatalf("uploaded=%+v", uploaded)
-	}
-
-	state.mu.Lock()
-	defer state.mu.Unlock()
-	if len(state.parseCalls) != 1 {
-		t.Fatalf("parseCalls=%v", state.parseCalls)
-	}
-}
-
-func TestAnswerFromKnowledgeReturnsAnswerAndCitations(t *testing.T) {
-	t.Skip("answer_from_knowledge is not published in the v1 MCP read-only contract")
-	state := newFakeVendorState()
-	state.chunks = []map[string]any{
-		{
-			"similarity":          0.88,
-			"kb_id":               "kb_rag",
-			"doc_id":              "doc_rag",
-			"chunk_id":            "chunk_rag",
-			"docnm_kwd":           "Policy.pdf",
-			"content_with_weight": "Employees must reset passwords every 90 days.",
-		},
-	}
-	vendor := startFakeVendor(t, state)
-	defer vendor.Close()
-
-	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/internal/v1/chat/completions" {
-			t.Fatalf("unexpected path %s", r.URL.Path)
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"choices": []map[string]any{{
-				"message": map[string]any{
-					"role":    "assistant",
-					"content": "Passwords must be reset every 90 days [1].",
-				},
-				"finish_reason": "stop",
-			}},
-		})
-	}))
-	defer gateway.Close()
-
-	chatClient, err := aigateway.NewChatClient(gateway.URL, "test-token", gateway.Client())
-	if err != nil {
-		t.Fatalf("NewChatClient: %v", err)
-	}
-
-	adapterServer := adapter.NewServer(adapterconfig.Config{
-		ServiceVersion:   "test",
-		VendorRuntimeURL: vendor.URL,
-		ServiceToken:     testServiceToken,
-	}, nil)
-	session := connectInMemory(t, adapterServer, kmcp.CallerContext{
-		UserID:      "usr_test",
-		RequestID:   "req_answer",
-		Permissions: service.PermissionKnowledgeRead,
-	}, chatClient)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	result, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "answer_from_knowledge",
-		Arguments: map[string]any{
-			"question":         "How often must passwords be reset?",
-			"knowledgeBaseIds": []any{"kb_rag"},
-			"modelProfileId":   "profile-test",
+			"documentId": "doc_test",
 		},
 	})
 	if err != nil {
@@ -647,71 +548,182 @@ func TestAnswerFromKnowledgeReturnsAnswerAndCitations(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("unexpected tool error: %+v", result)
 	}
-
 	payload, err := json.Marshal(result.StructuredContent)
 	if err != nil {
-		t.Fatalf("marshal: %v", err)
+		t.Fatalf("marshal structured content: %v", err)
 	}
 	var output struct {
-		Answer    string `json:"answer"`
-		Citations []struct {
-			Index           int    `json:"index"`
-			KnowledgeBaseID string `json:"knowledgeBaseId"`
-			DocumentID      string `json:"documentId"`
-			ChunkID         string `json:"chunkId"`
-			Excerpt         string `json:"excerpt"`
-		} `json:"citations"`
-		Retrieval struct {
-			QueryID     string `json:"queryId"`
-			ResultCount int    `json:"resultCount"`
-		} `json:"retrieval"`
+		ID              string `json:"id"`
+		KnowledgeBaseID string `json:"knowledgeBaseId"`
+		Name            string `json:"name"`
+		ChunkCount      int64  `json:"chunkCount"`
 	}
 	if err := json.Unmarshal(payload, &output); err != nil {
-		t.Fatalf("decode: %v body=%s", err, string(payload))
+		t.Fatalf("decode output: %v body=%s", err, string(payload))
 	}
-	if !strings.Contains(output.Answer, "90 days") {
-		t.Fatalf("answer=%q", output.Answer)
-	}
-	if len(output.Citations) != 1 || output.Citations[0].Index != 1 {
-		t.Fatalf("citations=%+v", output.Citations)
-	}
-	if output.Retrieval.ResultCount != 1 || !strings.HasPrefix(output.Retrieval.QueryID, "kq_") {
-		t.Fatalf("retrieval=%+v", output.Retrieval)
+	if output.ID != "doc_test" || output.KnowledgeBaseID != "kb_test" || output.Name != "Manual.pdf" || output.ChunkCount != 2 {
+		t.Fatalf("unexpected document output: %+v", output)
 	}
 }
 
-func TestAnswerFromKnowledgeRequiresGatewayClient(t *testing.T) {
-	t.Skip("answer_from_knowledge is not published in the v1 MCP read-only contract")
+func TestGetChunkReturnsSingleChunkByDocumentAndChunkID(t *testing.T) {
 	state := newFakeVendorState()
+	state.documents["doc_test"] = map[string]any{
+		"id": "doc_test", "kb_id": "kb_test", "dataset_id": "kb_test",
+		"name": "Manual.pdf", "run": "DONE", "chunk_count": 2,
+	}
+	state.chunks = []map[string]any{
+		{
+			"id":                  "chunk_other",
+			"kb_id":               "kb_test",
+			"doc_id":              "doc_test",
+			"content_with_weight": "Other chunk",
+		},
+		{
+			"id":                  "chunk_test",
+			"kb_id":               "kb_test",
+			"doc_id":              "doc_test",
+			"content_with_weight": "Transformer maintenance full context",
+			"chunk_index":         float64(2),
+		},
+	}
 	vendor := startFakeVendor(t, state)
 	defer vendor.Close()
 
+	catalog := runtimeCatalogStub{
+		kbs: []service.RuntimeKnowledgeBase{
+			{ID: "kb_test", ChunkCount: 2},
+		},
+		docs: []service.RuntimeDocument{
+			{ID: "doc_test", KnowledgeBaseID: "kb_test", ChunkCount: 2},
+		},
+	}
 	adapterServer := adapter.NewServer(adapterconfig.Config{
 		ServiceVersion:   "test",
 		VendorRuntimeURL: vendor.URL,
 		ServiceToken:     testServiceToken,
-	}, nil)
+	}, nil, adapter.WithRuntimeKnowledgeBaseCatalog(catalog))
 	session := connectInMemory(t, adapterServer, kmcp.CallerContext{
 		UserID:      "usr_test",
+		RequestID:   "req_get_chunk",
 		Permissions: service.PermissionKnowledgeRead,
-	}, nil)
+	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	result, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "answer_from_knowledge",
+		Name: "get_chunk",
 		Arguments: map[string]any{
-			"question":         "test",
-			"knowledgeBaseIds": []any{"kb_test"},
-			"modelProfileId":   "profile-test",
+			"documentId": "doc_test",
+			"chunkId":    "chunk_test",
 		},
 	})
 	if err != nil {
 		t.Fatalf("CallTool: %v", err)
 	}
-	if !result.IsError {
-		t.Fatalf("expected tool error, got %+v", result)
+	if result.IsError {
+		t.Fatalf("unexpected tool error: %+v", result)
+	}
+	payload, err := json.Marshal(result.StructuredContent)
+	if err != nil {
+		t.Fatalf("marshal structured content: %v", err)
+	}
+	var output struct {
+		ID              string `json:"id"`
+		ChunkID         string `json:"chunkId"`
+		DocumentID      string `json:"documentId"`
+		KnowledgeBaseID string `json:"knowledgeBaseId"`
+		ChunkIndex      int32  `json:"chunkIndex"`
+		Content         string `json:"content"`
+	}
+	if err := json.Unmarshal(payload, &output); err != nil {
+		t.Fatalf("decode output: %v body=%s", err, string(payload))
+	}
+	if output.ID != "chunk_test" || output.ChunkID != "chunk_test" || output.DocumentID != "doc_test" || output.KnowledgeBaseID != "kb_test" {
+		t.Fatalf("unexpected output: %+v", output)
+	}
+	if output.ChunkIndex != 2 || !strings.Contains(output.Content, "full context") {
+		t.Fatalf("unexpected content output: %+v", output)
+	}
+}
+
+func TestGetChunkReadsSingleChunkByID(t *testing.T) {
+	state := newFakeVendorState()
+	state.documents["doc_test"] = map[string]any{
+		"id": "doc_test", "kb_id": "kb_test", "dataset_id": "kb_test",
+		"name": "Manual.pdf", "type": "pdf", "run": "DONE", "chunk_count": 1,
+	}
+	state.chunks = []map[string]any{
+		{
+			"id":                  "chunk_test",
+			"chunk_id":            "chunk_test",
+			"kb_id":               "kb_test",
+			"doc_id":              "doc_test",
+			"docnm_kwd":           "Manual.pdf",
+			"content_with_weight": "Full transformer maintenance chunk text, not only preview.",
+			"chunk_index":         float64(7),
+		},
+	}
+	vendor := startFakeVendor(t, state)
+	defer vendor.Close()
+
+	catalog := runtimeCatalogStub{
+		kbs: []service.RuntimeKnowledgeBase{
+			{ID: "kb_test", ChunkCount: 1},
+		},
+		docs: []service.RuntimeDocument{
+			{ID: "doc_test", KnowledgeBaseID: "kb_test", ChunkCount: 1},
+		},
+	}
+	adapterServer := adapter.NewServer(adapterconfig.Config{
+		ServiceVersion:   "test",
+		VendorRuntimeURL: vendor.URL,
+		ServiceToken:     testServiceToken,
+	}, nil, adapter.WithRuntimeKnowledgeBaseCatalog(catalog))
+	session := connectInMemory(t, adapterServer, kmcp.CallerContext{
+		UserID:      "usr_test",
+		RequestID:   "req_get_chunk",
+		Permissions: service.PermissionKnowledgeRead,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	result, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "get_chunk",
+		Arguments: map[string]any{
+			"chunkId": "chunk_test",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected tool error: %+v", result)
+	}
+	payload, err := json.Marshal(result.StructuredContent)
+	if err != nil {
+		t.Fatalf("marshal structured content: %v", err)
+	}
+	var output struct {
+		ID              string `json:"id"`
+		KnowledgeBaseID string `json:"knowledgeBaseId"`
+		DocumentID      string `json:"documentId"`
+		ChunkIndex      int32  `json:"chunkIndex"`
+		Content         string `json:"content"`
+	}
+	if err := json.Unmarshal(payload, &output); err != nil {
+		t.Fatalf("decode output: %v body=%s", err, string(payload))
+	}
+	if output.ID != "chunk_test" || output.KnowledgeBaseID != "kb_test" || output.DocumentID != "doc_test" {
+		t.Fatalf("unexpected chunk ids: %+v", output)
+	}
+	if output.ChunkIndex != 7 {
+		t.Fatalf("chunkIndex=%d", output.ChunkIndex)
+	}
+	if !strings.Contains(output.Content, "Full transformer maintenance chunk text") {
+		t.Fatalf("content=%q", output.Content)
 	}
 }
 
@@ -739,7 +751,7 @@ func TestStreamableHTTPHandlerUsesTrustedCallerContext(t *testing.T) {
 		UserID:       "usr_trusted_mcp",
 		ServiceToken: testServiceToken,
 		Permissions:  service.PermissionKnowledgeRead,
-	}, nil))
+	}))
 	defer httpServer.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -779,64 +791,6 @@ func TestStreamableHTTPHandlerUsesTrustedCallerContext(t *testing.T) {
 	}
 }
 
-func TestStreamableHTTPHandlerDoesNotTrustForgedWritePermission(t *testing.T) {
-	t.Skip("write tools are not published in the v1 MCP read-only contract — forged write permission test is no longer applicable")
-	state := newFakeVendorState()
-	vendor := startFakeVendor(t, state)
-	defer vendor.Close()
-
-	adapterServer := adapter.NewServer(adapterconfig.Config{
-		ServiceVersion:   "test",
-		VendorRuntimeURL: vendor.URL,
-		ServiceToken:     testServiceToken,
-	}, nil)
-	httpServer := httptest.NewServer(kmcp.NewStreamableHTTPHandler(adapterServer, kmcp.CallerContext{
-		UserID:       "usr_trusted_mcp",
-		ServiceToken: testServiceToken,
-		Permissions:  service.PermissionKnowledgeRead,
-	}, nil))
-	defer httpServer.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "test-client", Version: "0.1.0"}, nil)
-	transport := &sdkmcp.StreamableClientTransport{
-		Endpoint: httpServer.URL,
-		HTTPClient: &http.Client{
-			Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
-				r.Header.Set("X-User-Id", "usr_attacker")
-				r.Header.Set("X-Service-Token", testServiceToken)
-				r.Header.Set("X-User-Permissions", service.PermissionKnowledgeWrite)
-				return http.DefaultTransport.RoundTrip(r)
-			}),
-		},
-	}
-	session, err := client.Connect(ctx, transport, nil)
-	if err != nil {
-		t.Fatalf("connect: %v", err)
-	}
-	defer session.Close()
-
-	result, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "create_knowledge_base",
-		Arguments: map[string]any{
-			"name": "Should Fail",
-		},
-	})
-	if err != nil {
-		t.Fatalf("CallTool: %v", err)
-	}
-	if !result.IsError {
-		t.Fatalf("expected forged write permission to be ignored, got %+v", result)
-	}
-	state.mu.Lock()
-	defer state.mu.Unlock()
-	if len(state.datasets) != 0 {
-		t.Fatalf("datasets=%v, want none created by forged MCP caller", state.datasets)
-	}
-}
-
 func TestStreamableHTTPHandlerRejectsMissingServiceToken(t *testing.T) {
 	state := newFakeVendorState()
 	vendor := startFakeVendor(t, state)
@@ -851,7 +805,7 @@ func TestStreamableHTTPHandlerRejectsMissingServiceToken(t *testing.T) {
 		UserID:       "usr_trusted_mcp",
 		ServiceToken: testServiceToken,
 		Permissions:  service.PermissionKnowledgeRead,
-	}, nil))
+	}))
 	defer httpServer.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

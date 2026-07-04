@@ -13,9 +13,9 @@
 | 服务通信 | RESTful HTTP API |
 | 关系数据库 | PostgreSQL |
 | 缓存 / 队列 | Redis |
-| 向量数据库 | Qdrant |
+| 检索 / 索引后端 | Knowledge runtime doc engine（Elasticsearch） |
 | 对象存储 | MinIO |
-| 本地基础设施 | Docker Compose 拉取 PostgreSQL、Redis、Qdrant、MinIO |
+| 本地基础设施 | Docker Compose 拉取 PostgreSQL、Redis、MinIO、Elasticsearch |
 | CI/CD | GitHub Actions |
 | 仓库结构 | Monorepo |
 
@@ -35,12 +35,12 @@ gateway service
    +--> file service
    +--> 智能问答
    +--> 知识库
-   +--> RAGFlow knowledge runtime
+   +--> Knowledge runtime
    +--> 文档生成
    +--> AI Gateway
 
 基础设施:
-postgres + redis + qdrant + minio
+postgres + redis + minio + minio-init + elasticsearch
 ```
 
 服务职责：
@@ -52,7 +52,7 @@ postgres + redis + qdrant + minio
 | `auth` | 用户身份、登录认证、权限控制、令牌或会话管理。 |
 | `file` | 文件上传、文件元数据、对象存储协调，以及文件处理流程入口。 |
 | `qa` | 智能问答服务，作为 Agent Host 管理会话、ReAct 循环、MCP 工具调用、引用和回答持久化。 |
-| `knowledge` | 知识导入状态、RAGFlow runtime 适配、解析/切块/索引状态、元数据管理和检索协调。 |
+| `knowledge` | 知识导入状态、Knowledge runtime 适配、解析/切块/索引状态、元数据管理和检索协调。 |
 | `document` | 报告、材料、知识摘要等文档生成流程。 |
 | `ai-gateway` | 模型 profile、provider credential、chat/embedding/rerank 调用的统一内部入口。 |
 
@@ -62,7 +62,7 @@ postgres + redis + qdrant + minio
 | --- | --- |
 | PostgreSQL | 业务数据、用户数据、文件元数据、知识元数据。 |
 | Redis | 缓存、会话、短期任务状态或轻量队列。 |
-| Qdrant | 向量索引和相似度检索。 |
+| Elasticsearch | Knowledge runtime 的 active doc engine，负责检索索引与相似度检索。 |
 | MinIO | 原始文件、生成文档和其他对象数据。 |
 
 项目文档入口：
@@ -124,18 +124,18 @@ Gateway 基础契约文档：
 
 - Docker Engine 或 Docker Desktop，带 Compose v2。
 - Go `1.25.x`，例如 `1.25.1` 或 `1.25.4` 都可。
-- uv。Knowledge RAGFlow runtime 的 Python 运行时依赖由 uv 按项目配置准备。
+- uv。Knowledge runtime 的 Python 运行时依赖由 uv 按项目配置准备。
 - Bun。
 - `psql` 客户端。PostgreSQL server 由 Docker 启动，本机不用装 PostgreSQL server。
 - `curl`。
 
-源选择采用新策略：仓库默认配置保持官方源，国内网络通过显式 `--china` 切换镜像。
-旧的大陆优先默认镜像契约已废弃；默认文件不再提交 active 第三方镜像值。
+源选择采用官方默认源，国内网络通过显式 `--china` 切换镜像。默认文件不提交
+active 第三方镜像值。
 
 默认使用官方源：Docker Hub pinned images、PyPI、`proxy.golang.org` 和
 `sum.golang.org`。如果在中国大陆网络中 GitHub、Docker Hub、PyPI、HuggingFace 或
 Go modules 下载慢，直接给本地脚本加 `--china`，脚本只在本次进程使用大陆镜像，不改写
-`deploy/.env`：
+`.env.local`：
 
 ```bash
 ./scripts/local/dev-up.sh --china
@@ -155,7 +155,7 @@ registry rewrite 或 `UV_DEFAULT_INDEX` 影响。
 git clone https://github.com/Sakayori-Iroha-168/Software_Teamwork.git
 cd Software_Teamwork
 
-cp deploy/.env.example deploy/.env
+cp .env.example .env.local
 ./scripts/local/dev-up.sh
 ./scripts/local/run-backend.sh
 
@@ -178,25 +178,26 @@ cd apps/web && bun run dev
 ./scripts/local/stop-backend.sh
 ```
 
-`deploy/.env.example` 是唯一默认配置来源。用户只复制成 `deploy/.env`；
-脚本不会创建、改写或维护另一套默认变量，只会读取 `deploy/.env` 让宿主机进程拿到配置。
-默认 demo 账号来自 `deploy/.env.example`：`admin` / `LocalDemoAdmin#12345`，
+`config/` 是唯一默认配置来源，根 `.env.example` 是本地 secret 模板。用户只复制成
+未跟踪的 `.env.local`；脚本通过 `config/ctl` 渲染 `.local/config/dev.env` 和
+`.local/config/dev.env.sh`，让 Docker Compose 和宿主机进程拿到同一份 profile 配置。
+默认 demo 账号来自 `.env.example`：`admin` / `LocalDemoAdmin#12345`，
 `superadmin` / `LocalDemoAdmin#12345`。
 Go 服务通过宿主机 `go run` 启动，首次运行会下载 Go modules。若 `.local/logs/auth.log`
 或 `.local/logs/gateway.log` 出现 `proxy.golang.org` 超时，在中国大陆网络中重新执行
 `./scripts/local/run-backend.sh --china`；其他网络优先检查企业代理或本机 Go 配置。
-`UV_DEFAULT_INDEX` 也在这份文件里，默认是官方 PyPI；它影响 uv，不影响 Docker。第一次
-启动 RAGFlow runtime 相关 Python 依赖时仍可能下载较多包，之后会走 uv 缓存。已有旧
-`deploy/.env` 的本地环境如果仍保留 TUNA、DaoCloud、`goproxy.cn` 或
+`UV_DEFAULT_INDEX` 在 `config/base.yaml` 中默认指向官方 PyPI；它影响 uv，不影响 Docker。第一次
+启动 Knowledge runtime 相关 Python 依赖时仍可能下载较多包，之后会走 uv 缓存。已有旧
+`.env.local` 的本地环境如果仍保留 TUNA、DaoCloud、`goproxy.cn` 或
 `sum.golang.google.cn`，默认脚本会继续尊重这些本地配置并给出提示；想恢复官方默认值，
-重新从 `deploy/.env.example` 复制后再恢复本机私有配置，或手动改回官方地址。
+重新从 `.env.example` 复制后再恢复本机私有配置，或手动改回官方地址。
 
 `./scripts/local/dev-up.sh` 会先检查同一宿主机环境中的 Docker、Go、`psql`、`uv`
-和必要的 `curl`（`uv` 仅 `--china` runtime 准备需要），再拉取 infra 镜像，启动并等待
-`postgres`、`redis`、`qdrant`、`minio` 健康，然后单独运行一次性 `minio-init` 创建本地 bucket；`minio-init`
-正常退出不会阻断后续流程。之后脚本会在 `QDRANT_URL` 明确配置时执行
-legacy/test-only Qdrant collection 初始化；当前 Knowledge 主路径的索引准备仍归
-宿主机 `services/knowledge-runtime` 和它配置的 doc engine。传入 `--china` 时脚本会先
+（`uv` 仅 `--china` runtime 准备需要），再拉取 infra 镜像，启动并等待
+`postgres`、`redis`、`minio`、`elasticsearch` 健康。随后单独运行一次性
+`minio-init` 创建本地 bucket；`minio-init`
+正常退出不会阻断后续流程。当前 Knowledge 主路径的索引准备归宿主机
+`services/knowledge-runtime` 和它配置的 doc engine。传入 `--china` 时脚本会先
 准备 Knowledge runtime 依赖和 GitHub release/raw 等 artifact 下载；随后脚本执行本机
 migration 和 demo seed。
 `./scripts/local/run-backend.sh` 会启动 `auth`、`file`、`knowledge`、
@@ -213,6 +214,9 @@ migration 和 demo seed。
 
 `ai-gateway /readyz` 在 placeholder credential 下返回 `503 degraded` 是预期行为，
 不代表服务没起。默认本地模型 profile 指向宿主机 `http://localhost:11434/v1`。
+本机需要真实 provider 时，在 `.env.local` 设置 `AI_GATEWAY_LOCAL_SEED_ENABLED=true`
+和 `AI_GATEWAY_LOCAL_*` 后重新运行 `./scripts/local/dev-up.sh`；脚本会加密写入默认
+AI Gateway profiles，并同步 QA active LLM model。
 完整排障见 [deploy/README.md](deploy/README.md) 和
 [Docker 镜像拉取环境与镜像源](docs/runbooks/docker-image-pull-environment.md)。
 

@@ -20,4 +20,10 @@ This module exists to break circular imports between task_executor.py and
 task_executor_refactor modules.
 """
 
-GRAPH_RAPTOR_FAKE_DOC_ID = "graph_raptor_x"
+DATASET_SCOPE_TASK_DOC_ID = "graph_raptor_x"
+# Backward-compatible alias for existing refactor modules/tests.
+GRAPH_RAPTOR_FAKE_DOC_ID = DATASET_SCOPE_TASK_DOC_ID
+
+
+def is_dataset_scope_task_doc_id(doc_id: str) -> bool:
+    return str(doc_id or "") == DATASET_SCOPE_TASK_DOC_ID

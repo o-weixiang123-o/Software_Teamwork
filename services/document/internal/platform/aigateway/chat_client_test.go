@@ -69,18 +69,14 @@ func TestNewChatClientUsesDefaultHTTPClientWhenNil(t *testing.T) {
 	}
 }
 
-func TestNewChatClientDefaultsModelToProfileID(t *testing.T) {
-	var capturedBody struct {
-		Model     string `json:"model"`
-		ProfileID string `json:"profile_id"`
-	}
+func TestNewChatClientOmitsModelForProfileOnlyConfig(t *testing.T) {
+	var capturedBody map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&capturedBody)
 		_ = json.NewEncoder(w).Encode(validChatBody("ok"))
 	}))
 	defer server.Close()
 
-	// Pass empty model — client must fall back to profileID.
 	c, err := NewChatClient("http://localhost:8086", "tok", "my-profile", "", newTestHTTPClient(t, server.URL))
 	if err != nil {
 		t.Fatalf("NewChatClient() error = %v", err)
@@ -89,11 +85,11 @@ func TestNewChatClientDefaultsModelToProfileID(t *testing.T) {
 		service.ChatCompletionRequest{Messages: []service.ChatMessage{{Role: "user", Content: "hi"}}}); err != nil {
 		t.Fatalf("CreateChatCompletion() error = %v", err)
 	}
-	if capturedBody.Model != "my-profile" {
-		t.Fatalf("model = %q, want my-profile (fallback to profileID)", capturedBody.Model)
+	if _, ok := capturedBody["model"]; ok {
+		t.Fatalf("request included model: %+v", capturedBody)
 	}
-	if capturedBody.ProfileID != "my-profile" {
-		t.Fatalf("profile_id = %q, want my-profile", capturedBody.ProfileID)
+	if capturedBody["profile_id"] != "my-profile" {
+		t.Fatalf("profile_id = %#v, want my-profile", capturedBody["profile_id"])
 	}
 }
 

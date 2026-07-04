@@ -176,7 +176,7 @@ func TestCreateEmbeddingsReturnsOpenAIShapeAndDoesNotLeakSecrets(t *testing.T) {
 		t.Fatalf("create profile status = %d, body = %s", createRec.Code, createRec.Body.String())
 	}
 
-	req := authedRequest(http.MethodPost, "/internal/v1/embeddings", strings.NewReader(`{"model":"BAAI/bge-m3","input":["sensitive text"],"dimensions":512}`))
+	req := authedRequest(http.MethodPost, "/internal/v1/embeddings", strings.NewReader(`{"input":["sensitive text"],"dimensions":512}`))
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, req)
 
@@ -257,7 +257,7 @@ func TestCreateRerankingReturnsDocumentIDsWithoutDocumentText(t *testing.T) {
 		t.Fatalf("create profile status = %d, body = %s", createRec.Code, createRec.Body.String())
 	}
 
-	reqBody := `{"model":"BAAI/bge-reranker-v2-m3","query":"sensitive query","documents":[{"id":"chunk-1","text":"sensitive document text"}]}`
+	reqBody := `{"query":"sensitive query","documents":[{"id":"chunk-1","text":"sensitive document text"}]}`
 	req := authedRequest(http.MethodPost, "/internal/v1/rerankings", strings.NewReader(reqBody))
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, req)
@@ -325,7 +325,7 @@ func TestCreateChatCompletionWithFakeProvider(t *testing.T) {
 		t.Fatalf("create profile status = %d, body = %s", createRec.Code, createRec.Body.String())
 	}
 
-	body := `{"model":"alias","messages":[{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"search","arguments":"{\"q\":\"secret\"}"}}]},{"role":"tool","tool_call_id":"call_1","content":"secret prompt text"}],"tools":[{"type":"function","function":{"name":"search","parameters":{"type":"object"}}}],"tool_choice":"auto","parallel_tool_calls":true}`
+	body := `{"messages":[{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"search","arguments":"{\"q\":\"secret\"}"}}]},{"role":"tool","tool_call_id":"call_1","content":"secret prompt text"}],"tools":[{"type":"function","function":{"name":"search","parameters":{"type":"object"}}}],"tool_choice":"auto","parallel_tool_calls":true}`
 	req := authedRequest(http.MethodPost, "/internal/v1/chat/completions", strings.NewReader(body))
 	req.Header.Set("X-Caller-Service", "qa")
 	rec := httptest.NewRecorder()
@@ -372,7 +372,7 @@ func TestCreateChatCompletionStreamWithFakeProvider(t *testing.T) {
 		t.Fatalf("create profile status = %d, body = %s", createRec.Code, createRec.Body.String())
 	}
 
-	body := `{"model":"alias","stream":true,"messages":[{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"search","arguments":"{\"q\":\"x\"}"}}]},{"role":"tool","tool_call_id":"call_1","content":"tool result secret"}]}`
+	body := `{"stream":true,"messages":[{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"search","arguments":"{\"q\":\"x\"}"}}]},{"role":"tool","tool_call_id":"call_1","content":"tool result secret"}]}`
 	req := authedRequest(http.MethodPost, "/internal/v1/chat/completions", strings.NewReader(body))
 	req.Header.Set("X-Caller-Service", "document")
 	req.Header.Set("Accept", "text/event-stream")
@@ -433,7 +433,7 @@ func TestCreateChatCompletionStreamWithoutDoneRecordsFailure(t *testing.T) {
 		t.Fatalf("create profile status = %d, body = %s", createRec.Code, createRec.Body.String())
 	}
 
-	body := `{"model":"alias","stream":true,"messages":[{"role":"user","content":"secret prompt text"}]}`
+	body := `{"stream":true,"messages":[{"role":"user","content":"secret prompt text"}]}`
 	req := authedRequest(http.MethodPost, "/internal/v1/chat/completions", strings.NewReader(body))
 	req.Header.Set("X-Caller-Service", "qa")
 	req.Header.Set("Accept", "text/event-stream")
@@ -474,7 +474,7 @@ func TestCreateChatCompletionStreamRejectsNonContractBodyWithoutLeak(t *testing.
 		t.Fatalf("create profile status = %d, body = %s", createRec.Code, createRec.Body.String())
 	}
 
-	body := `{"model":"alias","stream":true,"messages":[{"role":"user","content":"secret prompt text"}]}`
+	body := `{"stream":true,"messages":[{"role":"user","content":"secret prompt text"}]}`
 	req := authedRequest(http.MethodPost, "/internal/v1/chat/completions", strings.NewReader(body))
 	req.Header.Set("X-Caller-Service", "qa")
 	req.Header.Set("Accept", "text/event-stream")

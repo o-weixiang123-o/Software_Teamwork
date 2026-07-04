@@ -14,10 +14,45 @@
 #  limitations under the License.
 #
 import ast
+import inspect
 import logging
+import os
 from typing import Any, Callable, Dict
 
 import json_repair
+
+
+DEFAULT_METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT = 10000
+METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT_ENV = "METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT"
+
+
+class MetadataFilterFallbackTooLarge(RuntimeError):
+    """Raised when metadata filtering would require an unsafe in-memory fallback."""
+
+
+def metadata_filter_in_memory_fallback_limit(environ=None) -> int:
+    environ = environ if environ is not None else os.environ
+    raw = str(environ.get(METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT_ENV, DEFAULT_METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT)).strip()
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT
+    return max(0, value)
+
+
+def metadata_doc_count(metas: dict | None) -> int:
+    if not metas:
+        return 0
+    doc_ids: set[str] = set()
+    for value_map in metas.values():
+        if not isinstance(value_map, dict):
+            continue
+        for ids in value_map.values():
+            if isinstance(ids, (list, tuple, set)):
+                doc_ids.update(str(doc_id) for doc_id in ids)
+            elif ids is not None:
+                doc_ids.add(str(ids))
+    return len(doc_ids)
 
 
 def convert_conditions(metadata_condition):
@@ -180,7 +215,7 @@ async def apply_meta_data_filter(
         base_doc_ids: list[str] | None = None,
         manual_value_resolver: Callable[[dict], dict] | None = None,
         kb_ids: list[str] | None = None,
-        metas_loader: Callable[[], dict] | None = None,
+        metas_loader: Callable[..., dict] | None = None,
 ) -> list[str] | None:
     """
     Apply metadata filtering rules and return the filtered doc_ids.
@@ -221,11 +256,39 @@ async def apply_meta_data_filter(
     # leave the loader untouched.
     cached_metas: dict | None = metas
 
-    def _get_metas() -> dict:
+    def _load_metas(max_documents: int | None = None) -> dict:
+        if not metas_loader:
+            return {}
+        if max_documents is None:
+            return metas_loader()
+        try:
+            loader_signature = inspect.signature(metas_loader)
+        except (TypeError, ValueError):
+            return metas_loader()
+        accepts_max_documents = any(
+            param.kind == inspect.Parameter.VAR_KEYWORD or name == "max_documents"
+            for name, param in loader_signature.parameters.items()
+        )
+        if accepts_max_documents:
+            return metas_loader(max_documents=max_documents)
+        return metas_loader()
+
+    def _get_metas(max_documents: int | None = None) -> dict:
         nonlocal cached_metas
         if cached_metas is None:
-            cached_metas = metas_loader() if metas_loader else {}
+            cached_metas = _load_metas(max_documents=max_documents)
         return cached_metas
+
+    def _get_metas_for_in_memory_fallback() -> dict:
+        limit = metadata_filter_in_memory_fallback_limit()
+        current_metas = _get_metas(max_documents=limit)
+        doc_count = metadata_doc_count(current_metas)
+        if doc_count > limit:
+            raise MetadataFilterFallbackTooLarge(
+                f"metadata filter in-memory fallback would scan {doc_count} documents; "
+                f"cap is {limit} from {METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT_ENV}"
+            )
+        return current_metas
 
     def _run_metadata_filter(conditions: list[dict], logic: str) -> list[str]:
         """Run conditions through ES/Infinity push-down when possible, in-memory otherwise."""
@@ -236,15 +299,17 @@ async def apply_meta_data_filter(
                 logging.debug(f"Doc ids filtered by metadata: {doc_ids}")
                 if doc_ids is not None:
                     return doc_ids
+            except MetadataFilterFallbackTooLarge:
+                raise
             except Exception as e:
                 logging.error(f"Metadata filter push down errored: {e}")
 
         # In-memory fallback
         logging.debug("Metadata filter falls back to in-memory filter")
-        return meta_filter(_get_metas(), conditions, logic)
+        return meta_filter(_get_metas_for_in_memory_fallback(), conditions, logic)
 
     if method == "auto":
-        filters: dict = await gen_meta_filter(chat_mdl, _get_metas(), question)
+        filters: dict = await gen_meta_filter(chat_mdl, _get_metas_for_in_memory_fallback(), question)
         logging.debug(f"Metadata filter(auto) generated: {filters}")
         doc_ids.extend(_run_metadata_filter(filters["conditions"], filters.get("logic", "and")))
         if not doc_ids:
@@ -263,7 +328,7 @@ async def apply_meta_data_filter(
                     constraints[key] = op
 
         if selected_keys:
-            current_metas = _get_metas()
+            current_metas = _get_metas_for_in_memory_fallback()
             filtered_metas = {key: current_metas[key] for key in selected_keys if key in current_metas}
             if filtered_metas:
                 filters: dict = await gen_meta_filter(chat_mdl, filtered_metas, question, constraints=constraints)
@@ -302,6 +367,8 @@ def _try_meta_pushdown(
         return None
     try:
         return DocMetadataService.filter_doc_ids_by_meta_pushdown(kb_ids, conditions, logic)
+    except MetadataFilterFallbackTooLarge:
+        raise
     except Exception as e:
         logging.warning(f"[apply_meta_data_filter] push-down errored, falling back: {e}")
         return None

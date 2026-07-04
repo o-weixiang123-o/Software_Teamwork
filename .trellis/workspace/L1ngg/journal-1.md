@@ -546,3 +546,305 @@ Resolved PR #440 Codex review findings, rebased onto latest upstream/develop, ve
 ### Next Steps
 
 - None - task complete
+
+
+## Session 17: Fix Knowledge compatibility debt
+
+**Date**: 2026-07-03
+**Task**: Fix Knowledge compatibility debt
+**Branch**: `L1nggTeam/feat/ragflow-runtime-vendor`
+
+### Summary
+
+Removed Knowledge runtime compatibility debt: explicit document dataset context, stricter chunkStrategy validation, stable vendor error mapping, runtime auth and tenant provisioning guardrails, contained dataset-scope task IDs, skipped empty embedding chunks, bounded metadata fallback, and updated API/docs/spec tests.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6e9138df` | (see git log) |
+| `a18ee9f3` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 18: Knowledge module review (parsing & RAG) — research only
+
+**Date**: 2026-07-03
+**Task**: Review and optimize knowledge module (document parsing & RAG)
+**Branch**: `L1nggTeam/feat/ragflow-runtime-vendor`
+
+### Summary
+
+Read-only correctness/robustness review of the knowledge module along product-reachable paths (scope: reachability map from adapter routes + worker task types). Four parallel review agents (worker / parsing / retrieval / adapter) + orchestrator adversarial verification. No source code modified — deliverable is `review-report.md` with per-finding fix proposals.
+
+### Key Results
+
+- **P0 x1 (verified)**: vendoring dropped `get_task` doc_ids join-key substitution (`task_service.py:82`) — all dataset-scope RAPTOR/GraphRAG/mindmap tasks silently dropped, KB index slot locked after one attempt. 2-line fix proposed.
+- **P1 x12 (deduped)**: queue_tasks zero-task stuck-RUNNING (double-found); OCR failure masked by progress ratchet; book.py PDF tables dropped (verified upstream-inherited, not project regression); VisionFigureParser list->str corruption; markdown vision TypeError; empty-index retrieval -> 502; validation errors collapse to opaque 502; adapter topK never mapped to runtime size (results pinned to 30); download passes JSON error envelope as file bytes; PATCH tags missing from response; statistics N+1 fan-out; unbounded JSON bodies.
+- **Verification corrections**: 1 provenance fix (book.py upstream-inherited), 1 downgrade (multi-tenant break unreachable in 1:1 tenant deployment -> P2 latent).
+- Clean: tenant isolation (worker + API), auth chain (timing-safe, fail-closed, idempotent provisioning), chunk-id idempotency, metadata filter 3-way semantics, PR #440/#536 hardening complete.
+
+### Artifacts
+
+`review-report.md` (consolidated, with fix batches A-D and rollout order), `research/{reachability,findings-worker,findings-parsing,findings-retrieval,findings-adapter,verification-log}.md`
+
+### Testing
+
+- Not run: no code changed (research-only scope per user directive mid-task).
+
+### Status
+
+[OK] **Completed** (research & proposals delivered)
+
+### Next Steps
+
+- Optional follow-up task: implement fix batches per review-report.md recommended order (P0 first).
+
+
+## Session 18: Fix Knowledge runtime review edge cases
+
+**Date**: 2026-07-03
+**Task**: Fix Knowledge runtime review edge cases
+**Branch**: `L1nggTeam/feat/ragflow-runtime-vendor`
+
+### Summary
+
+Fixed PR review regressions for Knowledge runtime metadata fallback limits, missing-index error classification, internal document OpenAPI 400 responses, and guardrail tests/spec updates.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `84394519` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 19: Knowledge runtime on-demand worker
+
+**Date**: 2026-07-04
+**Task**: Knowledge runtime on-demand worker
+**Branch**: `L1nggTeam/fix/bugfix`
+
+### Summary
+
+Split Knowledge runtime API and worker dependency profiles; made document parsing queue-first with on-demand local worker startup and idle shutdown; updated startup docs, KEDA example, and regression checks.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `922a771b` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 20: Config profile layer implementation
+
+**Date**: 2026-07-04
+**Task**: Config profile layer implementation
+**Branch**: `L1nggTeam/feat/ragflow-runtime-vendor`
+
+### Summary
+
+Implemented the repository-level config profile layer under config/, moved local startup to config/ctl rendering, updated docs/specs/policy checks, and validated the rendered dev Compose env.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3e4ff3c9` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 21: Harden File service production baseline
+
+**Date**: 2026-07-04
+**Task**: Harden File service production baseline
+**Branch**: `L1nggTeam/feat/file-service-production-hardening`
+
+### Summary
+
+Implemented File service production hardening: streaming upload with checksum, non-local backend guards, MIME allowlist, caller operation allowlists, docs, tests, and backend spec updates.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7f61ca1e` | (see git log) |
+| `c8f4ca1f` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 22: Archive AI Gateway runtime tasks
+
+**Date**: 2026-07-04
+**Task**: Archive AI Gateway runtime tasks
+**Branch**: `L1nggTeam/feat/ragflow-runtime-vendor`
+
+### Summary
+
+Archived the completed Knowledge runtime AI Gateway integration task and AI Gateway profile authority cleanup task after confirming their work commits and leaving the local uv.lock mirror rewrite uncommitted.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9dc4d945` | (see git log) |
+| `24c35efa` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 23: Clean config entrypoint docs
+
+**Date**: 2026-07-04
+**Task**: Clean config entrypoint docs
+**Branch**: `L1nggTeam/feat/ragflow-runtime-vendor`
+
+### Summary
+
+清理配置入口文档为 config/.env.local/.local/config 单一路径；删除 deploy env 兼容提示；中文化 .env.example 注释并同步配置契约测试。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e22838d6` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 24: AI Gateway unified model provider exit
+
+**Date**: 2026-07-04
+**Task**: AI Gateway unified model provider exit
+**Branch**: `L1nggTeam/refactor/ai-gateway-unified-exit`
+
+### Summary
+
+Unified AI model/provider calls around services/ai-gateway: added provider-exit inventory and policy guard, clarified service boundaries, and updated QA legacy LLM settings to expose/store ai-gateway profile semantics.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1674ccb3` | (see git log) |
+| `4f214828` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
