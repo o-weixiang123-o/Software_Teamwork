@@ -237,6 +237,8 @@ env:
     value: X-Service-Token
   AI_GATEWAY_PROFILE_ID:
     value: default-chat
+  AI_GATEWAY_TIMEOUT:
+    fromEnv: AI_GATEWAY_TIMEOUT
   MODEL_ID:
     value: local-placeholder-chat
 
@@ -362,3 +364,16 @@ env:
   KNOWLEDGE_RUNTIME_MODEL_API_KEY:
     fromEnv: KNOWLEDGE_RUNTIME_MODEL_API_KEY
     sensitive: true
+  PADDLEOCR_BASE_URL:
+    fromEnv: PADDLEOCR_BASE_URL
+  PADDLEOCR_API_URL:
+    fromEnv: PADDLEOCR_API_URL
+  PADDLEOCR_ACCESS_TOKEN:
+    fromEnv: PADDLEOCR_ACCESS_TOKEN
+    sensitive: true
+  PADDLEOCR_ALGORITHM:
+    fromEnv: PADDLEOCR_ALGORITHM
+  PADDLEOCR_AUTH_SCHEME:
+    fromEnv: PADDLEOCR_AUTH_SCHEME
+  PADDLEOCR_REQUEST_TIMEOUT:
+    fromEnv: PADDLEOCR_REQUEST_TIMEOUT
