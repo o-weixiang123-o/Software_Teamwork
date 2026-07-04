@@ -13,6 +13,7 @@ type settingsRepositoryStub struct {
 	activeQAConfigVersion         QAConfigVersion
 	activeQAConfigErr             error
 	activeDefaultKnowledgeBaseIDs *[]string
+	createdLLM                    StoredLLMConfig
 	createdAgent                  AgentConfig
 	createdRetrieval              RetrievalSettings
 	createdKBIDs                  []string
@@ -54,8 +55,8 @@ func (r *settingsRepositoryStub) GetActiveLLMConfig(context.Context) (StoredLLMC
 		return r.activeLLM, nil
 	}
 	return StoredLLMConfig{
-		Provider: "direct", APIEndpoint: "https://llm.example.test/v1", APIKeyLast4: "1234",
-		TokenHeader: "Authorization", Model: "model", TimeoutSeconds: 30, Temperature: .7, MaxTokens: 1024,
+		Provider: "ai-gateway", ProfileID: "default-chat", TokenHeader: "X-Service-Token",
+		Model: "model", TimeoutSeconds: 30, Temperature: .7, MaxTokens: 1024,
 	}, nil
 }
 
@@ -63,7 +64,9 @@ func (r *settingsRepositoryStub) GetActiveLLMConfigVersion(context.Context) (LLM
 	return LLMConfigVersion{ID: "llm-config"}, nil
 }
 
-func (r *settingsRepositoryStub) CreateLLMConfigVersion(context.Context, string, StoredLLMConfig) error {
+func (r *settingsRepositoryStub) CreateLLMConfigVersion(_ context.Context, _ string, config StoredLLMConfig) error {
+	r.createdLLM = config
+	r.activeLLM = config
 	return nil
 }
 
@@ -368,6 +371,72 @@ func TestValidateRuntimeLLMAllowsProfileOnlyModel(t *testing.T) {
 	}
 }
 
+func TestGetSettingsPresentsLegacyDirectLLMAsAIGatewayProfile(t *testing.T) {
+	svc, err := NewConfigService(&settingsRepositoryStub{
+		activeLLM: StoredLLMConfig{
+			Provider:        "direct",
+			ProfileID:       "legacy-chat",
+			APIEndpoint:     "http://ai-gateway:8086/internal/v1/chat/completions",
+			APIKeyEncrypted: []byte("token"),
+			APIKeyLast4:     "oken",
+			TokenHeader:     "X-Service-Token",
+			Model:           "deepseek-chat",
+			TimeoutSeconds:  30,
+			Temperature:     .7,
+			MaxTokens:       100,
+		},
+	}, settingsCipherStub{}, BootstrapSettings{}, &settingsLLMTesterStub{}, settingsMCPTesterStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings, err := svc.GetSettings(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.LLM.Provider != "ai-gateway" || settings.LLM.ProfileID != "legacy-chat" {
+		t.Fatalf("llm provider/profile = %q/%q, want ai-gateway/legacy-chat", settings.LLM.Provider, settings.LLM.ProfileID)
+	}
+	if settings.LLM.APIEndpoint != "" || settings.LLM.APIKeyConfigured || settings.LLM.APIKeyLast4 != "" {
+		t.Fatalf("legacy endpoint/key fields must not be exposed in normal settings response: %+v", settings.LLM)
+	}
+}
+
+func TestUpdateSettingsStoresAIGatewayProfileReference(t *testing.T) {
+	repository := &settingsRepositoryStub{}
+	svc, err := NewConfigService(repository, settingsCipherStub{}, BootstrapSettings{
+		LLM: RuntimeLLMConfig{
+			Endpoint:    "http://localhost:8086/internal/v1/chat/completions",
+			Token:       "service-token",
+			TokenHeader: "X-Service-Token",
+			ProfileID:   "default-chat",
+			Model:       "bootstrap-model",
+			Timeout:     time.Minute,
+			MaxTokens:   512,
+		},
+	}, &settingsLLMTesterStub{}, settingsMCPTesterStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = svc.UpdateSettings(context.Background(), "user-1", "request-1", UpdateQASettingsInput{
+		LLM: &LLMUpdate{
+			ProfileID:      "profile-chat",
+			Model:          "deepseek-chat",
+			TimeoutSeconds: 60,
+			Temperature:    .2,
+			MaxTokens:      256,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repository.createdLLM.Provider != "ai-gateway" || repository.createdLLM.ProfileID != "profile-chat" {
+		t.Fatalf("stored llm provider/profile = %q/%q, want ai-gateway/profile-chat", repository.createdLLM.Provider, repository.createdLLM.ProfileID)
+	}
+	if repository.createdLLM.APIEndpoint != "" || len(repository.createdLLM.APIKeyEncrypted) != 0 || repository.createdLLM.APIKeyLast4 != "" {
+		t.Fatalf("stored llm must not keep endpoint/key fields: %+v", repository.createdLLM)
+	}
+}
+
 func TestTestLLMConnectionRejectsStoredDirectProviderEscape(t *testing.T) {
 	tester := &settingsLLMTesterStub{}
 	svc, err := NewConfigService(&settingsRepositoryStub{
@@ -553,6 +622,10 @@ func TestUpdateSettingsMergesRetrievalAndPromptIntoSingleVersion(t *testing.T) {
 func TestSettingsAuditDataDoesNotLeakFullPrompt(t *testing.T) {
 	settings := QASettings{
 		SystemPrompt: "This is a secret system prompt that must not appear in audit logs.",
+		LLM: LLMSettings{
+			Provider: "ai-gateway", ProfileID: "profile-chat", APIEndpoint: "http://ai-gateway:8086/internal/v1/chat/completions",
+			APIKeyConfigured: true, APIKeyLast4: "1234",
+		},
 	}
 	data := settingsAuditData(settings)
 	if _, hasPrompt := data["systemPrompt"]; hasPrompt {
@@ -561,6 +634,16 @@ func TestSettingsAuditDataDoesNotLeakFullPrompt(t *testing.T) {
 	length, ok := data["systemPromptLength"].(int)
 	if !ok || length != len(settings.SystemPrompt) {
 		t.Fatalf("audit data systemPromptLength=%v, want %d", data["systemPromptLength"], len(settings.SystemPrompt))
+	}
+	llm, ok := data["llm"].(map[string]any)
+	if !ok {
+		t.Fatalf("audit llm=%T, want map[string]any", data["llm"])
+	}
+	if _, ok := llm["apiEndpoint"]; ok {
+		t.Fatal("audit data must not contain llm apiEndpoint")
+	}
+	if _, ok := llm["apiKey"]; ok {
+		t.Fatal("audit data must not contain llm apiKey")
 	}
 }
 

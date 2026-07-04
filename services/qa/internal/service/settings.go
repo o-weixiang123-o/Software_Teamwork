@@ -15,6 +15,11 @@ import (
 
 var mcpAliasPattern = regexp.MustCompile(`^[a-z0-9_]{2,32}$`)
 
+const (
+	llmProviderAIGateway    = "ai-gateway"
+	llmProviderLegacyDirect = "direct"
+)
+
 type ConfigService struct {
 	repository SettingsRepository
 	secrets    SecretCipher
@@ -411,7 +416,10 @@ func (s *ConfigService) LoadRuntimeConfiguration(ctx context.Context) (RuntimeCo
 
 func (s *ConfigService) activeLLM(ctx context.Context) (StoredLLMConfig, error) {
 	stored, err := s.repository.GetActiveLLMConfig(ctx)
-	if err == nil && stored.Provider == "direct" && stored.APIEndpoint != "" {
+	if err == nil && stored.Provider == llmProviderAIGateway {
+		return stored, nil
+	}
+	if err == nil && stored.Provider == llmProviderLegacyDirect && stored.APIEndpoint != "" {
 		return stored, nil
 	}
 	if err != nil {
@@ -420,8 +428,7 @@ func (s *ConfigService) activeLLM(ctx context.Context) (StoredLLMConfig, error) 
 		}
 	}
 	return StoredLLMConfig{
-		Provider: "direct", APIEndpoint: s.bootstrap.LLM.Endpoint,
-		APIKeyLast4: last4(s.bootstrap.LLM.Token), TokenHeader: s.bootstrap.LLM.TokenHeader,
+		Provider: llmProviderAIGateway, ProfileID: s.bootstrap.LLM.ProfileID,
 		Model: s.bootstrap.LLM.Model, TimeoutSeconds: int(s.bootstrap.LLM.Timeout.Seconds()),
 		Temperature: 0.7, MaxTokens: s.bootstrap.LLM.MaxTokens,
 	}, nil
@@ -429,7 +436,7 @@ func (s *ConfigService) activeLLM(ctx context.Context) (StoredLLMConfig, error) 
 
 func (s *ConfigService) runtimeLLM(ctx context.Context) (RuntimeLLMConfig, error) {
 	stored, err := s.repository.GetActiveLLMConfig(ctx)
-	if err == nil && stored.Provider == "direct" && stored.APIEndpoint != "" {
+	if err == nil && stored.Provider == llmProviderLegacyDirect && stored.APIEndpoint != "" {
 		token := ""
 		if len(stored.APIKeyEncrypted) > 0 {
 			token, err = s.secrets.Decrypt(stored.APIKeyEncrypted)
@@ -443,7 +450,7 @@ func (s *ConfigService) runtimeLLM(ctx context.Context) (RuntimeLLMConfig, error
 			MaxTokens: stored.MaxTokens,
 		}, nil
 	}
-	if err == nil && stored.Provider == "ai-gateway" {
+	if err == nil && stored.Provider == llmProviderAIGateway {
 		runtime := s.bootstrap.LLM
 		runtime.ProfileID = stored.ProfileID
 		runtime.Model = stored.Model
@@ -473,37 +480,48 @@ func (s *ConfigService) runtimePrompt(ctx context.Context) (string, error) {
 }
 
 func (s *ConfigService) buildStoredLLM(ctx context.Context, update LLMUpdate) (StoredLLMConfig, error) {
-	runtime := RuntimeLLMConfig{
-		Endpoint: strings.TrimSpace(update.APIEndpoint), TokenHeader: strings.TrimSpace(update.TokenHeader),
-		Model: strings.TrimSpace(update.Model), Timeout: time.Duration(update.TimeoutSeconds) * time.Second,
-		MaxTokens: update.MaxTokens,
+	runtime, err := s.runtimeLLM(ctx)
+	if err != nil {
+		return StoredLLMConfig{}, err
+	}
+	if strings.TrimSpace(update.ProfileID) != "" {
+		runtime.ProfileID = strings.TrimSpace(update.ProfileID)
+	}
+	if strings.TrimSpace(update.APIEndpoint) != "" {
+		runtime.Endpoint = strings.TrimSpace(update.APIEndpoint)
+	}
+	if strings.TrimSpace(update.TokenHeader) != "" {
+		runtime.TokenHeader = strings.TrimSpace(update.TokenHeader)
+	}
+	if strings.TrimSpace(update.Model) != "" {
+		runtime.Model = strings.TrimSpace(update.Model)
+	}
+	if update.TimeoutSeconds > 0 {
+		runtime.Timeout = time.Duration(update.TimeoutSeconds) * time.Second
+	}
+	if update.MaxTokens > 0 {
+		runtime.MaxTokens = update.MaxTokens
 	}
 	if runtime.TokenHeader == "" {
 		runtime.TokenHeader = http.CanonicalHeaderKey("Authorization")
 	}
-	active, err := s.runtimeLLM(ctx)
-	if err != nil {
-		return StoredLLMConfig{}, err
-	}
-	token := active.Token
 	if update.APIKey != nil {
-		token = *update.APIKey
+		runtime.Token = *update.APIKey
 	}
-	runtime.Token = token
 	if err := validateRuntimeLLM(runtime); err != nil {
-		return StoredLLMConfig{}, err
-	}
-	encrypted, err := s.secrets.Encrypt(token)
-	if err != nil {
 		return StoredLLMConfig{}, err
 	}
 	if update.Temperature < 0 || update.Temperature > 2 {
 		return StoredLLMConfig{}, ValidationError(map[string]string{"llm.temperature": "must be between 0 and 2"})
 	}
+	timeoutSeconds := update.TimeoutSeconds
+	if timeoutSeconds <= 0 {
+		timeoutSeconds = int(runtime.Timeout.Seconds())
+	}
 	return StoredLLMConfig{
-		Provider: "direct", APIEndpoint: runtime.Endpoint, APIKeyEncrypted: encrypted,
-		APIKeyLast4: last4(token), TokenHeader: runtime.TokenHeader, Model: runtime.Model,
-		TimeoutSeconds: update.TimeoutSeconds, Temperature: update.Temperature, MaxTokens: update.MaxTokens,
+		Provider: llmProviderAIGateway, ProfileID: runtime.ProfileID,
+		TokenHeader: runtime.TokenHeader, Model: runtime.Model,
+		TimeoutSeconds: timeoutSeconds, Temperature: update.Temperature, MaxTokens: runtime.MaxTokens,
 	}, nil
 }
 
@@ -686,11 +704,9 @@ func normalizeIDs(values []string) []string {
 
 func publicLLM(config StoredLLMConfig) LLMSettings {
 	return LLMSettings{
-		Provider: "direct", APIEndpoint: config.APIEndpoint, Model: config.Model,
+		Provider: llmProviderAIGateway, ProfileID: config.ProfileID, Model: config.Model,
 		TimeoutSeconds: config.TimeoutSeconds, Temperature: config.Temperature,
 		MaxTokens: config.MaxTokens, TokenHeader: config.TokenHeader,
-		APIKeyConfigured: len(config.APIKeyEncrypted) > 0 || config.APIKeyLast4 != "",
-		APIKeyLast4:      config.APIKeyLast4,
 	}
 }
 
@@ -711,10 +727,10 @@ func settingsAuditData(settings QASettings) map[string]any {
 	return map[string]any{
 		"retrieval": settings.Retrieval, "defaultKnowledgeBaseIds": settings.DefaultKnowledgeBaseIDs,
 		"llm": map[string]any{
-			"provider": settings.LLM.Provider, "apiEndpoint": settings.LLM.APIEndpoint,
+			"provider": settings.LLM.Provider, "profileId": settings.LLM.ProfileID,
 			"model": settings.LLM.Model, "timeoutSeconds": settings.LLM.TimeoutSeconds,
 			"temperature": settings.LLM.Temperature, "maxTokens": settings.LLM.MaxTokens,
-			"tokenHeader": settings.LLM.TokenHeader, "apiKey": "***",
+			"tokenHeader": settings.LLM.TokenHeader,
 		},
 		"systemPromptLength": len(settings.SystemPrompt),
 	}

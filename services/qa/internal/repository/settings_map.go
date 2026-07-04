@@ -132,25 +132,6 @@ func insertQAConfigVersionParams(settings service.RetrievalSettings, version int
 	}, nil
 }
 
-func insertLLMConfigVersionParams(config service.StoredLLMConfig, version int32, userID string) (sqlc.InsertLLMConfigVersionParams, error) {
-	temperature, err := floatToNumeric(config.Temperature)
-	if err != nil {
-		return sqlc.InsertLLMConfigVersionParams{}, err
-	}
-	return sqlc.InsertLLMConfigVersionParams{
-		VersionNo:       version,
-		ApiEndpoint:     pgtype.Text{String: config.APIEndpoint, Valid: config.APIEndpoint != ""},
-		ApiKeyEncrypted: config.APIKeyEncrypted,
-		ApiKeyLast4:     pgtype.Text{String: config.APIKeyLast4, Valid: config.APIKeyLast4 != ""},
-		TokenHeader:     config.TokenHeader,
-		ModelName:       config.Model,
-		TimeoutSeconds:  int32(config.TimeoutSeconds),
-		Temperature:     temperature,
-		MaxTokens:       int32(config.MaxTokens),
-		CreatedByUserID: userID,
-	}, nil
-}
-
 func insertMCPServerParams(server service.MCPServerRecord) (sqlc.InsertMCPServerParams, error) {
 	argsJSON, err := json.Marshal(server.Args)
 	if err != nil {
