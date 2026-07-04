@@ -346,10 +346,19 @@ Go modules 下载慢或超时：
 
 - Auth、File、Knowledge、QA、Document、AI Gateway 优先查数据库和 migration。
 - Gateway 优先查 Redis、Auth URL 和下游服务端口。
-- File/Document/QA 内部 file 调用 `401` 时，检查 `INTERNAL_SERVICE_TOKEN` 是否一致；Knowledge runtime 调用 `401` 时，检查 `VENDOR_RUNTIME_SERVICE_TOKEN` 与 `KNOWLEDGE_RUNTIME_SERVICE_TOKEN` 是否一致。经 Gateway/Knowledge 返回给浏览器的这类 runtime 认证失败应是 `502 dependency_error`，不是用户 session 失效；前端不应因此掉登录。
+- File/Document/QA 内部 file 调用 `401` 时，检查 `INTERNAL_SERVICE_TOKEN`
+  是否一致，以及启用 File caller allowlist 后是否传递了
+  `X-Caller-Service`。出现 `403` 时，检查
+  `FILE_ALLOWED_CREATE_CALLERS`、`FILE_ALLOWED_READ_CALLERS`、
+  `FILE_ALLOWED_DELETE_CALLERS` 是否包含实际调用方。Knowledge runtime
+  调用 `401` 时，检查 `VENDOR_RUNTIME_SERVICE_TOKEN` 与
+  `KNOWLEDGE_RUNTIME_SERVICE_TOKEN` 是否一致。经 Gateway/Knowledge 返回给
+  浏览器的这类 runtime 认证失败应是 `502 dependency_error`，不是用户 session
+  失效；前端不应因此掉登录。
 - 如果某个服务日志显示 `bind: address already in use`，用
-  `lsof -nP -iTCP:<port> -sTCP:LISTEN` 查占用者。旧的 host-run 或 `tmux` 会话可能仍在
-  监听默认端口；先停止旧进程，或在 `.env.local` 修改对应端口后重新启动。
+  `lsof -nP -iTCP:<port> -sTCP:LISTEN` 查占用者。旧的 host-run 或 `tmux`
+  会话可能仍在监听默认端口；先停止旧进程，或在 `.env.local` 修改对应端口后
+  重新启动。
 
 WSL 内存高：
 
@@ -657,7 +666,7 @@ curl -X POST http://localhost:8086/internal/v1/chat/completions \
 | Document 宿主机联调检查 | 创建 report job 后查询 job/attempt/events | 非文件生成类任务会入队并由 worker 推进为 succeeded；不会生成真实 AI 大纲/正文。若额外提供 File Service，`report_file_creation` 可生成基础 DOCX 并通过 content endpoint 读取成功文件。 |
 | AI Gateway profile | 创建 chat/embedding/rerank profile，调用对应内部 endpoint | fake provider 和兼容 provider 应返回 OpenAI-style body；真实 provider 需手工验证。 |
 | Gateway contract | `python3 scripts/verify_gateway_active_api.py` | active path、owner、security 和 owner map 不漂移。 |
-| File PostgreSQL + MinIO | `FILE_MINIO_POSTGRES_SMOKE=1 ... go test ./internal/integration -run TestFileMinIOPostgresSmoke -count=1 -v` | 只在真实 PostgreSQL/MinIO 可用时运行；验证 upload、metadata、content read、delete 和清理状态。 |
+| File PostgreSQL + MinIO | `FILE_MINIO_POSTGRES_SMOKE=1 ... go test ./internal/integration -run TestFileMinIOPostgresSmoke -count=1 -v` | 只在真实 PostgreSQL/MinIO 可用时运行；验证 upload、metadata、content read、delete 和清理状态。File service 默认本地配置已使用 PostgreSQL + MinIO；生产化验证还应显式设置非本地 `FILE_ENV`、caller allowlist 和 `FILE_ALLOWED_CONTENT_TYPES`，确认 memory backend guard、`401`/`403` 和 MIME 拒绝路径符合预期。 |
 | Knowledge runtime route/config | `cd services/knowledge-runtime && PYTHONPATH=. uv run --no-project --with pytest --with pytest-asyncio --with filelock --with ruamel-yaml python -m pytest test/routes/test_config_utils.py test/routes/test_route_registry.py test/routes/test_gateway_auth.py test/routes/test_runtime_dependency_check.py -q` | 验证 runtime 配置脱敏、路由 allowlist、service token、clean DB provisioning 纯逻辑和 host-run dependency guard。 |
 | Knowledge ingestion real deps | `KNOWLEDGE_INGESTION_SMOKE=1 ... go test ./internal/integration -run '^TestKnowledgeIngestionRealDepsSmoke$' -count=1 -v` | 只在 Knowledge adapter 以 `KNOWLEDGE_AUTO_START_INGESTION=true` 重启后，且 Knowledge runtime API、runtime worker、Redis/MinIO/Elasticsearch/PostgreSQL 和 embedding provider 均可用时运行；验证 Markdown fixture 上传、解析、切片、embedding、索引写入、ready 状态、chunk 回看和检索命中。当前 Knowledge 主路径不依赖 File Service。 |
 | Gateway -> Knowledge owner route | `GATEWAY_KNOWLEDGE_OWNER_SMOKE=1 ... go test ./internal/integration -run '^TestGatewayKnowledgeOwnerRouteSmoke$' -count=1 -v` | 只在 Gateway/Auth/Redis/Knowledge/PostgreSQL 和 Knowledge runtime 可用时运行；验证伪造 `X-User-*` 未认证请求被拒绝，并用 KB `createdBy` 断言 Gateway 注入真实 session user。 |

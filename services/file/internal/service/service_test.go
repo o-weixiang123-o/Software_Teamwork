@@ -16,8 +16,8 @@ import (
 func TestCreateFileComputesChecksumAndStoresContent(t *testing.T) {
 	files := newTestService(t, storage.NewMemoryStore())
 	created, err := files.CreateFile(context.Background(), internalContext(), service.CreateFileInput{
-		FileName:    "policy.pdf",
-		ContentType: "application/pdf",
+		FileName:    "policy.txt",
+		ContentType: "text/plain",
 		SizeBytes:   int64(len("content")),
 		Content:     strings.NewReader("content"),
 	})
@@ -27,7 +27,7 @@ func TestCreateFileComputesChecksumAndStoresContent(t *testing.T) {
 	if created.ID != "file_1" {
 		t.Fatalf("file id = %q", created.ID)
 	}
-	if created.Filename != "policy.pdf" || created.ContentType != "application/pdf" || created.SizeBytes != int64(len("content")) {
+	if created.Filename != "policy.txt" || created.ContentType != "text/plain" || created.SizeBytes != int64(len("content")) {
 		t.Fatalf("file metadata = %+v", created)
 	}
 	if created.ChecksumSHA256 != "ed7002b439e9ac845f22357d822bac1444730fbdb6016d3ec9432297b9ec9f73" {
@@ -62,6 +62,83 @@ func TestCreateFileRejectsChecksumMismatch(t *testing.T) {
 	})
 	if !hasCode(err, service.CodeValidation) {
 		t.Fatalf("CreateFile() error = %v, want validation_error", err)
+	}
+}
+
+func TestCreateFileStreamsThroughObjectStore(t *testing.T) {
+	putStarted := false
+	content := strings.Repeat("a", 2048)
+	store := &streamingProbeStore{putStarted: &putStarted}
+	files := newTestService(t, store)
+
+	created, err := files.CreateFile(context.Background(), internalContext(), service.CreateFileInput{
+		FileName:    "large.txt",
+		ContentType: "text/plain",
+		SizeBytes:   int64(len(content)),
+		Content: &streamingGuardReader{
+			content:      content,
+			maxBeforePut: 512,
+			putStarted:   &putStarted,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateFile() error = %v", err)
+	}
+	if store.written != int64(len(content)) {
+		t.Fatalf("store wrote %d bytes, want %d", store.written, len(content))
+	}
+	if created.SizeBytes != int64(len(content)) || created.ChecksumSHA256 == "" {
+		t.Fatalf("file metadata = %+v", created)
+	}
+}
+
+func TestCreateFileUsesSniffedContentType(t *testing.T) {
+	files := newTestService(t, storage.NewMemoryStore(), service.WithAllowedContentTypes([]string{"text/plain"}))
+	created, err := files.CreateFile(context.Background(), internalContext(), service.CreateFileInput{
+		FileName:    "policy.pdf",
+		ContentType: "application/pdf",
+		SizeBytes:   int64(len("plain text")),
+		Content:     strings.NewReader("plain text"),
+	})
+	if err != nil {
+		t.Fatalf("CreateFile() error = %v", err)
+	}
+	if created.ContentType != "text/plain" {
+		t.Fatalf("ContentType = %q", created.ContentType)
+	}
+}
+
+func TestCreateFileRejectsDisallowedContentTypeBeforeStorage(t *testing.T) {
+	store := &streamingProbeStore{}
+	files := newTestService(t, store, service.WithAllowedContentTypes([]string{"application/pdf"}))
+	_, err := files.CreateFile(context.Background(), internalContext(), service.CreateFileInput{
+		FileName:    "notes.txt",
+		ContentType: "text/plain",
+		SizeBytes:   int64(len("plain text")),
+		Content:     strings.NewReader("plain text"),
+	})
+	if !hasCode(err, service.CodeValidation) {
+		t.Fatalf("CreateFile() error = %v, want validation_error", err)
+	}
+	if store.putCalled {
+		t.Fatal("object store was called for disallowed content type")
+	}
+}
+
+func TestCreateFileAllowsOctetStreamFallbackWhenConfigured(t *testing.T) {
+	content := "\x00\x01\x02\x03"
+	files := newTestService(t, storage.NewMemoryStore(), service.WithAllowedContentTypes([]string{"application/octet-stream"}))
+	created, err := files.CreateFile(context.Background(), internalContext(), service.CreateFileInput{
+		FileName:    "blob.bin",
+		ContentType: "image/png",
+		SizeBytes:   int64(len(content)),
+		Content:     strings.NewReader(content),
+	})
+	if err != nil {
+		t.Fatalf("CreateFile() error = %v", err)
+	}
+	if created.ContentType != "application/octet-stream" {
+		t.Fatalf("ContentType = %q", created.ContentType)
 	}
 }
 
@@ -122,14 +199,16 @@ func TestCreateFileRequiresInternalCaller(t *testing.T) {
 	}
 }
 
-func newTestService(t *testing.T, store service.ObjectStore) *service.Service {
+func newTestService(t *testing.T, store service.ObjectStore, opts ...service.Option) *service.Service {
 	t.Helper()
 	repo := repository.NewMemoryRepository()
 	counter := 0
-	return service.New(repo, store, service.WithIDGenerator(func(prefix string) (string, error) {
+	options := []service.Option{service.WithIDGenerator(func(prefix string) (string, error) {
 		counter++
 		return prefix + "_" + strconv.Itoa(counter), nil
-	}))
+	})}
+	options = append(options, opts...)
+	return service.New(repo, store, options...)
 }
 
 func createTestFile(t *testing.T, files *service.Service) service.FileObject {
@@ -170,4 +249,63 @@ func (s *failOnceDeleteStore) Delete(ctx context.Context, key string) error {
 		return errors.New("storage backend unavailable with object key files/secret")
 	}
 	return s.ObjectStore.Delete(ctx, key)
+}
+
+type streamingProbeStore struct {
+	putStarted *bool
+	putCalled  bool
+	written    int64
+}
+
+func (s *streamingProbeStore) Put(ctx context.Context, key string, body io.Reader, contentType string, sizeBytes int64) error {
+	s.putCalled = true
+	if s.putStarted != nil {
+		*s.putStarted = true
+	}
+	written, err := io.Copy(io.Discard, body)
+	if err != nil {
+		return err
+	}
+	if sizeBytes >= 0 && written != sizeBytes {
+		return service.ErrConflict
+	}
+	s.written = written
+	return nil
+}
+
+func (s *streamingProbeStore) Get(ctx context.Context, key string) (service.StoredObject, error) {
+	return service.StoredObject{}, service.ErrNotFound
+}
+
+func (s *streamingProbeStore) Delete(ctx context.Context, key string) error {
+	return nil
+}
+
+type streamingGuardReader struct {
+	content      string
+	offset       int
+	maxBeforePut int
+	putStarted   *bool
+}
+
+func (r *streamingGuardReader) Read(p []byte) (int, error) {
+	if r.offset >= len(r.content) {
+		return 0, io.EOF
+	}
+	limit := len(r.content) - r.offset
+	if limit > len(p) {
+		limit = len(p)
+	}
+	if r.putStarted != nil && !*r.putStarted {
+		remainingBeforePut := r.maxBeforePut - r.offset
+		if remainingBeforePut <= 0 {
+			return 0, errors.New("service read beyond sniff prefix before object store put")
+		}
+		if limit > remainingBeforePut {
+			limit = remainingBeforePut
+		}
+	}
+	copy(p, r.content[r.offset:r.offset+limit])
+	r.offset += limit
+	return limit, nil
 }

@@ -21,30 +21,44 @@ import (
 const defaultMaxUploadBytes = int64(32 << 20)
 const defaultReadinessTimeout = 2 * time.Second
 
+type fileOperation string
+
+const (
+	fileOperationCreate fileOperation = "create"
+	fileOperationRead   fileOperation = "read"
+	fileOperationDelete fileOperation = "delete"
+)
+
 type ReadyChecker interface {
 	CheckReady(ctx context.Context) error
 }
 
 type Config struct {
-	MaxUploadBytes   int64
-	Logger           *slog.Logger
-	ServiceToken     string
-	MetadataBackend  string
-	StorageBackend   string
-	ReadinessChecker ReadyChecker
-	ReadinessTimeout time.Duration
+	MaxUploadBytes       int64
+	Logger               *slog.Logger
+	ServiceToken         string
+	MetadataBackend      string
+	StorageBackend       string
+	AllowedCreateCallers []string
+	AllowedReadCallers   []string
+	AllowedDeleteCallers []string
+	ReadinessChecker     ReadyChecker
+	ReadinessTimeout     time.Duration
 }
 
 type Server struct {
-	files            *service.Service
-	maxUploadBytes   int64
-	logger           *slog.Logger
-	serviceToken     string
-	metadataBackend  string
-	storageBackend   string
-	readinessChecker ReadyChecker
-	readinessTimeout time.Duration
-	mux              *http.ServeMux
+	files                *service.Service
+	maxUploadBytes       int64
+	logger               *slog.Logger
+	serviceToken         string
+	metadataBackend      string
+	storageBackend       string
+	allowedCreateCallers map[string]struct{}
+	allowedReadCallers   map[string]struct{}
+	allowedDeleteCallers map[string]struct{}
+	readinessChecker     ReadyChecker
+	readinessTimeout     time.Duration
+	mux                  *http.ServeMux
 }
 
 func NewServer(files *service.Service, cfg Config) *Server {
@@ -64,15 +78,18 @@ func NewServer(files *service.Service, cfg Config) *Server {
 		cfg.ReadinessTimeout = defaultReadinessTimeout
 	}
 	s := &Server{
-		files:            files,
-		maxUploadBytes:   cfg.MaxUploadBytes,
-		logger:           cfg.Logger,
-		serviceToken:     strings.TrimSpace(cfg.ServiceToken),
-		metadataBackend:  strings.TrimSpace(cfg.MetadataBackend),
-		storageBackend:   strings.TrimSpace(cfg.StorageBackend),
-		readinessChecker: cfg.ReadinessChecker,
-		readinessTimeout: cfg.ReadinessTimeout,
-		mux:              http.NewServeMux(),
+		files:                files,
+		maxUploadBytes:       cfg.MaxUploadBytes,
+		logger:               cfg.Logger,
+		serviceToken:         strings.TrimSpace(cfg.ServiceToken),
+		metadataBackend:      strings.TrimSpace(cfg.MetadataBackend),
+		storageBackend:       strings.TrimSpace(cfg.StorageBackend),
+		allowedCreateCallers: callerSet(cfg.AllowedCreateCallers),
+		allowedReadCallers:   callerSet(cfg.AllowedReadCallers),
+		allowedDeleteCallers: callerSet(cfg.AllowedDeleteCallers),
+		readinessChecker:     cfg.ReadinessChecker,
+		readinessTimeout:     cfg.ReadinessTimeout,
+		mux:                  http.NewServeMux(),
 	}
 	s.routes()
 	return s
@@ -162,7 +179,7 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCreateFile(w http.ResponseWriter, r *http.Request) {
-	reqCtx, ok := s.internalContext(w, r)
+	reqCtx, ok := s.internalContext(w, r, fileOperationCreate)
 	if !ok {
 		return
 	}
@@ -188,7 +205,7 @@ func (s *Server) handleCreateFile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetFile(w http.ResponseWriter, r *http.Request) {
-	reqCtx, ok := s.internalContext(w, r)
+	reqCtx, ok := s.internalContext(w, r, fileOperationRead)
 	if !ok {
 		return
 	}
@@ -201,7 +218,7 @@ func (s *Server) handleGetFile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
-	reqCtx, ok := s.internalContext(w, r)
+	reqCtx, ok := s.internalContext(w, r, fileOperationDelete)
 	if !ok {
 		return
 	}
@@ -213,7 +230,7 @@ func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetFileContent(w http.ResponseWriter, r *http.Request) {
-	reqCtx, ok := s.internalContext(w, r)
+	reqCtx, ok := s.internalContext(w, r, fileOperationRead)
 	if !ok {
 		return
 	}
@@ -254,13 +271,40 @@ func (s *Server) handleNotFound(w http.ResponseWriter, r *http.Request) {
 	writeAppError(w, r, service.NotFoundError("route not found"))
 }
 
-func (s *Server) internalContext(w http.ResponseWriter, r *http.Request) (service.RequestContext, bool) {
+func (s *Server) internalContext(w http.ResponseWriter, r *http.Request, operation fileOperation) (service.RequestContext, bool) {
 	reqCtx := requestContextFromHeaders(r)
 	if strings.TrimSpace(reqCtx.CallerService) == "" && strings.TrimSpace(reqCtx.UserID) == "" {
 		writeAppError(w, r, service.UnauthorizedError())
 		return service.RequestContext{}, false
 	}
+	if !s.callerAllowed(operation, reqCtx.CallerService) {
+		if strings.TrimSpace(reqCtx.CallerService) == "" {
+			writeAppError(w, r, service.UnauthorizedError())
+			return service.RequestContext{}, false
+		}
+		writeAppError(w, r, service.ForbiddenError("caller service is not allowed for file operation"))
+		return service.RequestContext{}, false
+	}
 	return reqCtx, true
+}
+
+func (s *Server) callerAllowed(operation fileOperation, caller string) bool {
+	var allowed map[string]struct{}
+	switch operation {
+	case fileOperationCreate:
+		allowed = s.allowedCreateCallers
+	case fileOperationRead:
+		allowed = s.allowedReadCallers
+	case fileOperationDelete:
+		allowed = s.allowedDeleteCallers
+	default:
+		return false
+	}
+	if len(allowed) == 0 {
+		return true
+	}
+	_, ok := allowed[strings.TrimSpace(caller)]
+	return ok
 }
 
 func (s *Server) requiresServiceToken(r *http.Request) bool {
@@ -294,6 +338,23 @@ func splitCSV(value string) []string {
 		}
 	}
 	return items
+}
+
+func callerSet(values []string) map[string]struct{} {
+	if len(values) == 0 {
+		return nil
+	}
+	result := map[string]struct{}{}
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed != "" {
+			result[trimmed] = struct{}{}
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 func writeContent(w http.ResponseWriter, contentType string, filename string, sizeBytes int64, body io.Reader) {

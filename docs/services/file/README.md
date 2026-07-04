@@ -18,8 +18,10 @@ RESTful 路径、统一响应和错误 envelope 以 [前后端集成契约](../.
 File Service 必须遵循 [技术选型基线](../../architecture/technology-decisions.md)。本服务只补充文件域特有约束：
 
 - 上传大小限制必须在 HTTP 层和 multipart 解析层同时生效。
+- 上传内容必须在 service 层以流式方式写入对象存储，并在同一条流上计算 SHA-256；不得为了校验 checksum 在 service 层一次性读完整文件。
+- 内容类型以嗅探后的有效 MIME 为准；配置 `FILE_ALLOWED_CONTENT_TYPES` 后，只允许白名单内的有效类型，未知二进制内容按 `application/octet-stream` 处理。
 - 目标对象存储使用官方 MinIO Go SDK；当前 runtime 已有 memory/local/MinIO `ObjectStore` adapter，根级 Compose 已提供 MinIO server/mc 初始化和本地实现细节 bucket `software-teamwork-local`。`file` 服务封装 bucket、object key、etag、version id 和对象 URL，owner service 与前端都不得直接依赖这些内部字段。
-- 当前 `cmd/server` 在 `FILE_DATABASE_URL` 为空时使用 memory metadata repository；配置 `FILE_DATABASE_URL` 时接入 PostgreSQL repository，并要求 `FILE_INTERNAL_SERVICE_TOKEN` 或 `INTERNAL_SERVICE_TOKEN`。具体状态以 [实现说明](docs/implementation.md) 为准。
+- 当前 `cmd/server` 在 `FILE_DATABASE_URL` 为空时使用 memory metadata repository；配置 `FILE_DATABASE_URL` 时接入 PostgreSQL repository，并要求 `FILE_INTERNAL_SERVICE_TOKEN` 或 `INTERNAL_SERVICE_TOKEN`。非本地 `FILE_ENV` 会拒绝 memory object storage 和空 `FILE_DATABASE_URL`。具体状态以 [实现说明](docs/implementation.md) 为准。
 - 对象物理清理可由 `asynq` worker 执行，任务类型使用 `file:object:purge`。PostgreSQL 中的文件状态、失败摘要、重试次数和最终结果仍是权威来源。
 - handler 测试重点覆盖 envelope、错误码、request id、multipart 边界和内容流响应；repository 测试覆盖 migration 后的 SQL 行为。
 - File Service 不使用 ORM，不把 MinIO SDK 泄露到 handler 或 owner service client，不把缓存或队列作为基础文件元数据的事实来源。
@@ -115,6 +117,8 @@ JSON 成功、分页和错误响应遵循 [前后端集成契约](../../architec
 | `checksumSha256` | `string` | 否 | 调用方已计算的 SHA-256；缺失时可由 `file` 服务计算。 |
 
 `file` 基础接口不接收 `knowledgeBaseId`、`reportId`、`templateId`、`materialId`、`reportFileId`、业务标签或处理状态。需要这些字段时，由 owner service 在自己的数据库中保存。
+
+上传实现会读取最多 512 bytes 用于 MIME sniffing，然后将完整内容流式写入对象存储并计算 SHA-256。`contentType` 返回嗅探后的有效类型；当 multipart header 与字节内容不一致时，File 优先保存更安全的有效类型。配置 `FILE_ALLOWED_CONTENT_TYPES` 后，不在白名单内的有效类型返回 `400 validation_error`。
 
 ### FileObject
 
