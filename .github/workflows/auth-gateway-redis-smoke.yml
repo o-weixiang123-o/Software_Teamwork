@@ -32,7 +32,7 @@ jobs:
       - name: Prepare smoke env
         shell: bash
         run: |
-          cp deploy/.env.example /tmp/auth-gateway-redis-smoke.env
+          cp .env.example /tmp/auth-gateway-redis-smoke.env
           if [ "${{ inputs.use_registry_rewrite }}" = "true" ]; then
             cat >> /tmp/auth-gateway-redis-smoke.env <<'EOF'
           POSTGRES_IMAGE=docker.m.daocloud.io/library/postgres:16-alpine
@@ -47,6 +47,6 @@ jobs:
 
       - name: Run Auth/Gateway/Redis smoke
         env:
-          AUTH_GATEWAY_REDIS_ENV_FILE: /tmp/auth-gateway-redis-smoke.env
+          CONFIG_SECRET_FILE: /tmp/auth-gateway-redis-smoke.env
           AUTH_GATEWAY_REDIS_INFRA_WAIT_TIMEOUT_SECONDS: "180"
         run: bash scripts/run_issue_352_smoke.sh
