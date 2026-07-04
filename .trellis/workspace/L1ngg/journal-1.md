@@ -781,3 +781,36 @@ Archived the completed Knowledge runtime AI Gateway integration task and AI Gate
 ### Next Steps
 
 - None - task complete
+
+
+## Session 23: Clean config entrypoint docs
+
+**Date**: 2026-07-04
+**Task**: Clean config entrypoint docs
+**Branch**: `L1nggTeam/feat/ragflow-runtime-vendor`
+
+### Summary
+
+清理配置入口文档为 config/.env.local/.local/config 单一路径；删除 deploy env 兼容提示；中文化 .env.example 注释并同步配置契约测试。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e22838d6` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
