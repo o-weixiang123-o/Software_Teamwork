@@ -82,7 +82,7 @@ MCP 原始工具 schema、完整工具参数/结果、内部审计细节、promp
 - 在前端、gateway 和领域服务中重复实现权限逻辑，且没有单一归属方。
 - 当某个领域服务应该负责完整工作流时，让 gateway 把一个前端动作翻译成一条很长的业务工作流。
 - 将下游服务内部细节直接返回给前端。
-- 从 `gateway`、`qa`、`knowledge` 或 `document` 直接调用 OpenAI 兼容、SiliconFlow 兼容或本地模型 provider，而不是通过 `ai-gateway` 路由模型调用。
+- 从 `gateway`、`qa`、`knowledge` 或 `document` 直接调用 OpenAI 兼容、SiliconFlow 兼容或本地模型 provider，而不是通过 `ai-gateway` 路由模型调用；当前清单见 `docs/services/ai-gateway/docs/model-provider-exit-inventory.md`，新增路径必须通过 `scripts/check_ai_gateway_provider_policy.py` 的显式 allowlist 审查。
 - 让 AI Gateway 执行 MCP 工具或决定工具权限；QA/MCP Client 必须负责这些决策和记录。
 - 在前端契约中暴露 AI Gateway `/internal/v1/**`、API key 值、prompt、embedding、rerank payload 或 provider 原始错误。经过授权的管理员模型 profile 响应只能通过 gateway 暴露 provider/model/base URL 元数据和 `apiKeyConfigured` 状态。
 - 在 Knowledge Go 进程中引入 PaddleOCR、PaddlePaddle、OpenCV、CUDA 或模型加载依赖；这些应留在 `services/knowledge-runtime` 的 runtime 边界内。

@@ -852,6 +852,134 @@ qa service -> ai-gateway /internal/v1/chat/completions
 qa owns messages, MCP tool calls, citations, and public SSE event shape
 ```
 
+## Scenario: AI Gateway Unified Model Provider Exit Policy
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing AI model/provider calls, provider SDK imports,
+  provider base URLs, OpenAI-compatible chat/embedding/rerank endpoints, model
+  profile runtime configuration, or docs/config that describe those paths.
+- Applies to `services/ai-gateway/`, `services/qa/`, `services/document/`,
+  `services/knowledge/`, `services/knowledge-runtime/`, `services/gateway/`,
+  `scripts/`, `config/`, `.github/`, and service boundary docs.
+- This scenario governs model/provider exits only. It does not change public
+  `services/gateway` business API routing or route ownership.
+
+### 2. Signatures
+
+- Repository policy check:
+
+```bash
+python3 scripts/check_ai_gateway_provider_policy.py
+python3 -m unittest scripts.tests.test_ai_gateway_provider_policy
+```
+
+- Inventory:
+
+```text
+docs/services/ai-gateway/docs/model-provider-exit-inventory.md
+```
+
+- Normal model invocation routes:
+
+```text
+POST /internal/v1/chat/completions
+POST /internal/v1/embeddings
+POST /internal/v1/rerankings
+```
+
+- Profile/config primitive:
+
+```text
+provider = ai-gateway
+profile_id = <AI Gateway model profile id>
+```
+
+### 3. Contracts
+
+- `services/ai-gateway` is the only normal repository exit for AI provider
+  traffic: chat, streaming chat, function-calling transport, embeddings,
+  rerankings, provider credentials, provider error normalization, invocation
+  audit, usage aggregation, and runtime model-profile selection.
+- Domain services own domain state and orchestration. QA owns sessions, Agent
+  loop, MCP/tool policy, tool-call records, citations, and QA settings.
+  Document owns report jobs/settings/files. Knowledge and Knowledge runtime own
+  ingestion, parsing, retrieval state, and index/runtime details.
+- `services/gateway` may expose public/admin routes for AI Gateway-owned model
+  profiles, but gateway production code must not call model providers, store
+  provider API keys, or expose AI Gateway `/internal/v1/**` model invocation
+  routes to frontend callers.
+- Direct provider SDK imports, provider base URLs, or non-internal
+  `/v1/chat/completions`, `/v1/embeddings`, and `/v1/rerank*` paths outside
+  `services/ai-gateway` are forbidden unless the path is explicitly allowlisted
+  in `scripts/check_ai_gateway_provider_policy.py` with a narrow rationale.
+- Knowledge runtime direct provider factories are allowed only as explicit
+  local/emergency fallbacks. They are non-default, bypass AI Gateway invocation
+  audit and usage aggregation, and require cleanup criteria in the inventory.
+- Legacy QA aggregate LLM settings may read old `provider=direct` rows only
+  when they target a trusted AI Gateway chat completions endpoint. New writes
+  must store `provider=ai-gateway` plus `profile_id` semantics and must not
+  persist endpoint/API-key material as the normal path.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| New direct provider SDK import outside `services/ai-gateway` | Policy check fails unless removed or narrowly allowlisted. |
+| New direct provider base URL or non-internal OpenAI-compatible endpoint outside `services/ai-gateway` | Policy check fails unless removed or narrowly allowlisted. |
+| Domain service needs chat, embedding, or rerank | Call AI Gateway internal routes with service token, caller service, request id, user context when available, and `profile_id`. |
+| Gateway public route needs model-profile administration | Proxy/normalize the AI Gateway-owned profile API; do not invoke the provider or persist API keys in gateway. |
+| Knowledge runtime fallback is selected explicitly | Document as local/emergency, non-default, outside AI Gateway audit/usage, with cleanup criteria. |
+| Legacy QA direct row points to an untrusted provider endpoint | Reject validation or connection testing; do not use it as a model call path. |
+| Provider returns raw error bodies, prompts, vectors, object keys, internal URLs, or credentials | Normalize and redact before returning or logging. |
+
+### 5. Good/Base/Bad Cases
+
+- Good: QA calls `POST /internal/v1/chat/completions` through its AI Gateway
+  client, passes `profile_id`, and stores only QA message/tool/citation state.
+- Good: Knowledge runtime embedding/rerank defaults use AI Gateway profiles and
+  provider invocation summaries are recorded by AI Gateway.
+- Base: an explicit Knowledge runtime local/emergency provider fallback remains
+  allowlisted with a cleanup note while AI Gateway runtime smoke coverage is
+  still incomplete.
+- Bad: adding `from openai import OpenAI` in QA, a SiliconFlow base URL in
+  Document, a provider SDK in Gateway, or an endpoint setting that lets domain
+  services bypass AI Gateway.
+
+### 6. Tests Required
+
+- Run `python3 scripts/check_ai_gateway_provider_policy.py` after model/provider
+  path, config, script, or docs changes.
+- Run `python3 -m unittest scripts.tests.test_ai_gateway_provider_policy` when
+  the policy script or its allowlist changes.
+- Run `cd services/ai-gateway && go test ./... && go build ./cmd/server` when
+  AI Gateway routes, providers, profiles, invocation records, usage aggregates,
+  or docs/contracts tied to implementation change.
+- Run the touched owner service checks. For QA settings/profile changes, run
+  `cd services/qa && go test ./... && go build ./cmd/server && go build ./cmd/agent`.
+- Run targeted Knowledge runtime tests only when runtime code, route
+  registration, provider factories, or fallback behavior changes; docs-only
+  inventory updates must state the remaining runtime smoke risk instead.
+- Run `git diff --check` before commit.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```text
+document -> https://api.siliconflow.cn/v1/chat/completions
+gateway -> OpenAI SDK -> provider
+qa settings response -> provider=direct, apiEndpoint, apiKeyLast4
+```
+
+#### Correct
+
+```text
+document -> ai-gateway /internal/v1/chat/completions with profile_id
+gateway -> public/admin model-profile route -> ai-gateway profile metadata only
+qa settings response -> provider=ai-gateway, profileId=<profile>
+```
+
 ## Scenario: AI Gateway Embeddings And Rerankings
 
 ### 1. Scope / Trigger

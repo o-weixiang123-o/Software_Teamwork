@@ -15,6 +15,7 @@ RESTful 路径、统一响应和错误 envelope 以 [前后端集成契约](../.
 | [数据模型](docs/data-models.md) | 模型 profile、provider 凭据、配置审计、脱敏调用日志和安全约束。 |
 | [权限矩阵](docs/permission-matrix.md) | 管理端 model profile 权限、内部模型调用服务认证和 provider 凭据保护边界。 |
 | [Provider Adapter 说明](docs/provider-adapters.md) | Chat、embedding、rerank provider adapter 的请求映射、响应校验、脱敏和 usage aggregate 约束。 |
+| [模型 provider 出口清单](docs/model-provider-exit-inventory.md) | QA、Document、Knowledge runtime、Gateway、config 和脚本中的模型/provider 调用路径分类与清理准入。 |
 | [实现说明](docs/implementation.md) | 当前代码实现、契约对齐、缺口和最近检查记录。 |
 
 ## 职责边界
@@ -52,6 +53,8 @@ public gateway /api/v1/**              (frontend-facing only)
 调用方必须把用户和请求上下文作为内部 header 传递给 AI Gateway。AI Gateway 使用这些上下文做审计、配额预留和问题排查，但不因此拥有领域权限判断。管理端权限、内部服务认证、caller service 白名单和模型调用拒绝规则统一维护在 [AI Gateway 权限矩阵](docs/permission-matrix.md)。
 
 前端不得直接设置或调用这些内部接口。模型配置的前端可用管理 API 由 public `gateway` 提供：`/api/v1/admin/model-profiles` 和 `/api/v1/admin/model-profiles/{profileId}`。AI Gateway 只作为内部配置源，保存 provider 配置和 API key 写入状态，并确保响应只返回 `apiKeyConfigured` 等脱敏字段。
+
+仓库内模型/provider 调用路径的当前盘点见 [模型 provider 出口清单](docs/model-provider-exit-inventory.md)。新增直接 provider SDK、provider base URL 或 OpenAI/SiliconFlow/local-compatible endpoint 时，必须通过 `scripts/check_ai_gateway_provider_policy.py` 的 allowlist 审查并写明清理理由；正常业务路径不得绕过 `services/ai-gateway`。
 
 ## 技术选型落地约束
 
