@@ -117,7 +117,7 @@ class LocalDevUpScriptTests(unittest.TestCase):
                         AI_GATEWAY_LOCAL_PROVIDER=siliconflow
                         AI_GATEWAY_LOCAL_PROVIDER_BASE_URL=https://api.siliconflow.cn/v1
                         AI_GATEWAY_LOCAL_PROVIDER_API_KEY=local-provider-key-for-tests
-                        AI_GATEWAY_LOCAL_CHAT_MODEL=deepseek-ai/DeepSeek-V3
+                        AI_GATEWAY_LOCAL_CHAT_MODEL=deepseek-ai/DeepSeek-V4-Flash
                         AI_GATEWAY_LOCAL_EMBEDDING_MODEL=BAAI/bge-m3
                         AI_GATEWAY_LOCAL_EMBEDDING_DIMENSIONS=1024
                         AI_GATEWAY_LOCAL_RERANK_MODEL=BAAI/bge-reranker-v2-m3
@@ -137,7 +137,7 @@ class LocalDevUpScriptTests(unittest.TestCase):
             self.assertIn("render_ai_gateway_local_seed.go", go_calls)
             psql_stdin = (root / "psql-stdin.sql").read_text(encoding="utf-8")
             self.assertIn("-- rendered AI Gateway local overlay", psql_stdin)
-            self.assertIn("deepseek-ai/DeepSeek-V3", psql_stdin)
+            self.assertIn("deepseek-ai/DeepSeek-V4-Flash", psql_stdin)
 
     def test_ai_gateway_local_seed_overlay_skips_when_disabled(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

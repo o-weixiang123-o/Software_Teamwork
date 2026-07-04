@@ -273,8 +273,8 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
 - `.env.example` values must be local placeholders and must not contain real
   provider keys, tokens, passwords, or production credentials.
 - Startup scripts must use `config/ctl` through `scripts/config/load-profile.sh`
-  to render `.local/config/<profile>.env` and `.env.sh`; they must not source
-  `deploy/.env` as the authoritative default or duplicate service env defaults.
+  to render `.local/config/<profile>.env` and `.env.sh` from the selected
+  profile and untracked local secret file.
 - Knowledge runtime worker timeout decorators must stay active in the default
   host-run profile with `ENABLE_TIMEOUT_ASSERTION=1` in `config/base.yaml`.
   Do not remove this default unless the worker timeout mechanism is replaced

@@ -45,5 +45,5 @@ Set that flag plus `AI_GATEWAY_LOCAL_PROVIDER`,
 `AI_GATEWAY_LOCAL_PROVIDER_BASE_URL`, `AI_GATEWAY_LOCAL_PROVIDER_API_KEY`,
 `AI_GATEWAY_LOCAL_CHAT_MODEL`, `AI_GATEWAY_LOCAL_EMBEDDING_MODEL`,
 `AI_GATEWAY_LOCAL_EMBEDDING_DIMENSIONS`, `AI_GATEWAY_LOCAL_RERANK_MODEL`, and
-`AI_GATEWAY_LOCAL_RERANK_TOP_N` in `deploy/.env`; the overlay encrypts the API
+`AI_GATEWAY_LOCAL_RERANK_TOP_N` in `.env.local`; the overlay encrypts the API
 key and updates the default local profiles without printing the key.

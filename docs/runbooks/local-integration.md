@@ -220,8 +220,8 @@ client 与 Document 工具，不代表完整 QA Agent + LLM 链路通过。Issue
   并把 `KNOWLEDGE_AUTO_START_INGESTION` 打开，使用 `uv sync --python 3.13
   --frozen --group worker` 的 worker dependency profile，适合验证 PDF 上传、解析、
   切块、embedding、索引和检索。脚本会把 runtime URL host 加入 `NO_PROXY`，避免 shell
-  代理把 `127.0.0.1` 或 Docker bridge IP 请求截成 `502`；旧 `.env` 缺本地 runtime
-  token 时使用仓库 local default。若要复用已运行的 runtime API，可设置
+  代理把 `127.0.0.1` 或 Docker bridge IP 请求截成 `502`；runtime token 来自当前
+  profile 渲染结果。若要复用已运行的 runtime API，可设置
   `KNOWLEDGE_PARSE_VENDOR_RUNTIME_URL=http://<runtime-host>:9380`，非本机地址会自动进入
   external-runtime 模式，仅启动 Knowledge adapter。
 - Go module 下载默认来自 profile 渲染结果里的 `GOPROXY` / `GOSUMDB`，覆盖
@@ -305,7 +305,7 @@ Go modules 下载慢或超时：
   `./scripts/local/dev-up.sh --china` 或 `./scripts/local/run-backend.sh --china`
   临时切换到 `https://goproxy.cn,direct` 和 `sum.golang.google.cn`。
 - `dev-up.sh` 会在 migration 前检查 Go module 配置；`run-backend.sh` 会在启动服务前
-  预检 Go module 下载。旧 `.env.local` 如果仍保留镜像值，脚本会尊重本地覆盖并提示；
+  预检 Go module 下载。`.env.local` 如果设置镜像值，脚本会尊重本地覆盖并提示；
   若 proxy 或 checksum DB 不可达或下载超时，脚本会在终端直接失败并打印当前有效
   `GOPROXY` / `GOSUMDB`，而不是只把错误藏在 `.local/logs/*.log`。
 - Go modules 下载不走 Docker registry rewrite，也不受 `UV_DEFAULT_INDEX` 影响。
@@ -315,7 +315,7 @@ Go modules 下载慢或超时：
 - 如果 `.local/logs/auth.log`、`.local/logs/gateway.log` 或其他 Go 服务日志出现
   `Get "https://proxy.golang.org/...": i/o timeout`，中国大陆网络先改用对应脚本的
   `--china`；其他网络检查企业代理或本机 Go 配置。
-- 已有旧 `.env.local` 的环境不会被脚本自动改写；想恢复官方默认值，重新复制
+- `.env.local` 不会被脚本自动改写；想恢复官方默认值，重新复制
   `.env.example` 后再恢复本机私有配置。
 - 如果需要把镜像配置持久写入当前 shell 使用的 Go 全局配置，在运行脚本的同一个环境中执行：
 
@@ -597,7 +597,7 @@ AI_GATEWAY_LOCAL_SEED_ENABLED=true
 AI_GATEWAY_LOCAL_PROVIDER=siliconflow
 AI_GATEWAY_LOCAL_PROVIDER_BASE_URL=https://api.siliconflow.cn/v1
 AI_GATEWAY_LOCAL_PROVIDER_API_KEY=<local-provider-api-key>
-AI_GATEWAY_LOCAL_CHAT_MODEL=deepseek-ai/DeepSeek-V3
+AI_GATEWAY_LOCAL_CHAT_MODEL=deepseek-ai/DeepSeek-V4-Flash
 AI_GATEWAY_LOCAL_EMBEDDING_MODEL=BAAI/bge-m3
 AI_GATEWAY_LOCAL_EMBEDDING_DIMENSIONS=1024
 AI_GATEWAY_LOCAL_RERANK_MODEL=BAAI/bge-reranker-v2-m3

@@ -22,7 +22,7 @@ Go 后端 host-run 期间的模块下载由 `config/base.yaml` 里的 `GOPROXY` 
 
 ## 源策略契约
 
-当前契约是默认官方源、国内网络显式 `--china`。旧的大陆优先默认镜像契约已废弃。
+当前契约是默认官方源、国内网络显式 `--china`。
 PR review 和 agent 检查应把 active 第三方镜像默认值视为回归；缺少这些 active 默认值
 不是回归。中国大陆用户的一等路径是带 `--china` 的本地启动命令，或本机未提交的
 `.env.local` / 企业镜像覆盖。

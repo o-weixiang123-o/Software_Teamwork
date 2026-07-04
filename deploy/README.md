@@ -17,8 +17,8 @@ Host:   auth + file + ai-gateway + qa + document + gateway + frontend
 Go 必须安装在实际运行这些脚本的宿主机环境中；如果使用 WSL 启动脚本，Windows
 里的 Go 不等于 WSL 里的 Go。
 
-源选择采用新策略：仓库默认配置保持官方源，国内网络通过显式 `--china` 切换镜像。
-旧的大陆优先默认镜像契约已废弃；默认文件不再提交 active 第三方镜像值。
+源选择采用官方默认源，国内网络通过显式 `--china` 切换镜像。默认文件不提交
+active 第三方镜像值。
 
 默认使用官方源。`config/base.yaml` 里的 Docker、uv 和 Go 默认值分别指向
 Docker Hub pinned images、PyPI、`proxy.golang.org` 和 `sum.golang.org`。中国大陆网络
@@ -234,7 +234,7 @@ goose migration 以及 `run-backend.sh` 中的 Go 服务 `go run`。如果在中
   migration/seed，非零失败时会提示查看 `docker compose logs minio-init`。
 - 在宿主机执行各服务 goose migration。
 - migration 前检查有效 Go module 配置；默认使用官方 `GOPROXY` / `GOSUMDB`，
-  传入 `--china` 时本次进程改用大陆镜像。旧 `.env.local` 仍含镜像值时，脚本会尊重
+  传入 `--china` 时本次进程改用大陆镜像。`.env.local` 含镜像值时，脚本会尊重
   本地覆盖并提示。
 - 用 `psql` 依次应用本地 demo 数据、AI Gateway profile 和 QA Document MCP
   注册 seed。Document MCP seed 只保存 endpoint/alias 等非敏感元数据；token 来自

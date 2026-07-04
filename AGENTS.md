@@ -38,8 +38,8 @@ Managed by Trellis. Edits outside this block are preserved; edits inside may be 
   `cd apps/web && bun install && bun run dev`。
 - 根级 Docker Compose 只允许拉取并启动基础设施：`postgres`、`redis`、`minio`、`minio-init`、`elasticsearch`。Auth、File、Knowledge、QA、Document、AI Gateway、Gateway、Parser 和前端都必须按文档在宿主机启动。
 - 仓库默认路径不再维护业务服务容器、服务级 Compose、migration 容器或 seed 容器。业务服务必须走宿主机启动。
-- `config/` 是唯一默认配置来源；根 `.env.example` 是本地 secret 模板，用户复制成未跟踪的 `.env.local`。启动脚本通过 `config/ctl` 渲染 `.local/config/<profile>.env` 和 `.env.sh`，不得重新维护 `deploy/.env` 默认变量。
-- 当前源策略是默认官方源、国内网络显式 `--china`。旧的大陆优先默认镜像契约已废弃；不要把缺少 active DaoCloud/TUNA/goproxy 默认值标记为回归。
+- `config/` 是唯一默认配置来源；根 `.env.example` 是本地 secret 模板，用户复制成未跟踪的 `.env.local`。启动脚本通过 `config/ctl` 渲染 `.local/config/<profile>.env` 和 `.env.sh`。
+- 当前源策略是默认官方源、国内网络显式 `--china`；不要把缺少 active DaoCloud/TUNA/goproxy 默认值标记为回归。
 - `UV_DEFAULT_INDEX` 属于宿主机 uv/Python 包索引配置，默认放在 `config/base.yaml` 且默认指向官方 PyPI；不要把 uv 慢误判成 Docker registry 问题。中国大陆网络用显式 `--china` 或本机私有覆盖，不要把默认配置改成第三方镜像。
 - Docker 镜像源、registry rewrite、daemon mirror、proxy、pull 卡顿和 WSL 内存排障见 `docs/runbooks/docker-image-pull-environment.md`。默认路径使用官方 pinned images；面向中国大陆网络的推荐路径是 `./scripts/local/dev-up.sh --china`，只在本次进程启用显式 registry rewrite；优先级为 `registry rewrite > daemon mirror > proxy`。
 - GitHub release/raw 下载慢时，不要改写 committed `pyproject.toml`、`uv.lock` 或 OpenAPI 契约。Knowledge runtime 依赖和 artifact 下载优先由 `./scripts/local/dev-up.sh --china` 自动处理；只有使用 `--skip-knowledge-runtime-deps` 跳过后才按 `services/knowledge-runtime/README.md` 手工补跑 runtime 下载脚本。

@@ -22,7 +22,7 @@ func TestLoadSeedConfigBuildsAllProfiles(t *testing.T) {
 		envProviderBaseURL:    "https://api.siliconflow.cn/v1",
 		envProviderAPIKey:     "secret-key",
 		envTimeoutMS:          "30000",
-		envChatModel:          "deepseek-ai/DeepSeek-V3",
+		envChatModel:          "deepseek-ai/DeepSeek-V4-Flash",
 		envEmbeddingModel:     "BAAI/bge-m3",
 		envEmbeddingDimension: "1024",
 		envRerankModel:        "BAAI/bge-reranker-v2-m3",
@@ -42,11 +42,11 @@ func TestLoadSeedConfigBuildsAllProfiles(t *testing.T) {
 	if len(seed.Profiles) != 3 {
 		t.Fatalf("profiles = %d, want 3", len(seed.Profiles))
 	}
-	assertProfile(t, seed.Profiles[0], "default-chat", service.PurposeChat, "deepseek-ai/DeepSeek-V3")
+	assertProfile(t, seed.Profiles[0], "default-chat", service.PurposeChat, "deepseek-ai/DeepSeek-V4-Flash")
 	if seed.QALLM == nil {
 		t.Fatal("QALLM seed is nil")
 	}
-	if seed.QALLM.DatabaseURL != "postgres://qa" || seed.QALLM.ProfileID != "default-chat" || seed.QALLM.Model != "deepseek-ai/DeepSeek-V3" {
+	if seed.QALLM.DatabaseURL != "postgres://qa" || seed.QALLM.ProfileID != "default-chat" || seed.QALLM.Model != "deepseek-ai/DeepSeek-V4-Flash" {
 		t.Fatalf("QALLM seed = %+v", *seed.QALLM)
 	}
 	if seed.QALLM.TimeoutSeconds != 45 || seed.QALLM.MaxTokens != 2048 || seed.QALLM.Temperature != "0.200" {

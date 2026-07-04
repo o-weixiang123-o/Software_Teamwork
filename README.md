@@ -129,8 +129,8 @@ Gateway 基础契约文档：
 - `psql` 客户端。PostgreSQL server 由 Docker 启动，本机不用装 PostgreSQL server。
 - `curl`。
 
-源选择采用新策略：仓库默认配置保持官方源，国内网络通过显式 `--china` 切换镜像。
-旧的大陆优先默认镜像契约已废弃；默认文件不再提交 active 第三方镜像值。
+源选择采用官方默认源，国内网络通过显式 `--china` 切换镜像。默认文件不提交
+active 第三方镜像值。
 
 默认使用官方源：Docker Hub pinned images、PyPI、`proxy.golang.org` 和
 `sum.golang.org`。如果在中国大陆网络中 GitHub、Docker Hub、PyPI、HuggingFace 或

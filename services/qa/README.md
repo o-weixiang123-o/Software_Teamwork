@@ -39,10 +39,12 @@ the command tool is disabled by default.
 
 ## Configuration
 
-The normal local startup path is the repository root `deploy/.env` plus
-`./scripts/local/dev-up.sh` and `./scripts/local/run-backend.sh`. QA itself does
-not load `.env` files and never stores tokens in source code; service-local
-tests may set only the variables they need.
+The normal local startup path uses repository `config/`, root `.env.local`,
+`./scripts/local/dev-up.sh`, and `./scripts/local/run-backend.sh`. QA itself
+does not load `.env` files and never stores tokens in source code;
+service-local tests may set only the variables they need. See
+[`../../config/README.md`](../../config/README.md) for the profile and secret
+workflow.
 
 AI Gateway variables:
 
@@ -327,7 +329,7 @@ itself then runs on the host with the pinned `goose@v3.27.1` migration command.
 Start root infra and apply local migrations/seed from the repository root:
 
 ```bash
-cp deploy/.env.example deploy/.env
+cp .env.example .env.local
 ./scripts/local/dev-up.sh
 ```
 
@@ -341,7 +343,8 @@ Reset the local database volume and re-apply migrations:
 
 ```bash
 ./scripts/local/stop-backend.sh
-docker compose -f deploy/docker-compose.yml --env-file deploy/.env down -v
+CONFIG_SECRET_FILE=.env.local ./scripts/config/load-profile.sh --print-compose-env
+docker compose -f deploy/docker-compose.yml --env-file .local/config/dev.env down -v
 ./scripts/local/dev-up.sh
 ```
 

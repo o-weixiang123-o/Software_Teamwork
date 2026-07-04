@@ -53,13 +53,14 @@ For normal local development, start repository infra, migrations, seed, and all
 host-run backend services from the repository root:
 
 ```bash
-cp deploy/.env.example deploy/.env
+cp .env.example .env.local
 ./scripts/local/dev-up.sh
 ./scripts/local/run-backend.sh
 ```
 
 For Document-only code changes, run service checks from `services/document`.
-The root `deploy/.env` values are the default local configuration source.
+默认配置来源是根目录 `config/` 和未跟踪的 `.env.local`；完整配置层说明见
+[`../../config/README.md`](../../config/README.md)。
 
 Operational routes:
 

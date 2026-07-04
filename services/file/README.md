@@ -34,7 +34,7 @@ Out of scope for this MVP:
 完整本地应用从仓库根目录启动：
 
 ```bash
-cp deploy/.env.example deploy/.env
+cp .env.example .env.local
 ./scripts/local/dev-up.sh
 ./scripts/local/run-backend.sh
 ```
@@ -160,7 +160,7 @@ through the File API so test data is cleaned up.
 Start the root infra baseline from the repository root:
 
 ```bash
-cp deploy/.env.example deploy/.env
+cp .env.example .env.local
 ./scripts/local/dev-up.sh
 cd services/file
 ```
@@ -193,7 +193,8 @@ environment variable or dependency error. Check `docker compose logs postgres
 minio minio-init` from the root infra Compose first:
 
 ```bash
-docker compose -f deploy/docker-compose.yml --env-file deploy/.env logs postgres minio minio-init
+CONFIG_SECRET_FILE=.env.local ./scripts/config/load-profile.sh --print-compose-env
+docker compose -f deploy/docker-compose.yml --env-file .local/config/dev.env logs postgres minio minio-init
 ```
 
 The smoke normally deletes its test file;

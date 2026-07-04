@@ -27,7 +27,7 @@ class AIGatewayLocalSeedRendererTests(unittest.TestCase):
         self.assertIn("cred-local-chat", result.stdout)
         self.assertIn("provider_credentials", result.stdout)
         self.assertIn("llm_config_versions", result.stdout)
-        self.assertIn("deepseek-ai/DeepSeek-V3", result.stdout)
+        self.assertIn("deepseek-ai/DeepSeek-V4-Flash", result.stdout)
         self.assertIn("BAAI/bge-m3", result.stdout)
         self.assertIn("BAAI/bge-reranker-v2-m3", result.stdout)
         self.assertIn("https://api.siliconflow.cn/v1", result.stdout)
@@ -57,7 +57,7 @@ class AIGatewayLocalSeedRendererTests(unittest.TestCase):
             "AI_GATEWAY_LOCAL_PROVIDER": "siliconflow",
             "AI_GATEWAY_LOCAL_PROVIDER_BASE_URL": "https://api.siliconflow.cn/v1",
             "AI_GATEWAY_LOCAL_PROVIDER_API_KEY": "local-provider-key-for-tests",
-            "AI_GATEWAY_LOCAL_CHAT_MODEL": "deepseek-ai/DeepSeek-V3",
+            "AI_GATEWAY_LOCAL_CHAT_MODEL": "deepseek-ai/DeepSeek-V4-Flash",
             "AI_GATEWAY_LOCAL_EMBEDDING_MODEL": "BAAI/bge-m3",
             "AI_GATEWAY_LOCAL_EMBEDDING_DIMENSIONS": "1024",
             "AI_GATEWAY_LOCAL_RERANK_MODEL": "BAAI/bge-reranker-v2-m3",
