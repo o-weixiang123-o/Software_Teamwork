@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 23
+- **Total Sessions**: 24
 - **Last Active**: 2026-07-04
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~816 | Active |
+| `journal-1.md` | ~850 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 24 | 2026-07-04 | AI Gateway unified model provider exit | `1674ccb3`, `4f214828` | `L1nggTeam/refactor/ai-gateway-unified-exit` |
 | 23 | 2026-07-04 | Clean config entrypoint docs | `e22838d6` | `L1nggTeam/feat/ragflow-runtime-vendor` |
 | 22 | 2026-07-04 | Archive AI Gateway runtime tasks | `9dc4d945`, `24c35efa` | `L1nggTeam/feat/ragflow-runtime-vendor` |
 | 21 | 2026-07-04 | Harden File service production baseline | `7f61ca1e`, `c8f4ca1f` | `L1nggTeam/feat/file-service-production-hardening` |

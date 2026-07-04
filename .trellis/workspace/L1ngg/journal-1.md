@@ -814,3 +814,37 @@ Archived the completed Knowledge runtime AI Gateway integration task and AI Gate
 ### Next Steps
 
 - None - task complete
+
+
+## Session 24: AI Gateway unified model provider exit
+
+**Date**: 2026-07-04
+**Task**: AI Gateway unified model provider exit
+**Branch**: `L1nggTeam/refactor/ai-gateway-unified-exit`
+
+### Summary
+
+Unified AI model/provider calls around services/ai-gateway: added provider-exit inventory and policy guard, clarified service boundaries, and updated QA legacy LLM settings to expose/store ai-gateway profile semantics.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1674ccb3` | (see git log) |
+| `4f214828` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
